@@ -518,14 +518,14 @@ using MessageSyncFileWriterPtr = std::shared_ptr<MessageSyncFileWriter<Message>>
 template<typename Message>
 class MessageBroadcaster
 {
-    const bool closeOnExit;
+    const bool close_on_exit;
 
 public:
     typedef Message MessageType;
 
-    MessageBroadcaster(bool closeOnExit = true) : closeOnExit(closeOnExit) {}
+    MessageBroadcaster(bool close_on_exit = true) : close_on_exit(close_on_exit) {}
     ~MessageBroadcaster() {
-        if (closeOnExit)
+        if (close_on_exit)
             close();
     }
 
@@ -572,6 +572,9 @@ public:
     void removeBroadcast(std::shared_ptr<MessageWriterInterface<Message>> writer) {writers.erase(writer);}
 
     bool sendMessageToOne(Message m, MessageQueueType type = QueueImmediate) {
+        // WARNING! Although it is normally unsafe to std::move the same value inside a loop, here it is necessary to keep move semantics
+        // If sendMessage() returns false, the message was not handled (unless the type is ForceQueueAnyways, in which case the message is always accepted and the
+        // return value signifies if any existing message was bumped off the queue) so the object was never moved. All subclasses must keep this behavior.
         for (auto &writer_ptr: writers) {
             if (writer_ptr->sendMessage(std::move(m), type) || type == ForceQueueAnyway)
                 return true;
