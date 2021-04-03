@@ -102,6 +102,7 @@ class MessageReaderWriterInterface;
 template<typename Message>
 class MessageBroadcaster;
 
+// The base class of a messagewriter interface. The Message type must be at least move-constructible.
 template<typename Message>
 class MessageWriterInterface
 {
@@ -115,22 +116,26 @@ protected:
 
     bool readMessageImplIsClosed() const {return closed;}
 
-    // WARNING! Override implementation is not allowed to modify m if the return value would be false.
+    // WARNING! Override implementation is not allowed to modify/move m if the return value would be false.
     // The only exception is if the type is ForceQueueAnyway, which always succeeds regardless of return value.
+    // See MessageQueueType for return values.
     virtual bool sendMessageImpl(std::unique_lock<std::mutex> &lock, Message &&m, MessageQueueType type) = 0;
     //virtual bool sendMessagesImpl(std::unique_lock<std::mutex> &lock, const Message *m, size_t count, MessageQueueType type) = 0;
+
+    // Called when the user requests closing of the message stream. At the moment, any new messages will reopen the stream, but this behavior may change.
     virtual void closeImpl(bool cancel_pending_messages) {(void) cancel_pending_messages;}
 
 public:
     MessageWriterInterface() : closed(false) {}
     virtual ~MessageWriterInterface() {}
 
+    // Sends a single message using the specified queueing type.
     template<typename M = Message, typename std::enable_if<std::is_copy_constructible<M>::value, bool>::type = true>
-    bool sendMessage(const Message &m, MessageQueueType type = QueueBlocking) {
+    bool send(const Message &m, MessageQueueType type = QueueBlocking) {
         Message copy(m);
-        return sendMessage(copy, type);
+        return send(copy, type);
     }
-    bool sendMessage(Message &&m, MessageQueueType type = QueueBlocking) {
+    bool send(Message &&m, MessageQueueType type = QueueBlocking) {
         std::unique_lock<std::mutex> lock(mtx);
         const bool success = sendMessageImpl(lock, std::move(m), type);
         switch (type) {
@@ -145,10 +150,13 @@ public:
 //        return sendMessages(il.begin(), il.size(), type);
 //    }
 
+    // Returns true if the writer has been closed.
+    // WARNING! Do not call this function from subclasses. Use readMessageImplIsClosed() instead.
     bool isClosed() const {
         std::unique_lock<std::mutex> lock(mtx);
         return closed;
     }
+    // Closes the writer to sending new messages. If cancel_pending_messages is true, any existing messages queued and not yet handled will be discarded.
     void close(bool cancel_pending_messages = false) {
         std::unique_lock<std::mutex> lock(mtx);
         closed = true;
@@ -162,6 +170,11 @@ class MessageReaderWriterInterface : public MessageWriterInterface<Message>
     bool first_message_is_stale;
 
 protected:
+    // Reads a pending message with the provided queue type and moves it into m if successful. See MessageQueueType for return values.
+    //
+    // If readType is ReadWithoutRemoving, the empty message is left in the queue until the next read takes place.
+    // The benefit of this is that the reader/writer can have a single-message queue size and only accept messages when not busy working.
+    // If readType is ReadAndRemove, the message is removed from the queue immediately upon reading.
     virtual bool readMessageImpl(std::unique_lock<std::mutex> &lock, Message &m, MessageQueueType queueType, MessageReadType readType) = 0;
 
     virtual size_t waitingMessagesImpl() const = 0;
@@ -171,7 +184,7 @@ public:
     MessageReaderWriterInterface() : first_message_is_stale(false) {}
     virtual ~MessageReaderWriterInterface() {}
 
-    virtual bool readMessage(Message &m, MessageQueueType type = QueueBlocking, bool delay_consume = false) {
+    virtual bool read(Message &m, MessageQueueType type = QueueBlocking, bool delay_consume = false) {
         std::unique_lock<std::mutex> lock(MessageWriterInterface<Message>::mtx);
 
         if (first_message_is_stale) {
@@ -186,9 +199,9 @@ public:
         return result;
     }
 
-    Message readMessage() {
+    Message read() {
         Message m;
-        readMessage(m, QueueBlocking);
+        read(m, QueueBlocking);
         return m;
     }
 
@@ -215,6 +228,7 @@ protected:
         if (cancel_pending_messages)
             buffer.clear();
         consumer_wait.notify_all();
+        MessageReaderWriterInterface<Message>::closeImpl(cancel_pending_messages);
     }
 
     bool sendMessageImpl(std::unique_lock<std::mutex> &lock, Message &&m, MessageQueueType type) {
@@ -332,10 +346,11 @@ protected:
 
     void closeImpl(bool cancel_pending_messages) {
         buffer->close(cancel_pending_messages);
+        MessageWriterInterface<Message>::closeImpl(cancel_pending_messages);
     }
 
     bool sendMessageImpl(std::unique_lock<std::mutex> &, Message &&m, MessageQueueType type) {
-        return buffer->sendMessage(std::move(m), type);
+        return buffer->send(std::move(m), type);
     }
     bool sendMessagesImpl(std::unique_lock<std::mutex> &, const Message *m, size_t count, MessageQueueType type) {
         return buffer->sendMessages(m, count, type);
@@ -349,7 +364,7 @@ public:
 
         auto message_loop = [thread_buffer, pred, delay_consume] () {
             Message m;
-            while (thread_buffer->readMessage(m, QueueBlocking, delay_consume)) {
+            while (thread_buffer->read(m, QueueBlocking, delay_consume)) {
                 pred(m);
             }
         };

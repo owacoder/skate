@@ -1,6 +1,8 @@
 #include <iostream>
+#if WIN32
 #define NOMINMAX
 #include <windows.h>
+#endif
 
 #include <threadbuffer.h>
 #include <thread>
@@ -12,7 +14,7 @@ static int total;
 template<typename Message>
 void consumer(std::shared_ptr<MessageBuffer<Message>> buffer) {
     Message m;
-    while (buffer->readMessage(m)) {
+    while (buffer->read(m)) {
         std::unique_lock<std::mutex> lock(coutMutex);
         std::cout << m[0] << "\n";
     }
@@ -20,7 +22,7 @@ void consumer(std::shared_ptr<MessageBuffer<Message>> buffer) {
 
 class MoveOnlyString {
     MoveOnlyString(const MoveOnlyString &) {}
-    MoveOnlyString &operator=(const MoveOnlyString &) {}
+    MoveOnlyString &operator=(const MoveOnlyString &) = default;
 
     std::string v;
 
@@ -44,15 +46,15 @@ int main()
     //std::thread thrd2(consumer<int>, 2, std::ref(tbuf));
     
     // msg->addAsyncFileOutput("F:/Scratch/test.txt");
-    msg->addAsyncCallback([](const Message &m) {Sleep(1500); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!\n";}}, 4);
-    auto ptr = msg->addAsyncCallback([](const Message &m) {Sleep(1500); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!\n";}}, 4);
-    ptr->sendMessage(std::string("abc"));
-    ptr->sendMessage(std::string("def"));
-    ptr->sendMessage(std::string("ghi"));
-    ptr->sendMessage(std::string("jkl"));
-    Sleep(4000);
+    msg->addAsyncCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!\n";}}, 4);
+    auto ptr = msg->addAsyncCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!\n";}}, 4);
+    ptr->send(std::string("abc"));
+    ptr->send(std::string("def"));
+    ptr->send(std::string("jkl"));
+    ptr->send(std::string("ghi"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(4000));
     //msg->sendMessages({{"mno"}, {"pqr"}, {"stu"}, {"vwx"}});
-    Sleep(1000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     msg->close();
     // msg = nullptr;
     

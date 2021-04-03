@@ -5,7 +5,16 @@ CONFIG -= qt
 
 SOURCES += \
         main.cpp \
-        threadbuffer.cpp
+        threadbuffer.cpp \
+    select.cpp
 
 HEADERS += \
-    threadbuffer.h
+    threadbuffer.h \
+    environment.h \
+    select.h \
+    iodevice.h \
+    poll.h
+
+linux {
+    LIBS += -lpthread
+}
