@@ -1,6 +1,8 @@
 #ifndef SKATE_SELECT_H
 #define SKATE_SELECT_H
 
+#include <chrono>
+#include <stdexcept>
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
@@ -42,16 +44,14 @@ namespace Skate {
         static constexpr WatchFlags WatchExcept = 1 << 2;
         static constexpr WatchFlags WatchAll = WatchRead | WatchWrite | WatchExcept;
 
-        Select()
-            : max_read_descriptor(-1)
-            , max_write_descriptor(-1)
-            , max_except_descriptor(-1) {
-            FD_ZERO(&master_read_set);
-            FD_ZERO(&master_write_set);
-            FD_ZERO(&master_except_set);
-        }
+        Select() {clear();}
 
+        // Returns which watch types are being watched for the given file descriptor,
+        // or 0 if the file descriptor is not being watched.
         WatchFlags watching(FileDescriptor fd) const {
+            if (fd >= FD_SETSIZE)
+                return 0;
+
             WatchFlags watch = 0;
 
             watch |= FD_ISSET(fd, &master_read_set)? WatchRead: 0;
@@ -60,7 +60,13 @@ namespace Skate {
 
             return watch;
         }
+
+        // Adds a file descriptor to the set to be watched with the specified watch types
+        // The descriptor must not already exist in the set, or the behavior is undefined
         void watch(FileDescriptor fd, WatchFlags watch_type = WatchRead) {
+            if (fd >= FD_SETSIZE)
+                throw std::runtime_error("watch() called with file descriptor greater-than or equal to FD_SETSIZE");
+
             if (watch_type & WatchRead) {
                 FD_SET(fd, &master_read_set);
                 max_read_descriptor = std::max(fd, max_read_descriptor);
@@ -76,29 +82,45 @@ namespace Skate {
                 max_except_descriptor = std::max(fd, max_except_descriptor);
             }
         }
-        void unwatch(FileDescriptor fd, WatchFlags unwatch_type = WatchAll) {
-            if (unwatch_type & WatchRead) {
-                FD_CLR(fd, &master_read_set);
-                if (fd == max_read_descriptor)
-                    max_read_descriptor = highest_descriptor(&master_read_set, max_read_descriptor);
-            }
 
-            if (unwatch_type & WatchWrite) {
-                FD_CLR(fd, &master_write_set);
-                if (fd == max_write_descriptor)
-                    max_write_descriptor = highest_descriptor(&master_write_set, max_write_descriptor);
-            }
+        // Removes a file descriptor from all watch types
+        // If the descriptor is not in the set, nothing happens
+        void unwatch(FileDescriptor fd) {
+            if (fd >= FD_SETSIZE)
+                return;
 
-            if (unwatch_type & WatchExcept) {
-                FD_CLR(fd, &master_except_set);
-                if (fd == max_except_descriptor)
-                    max_except_descriptor = highest_descriptor(&master_except_set, max_except_descriptor);
-            }
+            FD_CLR(fd, &master_read_set);
+            if (fd == max_read_descriptor)
+                max_read_descriptor = highest_descriptor(&master_read_set, max_read_descriptor);
+
+            FD_CLR(fd, &master_write_set);
+            if (fd == max_write_descriptor)
+                max_write_descriptor = highest_descriptor(&master_write_set, max_write_descriptor);
+
+            FD_CLR(fd, &master_except_set);
+            if (fd == max_except_descriptor)
+                max_except_descriptor = highest_descriptor(&master_except_set, max_except_descriptor);
         }
+
+        // Clears the set and removes all watched descriptors
+        void clear() {
+            FD_ZERO(&master_read_set);
+            FD_ZERO(&master_write_set);
+            FD_ZERO(&master_except_set);
+
+            max_read_descriptor = -1;
+            max_write_descriptor = -1;
+            max_except_descriptor = -1;
+        }
+
+        // Closes the specified file descriptor, unwatching it from all watch types
+        // Returns 0 on success, or a system error if an error occurs
         int close(FileDescriptor fd) {
             unwatch(fd);
             return ::close(fd);
         }
+
+        // Closes all file descriptors in the set, unwatching them from all watch types
         void close_all() {
             const FileDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
 
@@ -106,10 +128,15 @@ namespace Skate {
                 if (watching(fd))
                     close(fd);
             }
+
+            clear();
         }
 
+        // Runs select() on this set, with a callback function `void (FileDescriptor, WatchFlags)`
+        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
+        // Returns 0 on success, or a system error if an error occurs
         template<typename Fn>
-        int select(Fn fn) const {
+        int select(Fn fn, struct timeval *tm) const {
             const FileDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
             fd_set read_set, write_set, except_set;
 
@@ -117,7 +144,7 @@ namespace Skate {
             memcpy(&write_set, &master_write_set, sizeof(master_write_set));
             memcpy(&except_set, &master_except_set, sizeof(master_except_set));
 
-            int ready = ::select(max_descriptor+1, &read_set, &write_set, &except_set, NULL);
+            int ready = ::select(max_descriptor+1, &read_set, &write_set, &except_set, tm);
             if (ready < 0)
                 return errno;
 
@@ -136,6 +163,21 @@ namespace Skate {
             }
 
             return 0;
+        }
+
+        template<typename Fn>
+        int select(Fn fn) const {
+            return select(fn, NULL);
+        }
+
+        template<typename Fn>
+        int select(Fn fn, std::chrono::microseconds us) const {
+            struct timeval tm;
+
+            tm.tv_sec = us.count() / 1000000;
+            tm.tv_usec = us.count() % 1000000;
+
+            return select(fn, &tm);
         }
     };
 }

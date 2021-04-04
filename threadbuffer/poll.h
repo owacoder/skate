@@ -1,6 +1,7 @@
 #ifndef POLL_H
 #define POLL_H
 
+#include <chrono>
 #include <algorithm>
 #include <vector>
 #include <cstdint>
@@ -65,8 +66,10 @@ namespace Skate {
         }
 
     public:
-        Poll() : fds_sorted(false) {}
+        Poll() : fds_sorted(true) {}
 
+        // Returns which watch types are being watched for the given file descriptor,
+        // or 0 if the descriptor is not being watched.
         WatchFlags watching(FileDescriptor fd) const {
             sort_as_needed();
 
@@ -78,10 +81,22 @@ namespace Skate {
 
             return watch_flags_from_kernel_flags(it->events);
         }
-        void watch(FileDescriptor fd, WatchFlags watch_type = WatchRead) {
 
+        // Adds a file descriptor to the set to be watched with the specified watch types
+        // The descriptor must not already exist in the set, or the behavior is undefined
+        void watch(FileDescriptor fd, WatchFlags watch_type = WatchRead) {
+            pollfd desc;
+
+            desc.fd = fd;
+            desc.events = kernel_flags_from_watch_flags(watch_type);
+
+            fds.push_back(desc);
+            fds_sorted = false;
         }
-        void unwatch(FileDescriptor fd, WatchFlags unwatch_type = WatchAll) {
+
+        // Removes a file descriptor from all watch types
+        // If the descriptor is not in the set, nothing happens
+        void unwatch(FileDescriptor fd) {
             sort_as_needed();
 
             pollfd desc;
@@ -90,38 +105,64 @@ namespace Skate {
             if (it == fds.end() || it->fd != fd)
                 return;
 
-            const short new_kernel_flags = it->events & ~kernel_flags_from_watch_flags(unwatch_type);
-            if (new_kernel_flags)
-                it->events = new_kernel_flags;
-            else
-                fds.erase(it);
+            fds.erase(it);
         }
+
+        // Clears the set and removes all watched descriptors
+        void clear() {
+            fds.clear();
+            fds_sorted = true;
+        }
+
+        // Closes the specified file descriptor, unwatching it from all watch types
+        // Returns 0 on success, or a system error if an error occurs
         int close(FileDescriptor fd) {
             unwatch(fd);
             return ::close(fd);
         }
-        void close_all() {
 
+        // Closes all file descriptors in the set, unwatching them from all watch types
+        void close_all() {
+            for (const pollfd &desc: fds)
+                close(desc.fd);
+
+            fds.clear();
+            fds_sorted = true;
         }
 
+        // Runs poll() on this set, with a callback function `void (FileDescriptor, WatchFlags)`
+        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
+        // Returns 0 on success, or a system error if an error occurs
         template<typename Fn>
         int poll(Fn fn) const {
             int ready = ::poll(fds.data(), fds.size(), -1);
             if (ready < 0)
                 return errno;
 
-            for (FileDescriptor fd = 0; ready && fd < max_descriptor; ++fd) {
-                WatchFlags watch = 0;
+            for (const pollfd &desc: fds) {
+                WatchFlags watch_flags = watch_flags_from_kernel_flags(desc.revents);
 
-                watch |= FD_ISSET(fd, &read_set)? WatchRead: 0;
-                watch |= FD_ISSET(fd, &write_set)? WatchWrite: 0;
-                watch |= FD_ISSET(fd, &except_set)? WatchExcept: 0;
+                if (watch_flags)
+                    fn(desc.fd, watch_flags);
+            }
 
-                if (watch) {
-                    --ready;
+            return 0;
+        }
 
-                    fn(fd, watch);
-                }
+        template<typename Fn>
+        int poll(Fn fn, std::chrono::milliseconds ms) {
+            if (ms.count() > INT_MAX)
+                return EINVAL;
+
+            int ready = ::poll(fds.data(), fds.size(), ms.count());
+            if (ready < 0)
+                return errno;
+
+            for (const pollfd &desc: fds) {
+                WatchFlags watch_flags = watch_flags_from_kernel_flags(desc.revents);
+
+                if (watch_flags)
+                    fn(desc.fd, watch_flags);
             }
 
             return 0;
