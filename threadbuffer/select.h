@@ -8,18 +8,17 @@
 #include <cstdint>
 #include <cerrno>
 
-#include "environment.h"
+#include "system_includes.h"
+#include "common.h"
 
 #if POSIX_OS
 # include <sys/select.h>
-# include <unistd.h>
 
 namespace Skate {
-    class Select
-    {
-        FileDescriptor max_read_descriptor;
-        FileDescriptor max_write_descriptor;
-        FileDescriptor max_except_descriptor;
+    class Select {
+        SocketDescriptor max_read_descriptor;
+        SocketDescriptor max_write_descriptor;
+        SocketDescriptor max_except_descriptor;
 
         fd_set master_read_set;
         fd_set master_write_set;
@@ -27,7 +26,7 @@ namespace Skate {
 
         // Find last/highest descriptor assigned to set, starting from a known high descriptor (or the size of the set if not known)
         // Returns the highest descriptor in the set or -1 if the set is empty
-        inline FileDescriptor highest_descriptor(fd_set *fds, FileDescriptor start = FD_SETSIZE) {
+        inline SocketDescriptor highest_descriptor(fd_set *fds, SocketDescriptor start = FD_SETSIZE) {
             for (start = std::min(start, FD_SETSIZE); start >= 0; --start) {
                 if (FD_ISSET(start, fds))
                     return start;
@@ -37,18 +36,11 @@ namespace Skate {
         }
 
     public:
-        using WatchFlags = uint8_t;
-
-        static constexpr WatchFlags WatchRead   = 1 << 0;
-        static constexpr WatchFlags WatchWrite  = 1 << 1;
-        static constexpr WatchFlags WatchExcept = 1 << 2;
-        static constexpr WatchFlags WatchAll = WatchRead | WatchWrite | WatchExcept;
-
         Select() {clear();}
 
         // Returns which watch types are being watched for the given file descriptor,
         // or 0 if the file descriptor is not being watched.
-        WatchFlags watching(FileDescriptor fd) const {
+        WatchFlags watching(SocketDescriptor fd) const {
             if (fd >= FD_SETSIZE)
                 return 0;
 
@@ -63,7 +55,7 @@ namespace Skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        void watch(FileDescriptor fd, WatchFlags watch_type = WatchRead) {
+        void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
             if (fd >= FD_SETSIZE)
                 throw std::runtime_error("watch() called with file descriptor greater-than or equal to FD_SETSIZE");
 
@@ -85,7 +77,7 @@ namespace Skate {
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        void unwatch(FileDescriptor fd) {
+        void unwatch(SocketDescriptor fd) {
             if (fd >= FD_SETSIZE)
                 return;
 
@@ -115,16 +107,16 @@ namespace Skate {
 
         // Closes the specified file descriptor, unwatching it from all watch types
         // Returns 0 on success, or a system error if an error occurs
-        int close(FileDescriptor fd) {
+        int close(SocketDescriptor fd) {
             unwatch(fd);
             return ::close(fd);
         }
 
         // Closes all file descriptors in the set, unwatching them from all watch types
         void close_all() {
-            const FileDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
+            const SocketDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
 
-            for (FileDescriptor fd = 0; fd < max_descriptor + 1; ++fd) {
+            for (SocketDescriptor fd = 0; fd < max_descriptor + 1; ++fd) {
                 if (watching(fd))
                     close(fd);
             }
@@ -132,23 +124,24 @@ namespace Skate {
             clear();
         }
 
-        // Runs select() on this set, with a callback function `void (FileDescriptor, WatchFlags)`
+        // Runs select() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
-        // Returns 0 on success, or a system error if an error occurs
+        // Returns 0 on success, Skate::ErrorTimedOut on timeout, or a system error if an error occurs
         template<typename Fn>
-        int select(Fn fn, struct timeval *tm) const {
-            const FileDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
+        int select(Fn fn, struct timeval *timeout = nullptr) const {
+            const SocketDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
             fd_set read_set, write_set, except_set;
 
             memcpy(&read_set, &master_read_set, sizeof(master_read_set));
             memcpy(&write_set, &master_write_set, sizeof(master_write_set));
             memcpy(&except_set, &master_except_set, sizeof(master_except_set));
 
-            int ready = ::select(max_descriptor+1, &read_set, &write_set, &except_set, tm);
-            if (ready < 0)
+            const int result = ::select(max_descriptor+1, &read_set, &write_set, &except_set, timeout);
+            if (result < 0)
                 return errno;
 
-            for (FileDescriptor fd = 0; ready && fd < max_descriptor; ++fd) {
+            int ready = result;
+            for (SocketDescriptor fd = 0; ready && fd < max_descriptor; ++fd) {
                 WatchFlags watch = 0;
 
                 watch |= FD_ISSET(fd, &read_set)? WatchRead: 0;
@@ -162,25 +155,175 @@ namespace Skate {
                 }
             }
 
-            return 0;
+            return result? 0: ErrorTimedOut;
         }
 
         template<typename Fn>
-        int select(Fn fn) const {
-            return select(fn, NULL);
-        }
-
-        template<typename Fn>
-        int select(Fn fn, std::chrono::microseconds us) const {
+        int select(Fn fn, std::chrono::microseconds timeout) const {
             struct timeval tm;
 
-            tm.tv_sec = us.count() / 1000000;
-            tm.tv_usec = us.count() % 1000000;
+            tm.tv_sec = timeout.count() / 1000000;
+            tm.tv_usec = timeout.count() % 1000000;
 
             return select(fn, &tm);
         }
     };
 }
-#endif
+#elif WINDOWS_OS // End of POSIX_OS
+namespace Skate {
+    class Select {
+        fd_set master_read_set;
+        fd_set master_write_set;
+        fd_set master_except_set;
+
+        // Runs fn() on these sets, as a callback function `void (SocketDescriptor, WatchFlags)`
+        template<typename Fn>
+        static void for_all_descriptors(Fn fn, fd_set &read_set, fd_set &write_set, fd_set &except_set) {
+            if (write_set.fd_count == 0 && except_set.fd_count == 0) {
+                for (u_int i = 0; i < read_set.fd_count; ++i)
+                    fn(read_set.fd_array[i], WatchRead);
+                return;
+            } else if (read_set.fd_count == 0 && except_set.fd_count == 0) {
+                for (u_int i = 0; i < write_set.fd_count; ++i)
+                    fn(write_set.fd_array[i], WatchWrite);
+                return;
+            } else if (read_set.fd_count == 0 && write_set.fd_count == 0) {
+                for (u_int i = 0; i < except_set.fd_count; ++i)
+                    fn(except_set.fd_array[i], WatchExcept);
+                return;
+            }
+
+            std::sort(  read_set.fd_array,   read_set.fd_array +   read_set.fd_count);
+            std::sort( write_set.fd_array,  write_set.fd_array +  write_set.fd_count);
+            std::sort(except_set.fd_array, except_set.fd_array + except_set.fd_count);
+
+            u_int   read_start = 0;
+            u_int  write_start = 0;
+            u_int except_start = 0;
+
+            while ((  read_start <   read_set.fd_count) ||
+                   ( write_start <  write_set.fd_count) ||
+                   (except_start < except_set.fd_count)) {
+                const SocketDescriptor sock_read   =   read_start <   read_set.fd_count?   read_set.fd_array[  read_start]: INVALID_SOCKET;
+                const SocketDescriptor sock_write  =  write_start <  write_set.fd_count?  write_set.fd_array[ write_start]: INVALID_SOCKET;
+                const SocketDescriptor sock_except = except_start < except_set.fd_count? except_set.fd_array[except_start]: INVALID_SOCKET;
+                const SocketDescriptor sock_lowest = std::min(sock_read, std::min(sock_write, sock_except));
+
+                WatchFlags flags = 0;
+
+                if (sock_read == sock_lowest) {
+                    flags |= WatchRead;
+                    ++read_start;
+                }
+
+                if (sock_write == sock_lowest) {
+                    flags |= WatchWrite;
+                    ++write_start;
+                }
+
+                if (sock_except == sock_lowest) {
+                    flags |= WatchExcept;
+                    ++except_start;
+                }
+
+                fn(sock_lowest, flags);
+            }
+        }
+
+    public:
+        Select() {clear();}
+
+        // Returns which watch types are being watched for the given socket descriptor,
+        // or 0 if the file descriptor is not being watched.
+        WatchFlags watching(SocketDescriptor fd) const {
+            WatchFlags watch = 0;
+
+            watch |= FD_ISSET(fd, &master_read_set)? WatchRead: 0;
+            watch |= FD_ISSET(fd, &master_write_set)? WatchWrite: 0;
+            watch |= FD_ISSET(fd, &master_except_set)? WatchExcept: 0;
+
+            return watch;
+        }
+
+        // Adds a file descriptor to the set to be watched with the specified watch types
+        // The descriptor must not already exist in the set, or the behavior is undefined
+        void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+            if (  master_read_set.fd_count == FD_SETSIZE && (watch_type & WatchRead  )) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for reading");
+            if ( master_write_set.fd_count == FD_SETSIZE && (watch_type & WatchWrite )) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for writing");
+            if (master_except_set.fd_count == FD_SETSIZE && (watch_type & WatchExcept)) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for exceptions");
+
+            if (watch_type & WatchRead)
+                FD_SET(fd, &master_read_set);
+
+            if (watch_type & WatchWrite)
+                FD_SET(fd, &master_write_set);
+
+            if (watch_type & WatchExcept)
+                FD_SET(fd, &master_except_set);
+        }
+
+        // Removes a file descriptor from all watch types
+        // If the descriptor is not in the set, nothing happens
+        void unwatch(SocketDescriptor fd) {
+            FD_CLR(fd, &master_read_set);
+            FD_CLR(fd, &master_write_set);
+            FD_CLR(fd, &master_except_set);
+        }
+
+        // Clears the set and removes all watched descriptors
+        void clear() {
+            FD_ZERO(&master_read_set);
+            FD_ZERO(&master_write_set);
+            FD_ZERO(&master_except_set);
+        }
+
+        // Closes the specified file descriptor, unwatching it from all watch types
+        // Returns 0 on success, or a system error if an error occurs
+        int close(SocketDescriptor fd) {
+            unwatch(fd);
+            return closesocket(fd)? WSAGetLastError(): 0;
+        }
+
+        // Closes all file descriptors in the set, unwatching them from all watch types
+        void close_all() {
+            for_all_descriptors([](SocketDescriptor fd, WatchFlags) {
+                closesocket(fd);
+            }, master_read_set, master_write_set, master_except_set);
+
+            clear();
+        }
+
+        // Runs select() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
+        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
+        // Returns 0 on success, Skate::ErrorTimedOut on timeout, or a system error if an error occurs
+        template<typename Fn>
+        int select(Fn fn, const timeval *timeout = nullptr) const {
+            fd_set read_set, write_set, except_set;
+
+            memcpy(&read_set, &master_read_set, sizeof(master_read_set));
+            memcpy(&write_set, &master_write_set, sizeof(master_write_set));
+            memcpy(&except_set, &master_except_set, sizeof(master_except_set));
+
+            int ready = ::select(0, &read_set, &write_set, &except_set, timeout);
+            if (ready < 0)
+                return WSAGetLastError();
+
+            for_all_descriptors(fn, read_set, write_set, except_set);
+
+            return ready? 0: ErrorTimedOut;
+        }
+
+        template<typename Fn>
+        int select(Fn fn, std::chrono::microseconds timeout) const {
+            struct timeval tm;
+
+            tm.tv_sec = timeout.count() / 1000000;
+            tm.tv_usec = timeout.count() % 1000000;
+
+            return select(fn, &tm);
+        }
+    };
+}
+#endif // WINDOWS_OS
 
 #endif // SKATE_SELECT_H

@@ -4,17 +4,22 @@ CONFIG -= app_bundle
 CONFIG -= qt
 
 SOURCES += \
-        main.cpp \
-        threadbuffer.cpp \
-    select.cpp
+        main.cpp
 
 HEADERS += \
+    common.h \
+    socket.h \
+    socket_address.h \
+    system_includes.h \
     threadbuffer.h \
     environment.h \
     select.h \
-    iodevice.h \
     poll.h
 
 linux {
     LIBS += -lpthread
+}
+
+win32 {
+    LIBS += -lWs2_32
 }

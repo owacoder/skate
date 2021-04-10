@@ -1,12 +1,11 @@
 #include <iostream>
-#if WIN32
-#define NOMINMAX
-#include <windows.h>
-#endif
-
 #include <threadbuffer.h>
 #include <thread>
 #include <vector>
+
+#include "socket.h"
+#include "poll.h"
+#include "select.h"
 
 static std::mutex coutMutex;
 static int total;
@@ -37,8 +36,39 @@ public:
     char &operator[](size_t idx) {return v[idx];}
 };
 
+std::ostream &operator<<(std::ostream &os, const Skate::SocketAddress &address) {
+    return os << address.to_string(true);
+}
+
+std::ostream &operator<<(std::ostream &os, const Skate::Socket::AddressInfo &address) {
+    return os << address.address.to_string(true);
+}
+
+template<template<typename T, typename A> class Container, typename T, typename A>
+std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
+    for (const auto &item: container)
+        os << item << "\n";
+    return os;
+}
+
 int main()
 {
+    try {
+        Skate::StartupWrapper wrapper;
+        Skate::TCPSocket socket;
+
+        std::cout << Skate::TCPSocket().remote_server_addresses(Skate::SocketAddress("localhost", 80, Skate::SocketAddress::IPAddressUnspecified)) << std::endl;
+    } catch (const std::exception &e) {
+        std::cout << e.what() << std::endl;
+    }
+
+    return 0;
+
+    Skate::Poll poll;
+    Skate::Select select;
+
+    poll.poll([](Skate::SocketDescriptor, Skate::WatchFlags) {});
+
     typedef MoveOnlyString Message;
     std::unique_ptr<MessageBroadcaster<Message>> msg(new MessageBroadcaster<Message>());
 
