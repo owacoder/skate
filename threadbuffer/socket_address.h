@@ -62,6 +62,7 @@ namespace Skate {
 
         Type type() const {return address_type;}
         bool is_specified() const {return address_type != IPAddressUnspecified || !address_name.empty();}
+        bool is_unspecified() const {return !is_specified();}
         bool is_name() const {return !address_name.empty();}
         bool is_ipv4() const {return address_type == IPAddressV4 && address_name.empty();}
         bool is_ipv6() const {return address_type == IPAddressV6 && address_name.empty();}

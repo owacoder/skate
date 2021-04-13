@@ -90,7 +90,7 @@ namespace Skate {
             hints.ai_family = address.type();
             hints.ai_socktype = socket_type;
             hints.ai_protocol = protocol_type;
-            hints.ai_flags = flags;
+            hints.ai_flags = flags | (address.is_unspecified()? AI_PASSIVE: 0);
 
             const int ai_info_result = getaddrinfo(address.is_specified()? address.to_string().c_str(): NULL,
                                                    std::to_string(address.port()).c_str(),
@@ -99,8 +99,7 @@ namespace Skate {
             if (ai_info_result != 0) {
                 if (error)
                     *error = ai_info_result;
-                else
-                    throw std::runtime_error(system_error_string(ai_info_result).to_utf8());
+                return {};
             }
 
             for (ptr = addresses; ptr; ptr = ptr->ai_next) {

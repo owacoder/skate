@@ -95,6 +95,13 @@ namespace Skate {
         size_t size() const {return len;}
         size_t length() const {return len;}
 
+        bool operator==(const ApiString &other) const {
+            return len == other.len && memcmp(str, other.str, len * sizeof(*str)) == 0;
+        }
+        bool operator!=(const ApiString &other) const {
+            return !operator==(other);
+        }
+
     public:
         char *str;
         size_t len;
@@ -207,13 +214,16 @@ namespace Skate {
         }
         ApiString(LPWSTR data, DestroyType type) : str(data), len(wcslen(data)), type(type) {}
         ApiString(const char *utf8) : str(nullptr), len(0), type(ApiNoFree) {
-            const int chars = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, utf8, -1, NULL, 0);
+            const int chars = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, -1, NULL, 0);
             if (!chars)
                 throw std::runtime_error("Cannot create ApiString from UTF-8");
 
             LPWSTR result = new WCHAR[chars];
 
-            MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED, utf8, -1, result, chars);
+            if (!MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, -1, result, chars)) {
+                delete[] result;
+                throw std::runtime_error("Cannot create ApiString from UTF-8");
+            }
 
             str = result;
             len = chars;
@@ -270,7 +280,8 @@ namespace Skate {
 
             // Remove NUL-terminator on end by subtracting one from bytes
             result.resize(bytes-1);
-            WideCharToMultiByte(CP_UTF8, 0, str, -1, &result[0], bytes-1, NULL, NULL);
+            if (!WideCharToMultiByte(CP_UTF8, 0, str, -1, &result[0], bytes-1, NULL, NULL))
+                throw std::runtime_error("Cannot convert ApiString to UTF-8");
 
             return result;
         }
@@ -285,6 +296,13 @@ namespace Skate {
 
         size_t size() const {return len;}
         size_t length() const {return len;}
+
+        bool operator==(const ApiString &other) const {
+            return len == other.len && memcmp(str, other.str, len * sizeof(*str)) == 0;
+        }
+        bool operator!=(const ApiString &other) const {
+            return !operator==(other);
+        }
 
     public:
         LPWSTR str;
