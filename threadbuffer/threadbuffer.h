@@ -1,14 +1,12 @@
 #ifndef THREADBUFFER_H
 #define THREADBUFFER_H
 
-#include <unordered_set>
 #include <memory>
 #include <deque>
 #include <mutex>
 #include <condition_variable>
 #include <utility>
 #include <type_traits>
-#include <array>
 #include <vector>
 
 #if 0
@@ -124,7 +122,7 @@ namespace Skate {
     };
 
     // The base class of a Message reader/writer interface. The Message type must be at least move-constructible.
-    template<typename Message>
+    template<typename Message, bool locking = true>
     class MessageInterface
     {
         mutable std::mutex mtx;
@@ -133,6 +131,7 @@ namespace Skate {
 
     protected:
         bool readMessageImplIsClosed() const noexcept {return closed;}
+        void setReadMessageImplIsClosed() {closed = true;}
 
         //================================================================================================================================
         //                                                    Write-related items
@@ -175,18 +174,18 @@ namespace Skate {
 
         // Reads a pending message with the provided queue type and moves it into m if successful. See MessageQueueType for return values.
         //
-        // If readType is ReadWithoutRemoving, the empty message is left in the queue until the next read takes place.
+        // If read_type is ReadWithoutRemoving, the empty message is left in the queue until the next read takes place.
         // The benefit of this is that the reader/writer can have a single-message queue size and only accept messages when not busy working.
         // WARNING! If the sender is using QueueForceSend, it can return false data-loss results. See MessageReadType for details.
         //
-        // If readType is ReadAndRemove, the message is removed from the queue atomically immediately upon reading.
+        // If read_type is ReadAndRemove, the message is removed from the queue atomically immediately upon reading.
         //
         // Reimplementations must return see MessageQueueType for return value details.
-        virtual MessageError readMessageImpl(std::unique_lock<std::mutex> &lock, Message &m, MessageQueueType queueType, MessageReadType readType) {
+        virtual MessageError readMessageImpl(std::unique_lock<std::mutex> &lock, Message &m, MessageQueueType queue_type, MessageReadType read_type) {
             (void) lock;
             (void) m;
-            (void) queueType;
-            (void) readType;
+            (void) queue_type;
+            (void) read_type;
             return MessageUnsupported;
         }
 
@@ -199,6 +198,8 @@ namespace Skate {
         MessageInterface() : closed(false), first_message_is_stale(false) {}
 
     public:
+        typedef Message MessageType;
+
         virtual ~MessageInterface() {}
 
         //================================================================================================================================
@@ -212,6 +213,7 @@ namespace Skate {
         }
         MessageError send(Message &&m, MessageQueueType type = QueueBlockUntilSent) {
             std::unique_lock<std::mutex> lock(mtx);
+
             if (closed)
                 return MessageFailed;
 
@@ -238,6 +240,7 @@ namespace Skate {
         // Return value is identical in operation to send().
         MessageError sendMessagesAtomically(std::vector<Message> &&messages, MessageQueueType type = QueueBlockUntilSent) {
             std::unique_lock<std::mutex> lock(mtx);
+
             if (closed)
                 return MessageFailed;
 
@@ -252,6 +255,7 @@ namespace Skate {
         // Closes the writer to sending new messages. If cancel_pending_messages is true, any existing messages queued and not yet handled will be discarded.
         void close(bool cancel_pending_messages = false) {
             std::unique_lock<std::mutex> lock(mtx);
+
             if (!closed) {
                 closed = true;
                 closeImpl(cancel_pending_messages);
@@ -361,9 +365,6 @@ namespace Skate {
         operator std::shared_ptr<Interface>() noexcept {return iface();}
         operator std::shared_ptr<const Interface>() const noexcept {return iface();}
 
-        bool operator<(const MessageHandler<Message> &other) const {
-            return d < other.d;
-        }
         bool operator==(const MessageHandler<Message> &other) const {
             return d == other.d;
         }
@@ -377,18 +378,7 @@ namespace Skate {
     protected:
         std::shared_ptr<Interface> d;
     };
-}
 
-namespace std {
-    template<typename Message>
-    struct hash<Skate::MessageHandler<Message>> {
-        size_t operator()(const Skate::MessageHandler<Message> &handler) const noexcept {
-            return std::hash<std::shared_ptr<const typename Skate::MessageHandler<Message>::Interface>>{}(handler.iface());
-        }
-    };
-}
-
-namespace Skate {
     template<typename Message>
     class MessageBufferInterface : public MessageInterface<Message>
     {
@@ -582,6 +572,136 @@ namespace Skate {
             return std::shared_ptr<MessageCallbackInterface<Message>>{new MessageCallbackInterface<Message>(pred, max_buffer_size, consume_type)};
         }
     };
+
+#if WINDOWS_OS
+    namespace Windows {
+        struct OutgoingMessage {
+            OutgoingMessage()
+                : message(0)
+                , wParam(0)
+                , lParam(0)
+            {}
+
+            UINT message;
+            WPARAM wParam;
+            LPARAM lParam;
+        };
+
+        typedef MSG IncomingMessage;
+
+        class MessageWriterInterface : public MessageInterface<OutgoingMessage>
+        {
+        protected:
+            HWND hwnd;
+
+            MessageError sendMessageImpl(std::unique_lock<std::mutex> &, OutgoingMessage &&m, MessageQueueType type) {
+                if (m.message > 0xffff)
+                    return MessageFailed;
+
+                switch (type) {
+                    case QueueBlockUntilDone: SendMessage(hwnd, m.message, m.wParam, m.lParam); return GetLastError() != ERROR_ACCESS_DENIED? MessageSuccess: MessageFailed;
+                    case QueueBlockUntilSent:
+                    case QueueImmediate:
+                        if (m.message == WM_QUIT)
+                            return PostQuitMessage(m.wParam)? MessageSuccess: MessageFailed;
+
+                        return PostMessage(hwnd, m.message, m.wParam, m.lParam)? MessageSuccess: MessageFailed;
+                    case QueueForceSend: return MessageUnsupported;
+                }
+            }
+            MessageError sendMessagesAtomicImpl(std::unique_lock<std::mutex> &, std::vector<OutgoingMessage> &&messages, MessageQueueType type) {
+                switch (type) {
+                    case QueueBlockUntilDone:
+                        for (size_t i = 0; i < messages.size(); ++i) {
+                            const OutgoingMessage &m = messages[i];
+
+                            SendMessage(hwnd, m.message, m.wParam, m.lParam);
+
+                            if (GetLastError() == ERROR_ACCESS_DENIED)
+                                return MessageFailed;
+                        }
+
+                        return MessageSuccess;
+                    case QueueBlockUntilSent:
+                    case QueueImmediate:
+                        for (size_t i = 0; i < messages.size(); ++i) {
+                            const OutgoingMessage &m = messages[i];
+                            bool success = false;
+
+                            if (m.message > 0xffff)
+                                return MessageFailed;
+                            else if (m.message == WM_QUIT)
+                                success = PostQuitMessage(m.wParam);
+                            else
+                                success = PostMessage(hwnd, m.message, m.wParam, m.lParam);
+
+                            if (!success)
+                                return MessageFailed;
+                        }
+
+                        return MessageSuccess;
+                    case QueueForceSend: return MessageUnsupported;
+                }
+            }
+
+            MessageWriterInterface(HWND target)
+                : hwnd(target)
+            {}
+
+        public:
+            virtual ~MessageMessageWriterInterface() {}
+
+            static std::shared_ptr<MessageWriterInterface> create(HWND target) {
+                // TODO: try to remove the new in favor of std::make_shared
+                return std::shared_ptr<MessageWriterInterface>{new MessageWriterInterface(target)};
+            }
+        };
+
+        class MessageReaderInterface : public MessageInterface<IncomingMessage>
+        {
+        protected:
+            MessageError readMessageImpl(std::unique_lock<std::mutex> &lock, IncomingMessage &m, MessageQueueType queue_type, MessageReadType read_type) {
+                const UINT pm_type = read_type == ReadAndRemove? PM_REMOVE: PM_NOREMOVE;
+
+                switch (queue_type) {
+                    case QueueBlockUntilDone:
+                    case QueueBlockUntilSent: {
+                        if (!PeekMessage(&m, NULL, 0, 0, pm_type)) {
+                            // Message not available immediately, wait for next
+                            if (!WaitMessage() ||
+                                !PeekMessage(&m, NULL, 0, 0, pm_type))
+                                return MessageFailed;
+                        }
+
+                        if (m.message == WM_QUIT)
+                            return MessageFailed;
+
+                        return MessageSuccess;
+                    }
+                    case QueueImmediate:
+                    case QueueForceSend: {
+                        if (!PeekMessage(&m, NULL, 0, 0, pm_type))
+                            return MessageTryAgain;
+
+                        return MessageSuccess;
+                    }
+                }
+            }
+
+            MessageReaderInterface() {}
+
+            // There's no good way to get the number of messages waiting in the queue, so waitingMessagesImpl() is just defined to 0 in the base class
+            size_t capacityForWaitingMessagesImpl() const noexcept {return 10000;} // Per Microsoft, 10000 message max on message queue (https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagea)
+
+        public:
+            virtual ~MessageReaderInterface() {}
+
+            static std::shared_ptr<MessageReaderInterface> create() {
+                return std::shared_ptr<MessageReaderInterface>{new MessageReaderInterface()};
+            }
+        };
+    }
+#endif // WINDOWS_OS
 }
 
 #include <ostream>
@@ -646,13 +766,13 @@ namespace Skate {
 
 namespace Skate {
     // Broadcasts a message to one or more message handlers
-    // Message handlers can add or remove themselves (or other handlers) from the broadcast while processing a message ONLY if they successfully handle the message
-    // (e.g. a message callback handler that always returns true will always be able to add or remove other handlers)
+    // Message handlers are not allowed to call any function of a MessageBroadcaster object
     template<typename Message>
     class MessageBroadcaster
     {
         const bool close_on_exit;
-        mutable std::mutex mtx;
+        std::mutex mtx;
+        std::vector<MessageHandler<Message>> writers__;
 
     public:
         typedef Message MessageType;
@@ -663,46 +783,41 @@ namespace Skate {
                 close();
         }
 
-        void addBroadcast(MessageHandler<Message> writer) {
+        MessageHandler<Message> add(MessageHandler<Message> writer) {
             std::lock_guard<std::mutex> lock(mtx);
-            writers.insert(writer);
+            writers__.push_back(writer);
+            return writer;
         }
+        void remove(MessageHandler<Message> writer) {
+            std::lock_guard<std::mutex> lock(mtx);
+            const auto it = writers__.find(writer);
+            if (it != writers.end())
+                writers__.erase(it);
+        }
+
         MessageHandler<Message> addBuffer(size_t max_buffer_size = 0) {
-            auto ptr = MessageBufferInterface<Message>::create(max_buffer_size);
-            addBroadcast(ptr);
-            return ptr;
+            return add(MessageBufferInterface<Message>::create(max_buffer_size));
         }
         template<typename Pred>
         MessageHandler<Message> addCallback(Pred pred, size_t max_buffer_size = 0, MessageReadType consume_type = ReadAndRemove) {
-            auto ptr = MessageCallbackInterface<Message>::create(pred, max_buffer_size, consume_type);
-            addBroadcast(ptr);
-            return ptr;
+            return add(MessageCallbackInterface<Message>::create(pred, max_buffer_size, consume_type));
         }
         MessageHandler<Message> addOutputStream(std::ostream &ostrm, bool flush_every_message = true, size_t max_buffer_size = 0) {
-            auto ptr = MessageStreamWriterInterface<Message>::create(ostrm, flush_every_message, max_buffer_size);
-            addBroadcast(ptr);
-            return ptr;
+            return add(MessageStreamWriterInterface<Message>::create(ostrm, flush_every_message, max_buffer_size));
         }
         MessageHandler<Message> addFileOutput(const char *filename, std::ios_base::openmode mode = std::ios_base::out, bool flush_every_message = true, size_t max_buffer_size = 0) {
-            auto ptr = MessageFileWriterInterface<Message>::create(filename, mode, flush_every_message, max_buffer_size);
-            addBroadcast(ptr);
-            return ptr;
+            return add(MessageFileWriterInterface<Message>::create(filename, mode, flush_every_message, max_buffer_size));
         }
 
-        void removeBroadcast(MessageHandler<Message> writer) {
+        MessageError sendToOne(Message &&m, MessageQueueType type = QueueImmediate) {
             std::lock_guard<std::mutex> lock(mtx);
-            writers.erase(writer);
-        }
-
-        MessageError sendToOne(Message m, MessageQueueType type = QueueImmediate) {
-            const std::vector<MessageHandler<Message>> copy = handlers();
 
             bool try_again = false;
             size_t unsupported = 0;
 
             // WARNING! Although it is normally unsafe to std::move the same value inside a loop, here it is necessary to keep move semantics
             // Subclasses of MessageInterface are not allowed to move the object unless the message was actually sent
-            for (MessageHandler<Message> writer: copy) {
+            for (auto writer: writers__) {
                 const MessageError result = writer.send(std::move(m), type);
 
                 // If sent, then return send result
@@ -714,25 +829,26 @@ namespace Skate {
                     case MessageSuccessLostData: return result;
                     case MessageTryAgain: try_again = true; break;
                     case MessageUnsupported: unsupported++; break;
+                    default: break;
                 }
             }
 
             if (try_again)
                 return MessageTryAgain;
-            else if (unsupported == writers.size())
+            else if (unsupported == writers__.size())
                 return MessageUnsupported;
             else
                 return MessageFailed;
         }
         MessageError sendMessagesAtomicallyToOne(std::vector<Message> &&messages, MessageQueueType type = QueueImmediate) {
-            const std::vector<MessageHandler<Message>> copy = handlers();
+            std::lock_guard<std::mutex> lock(mtx);
 
             bool try_again = false;
             size_t unsupported = 0;
             size_t no_atomic = 0;
 
             // See note in sendMessageToOne regarding std::move of the messages vector
-            for (auto &writer: copy) {
+            for (auto writer: writers__) {
                 const MessageError result = writer.sendMessagesAtomically(std::move(messages), type);
 
                 // If sent, then return send result
@@ -751,40 +867,113 @@ namespace Skate {
 
             if (try_again)
                 return MessageTryAgain;
-            else if (unsupported == writers.size())
+            else if (unsupported == writers__.size())
                 return MessageUnsupported;
-            else if (no_atomic + unsupported == writers.size())
+            else if (no_atomic + unsupported == writers__.size())
                 return MessageAtomicImpossible;
             else
                 return MessageFailed;
         }
 
         template<typename M = Message, typename std::enable_if<std::is_copy_constructible<M>::value, bool>::type = true>
-        std::vector<MessageError> send(const Message &m, MessageQueueType type = QueueBlockUntilSent) {
-            std::vector<MessageError> result;
-            all_handlers([=, &result](MessageHandler<Message> &writer) {
-                result.push_back(writer.send(m, type));
-            });
-            return result;
+        MessageError send(const Message &m, MessageQueueType type = QueueBlockUntilSent) {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            size_t unsupported = 0;
+            size_t try_again = 0;
+            size_t failed = 0;
+            MessageError result = MessageSuccess;
+
+            for (auto writer: writers__) {
+                const MessageError r = writer.send(m, type);
+
+                switch (r) {
+                    case MessageSuccess: break;
+                    case MessageSuccessLostData: result = r; break;
+                    case MessageTryAgain: try_again++; break;
+                    case MessageUnsupported: unsupported++; break;
+                    case MessageFailed: failed++; break;
+                    default: break;
+                }
+            }
+
+            if (failed)
+                return MessageFailed;
+            else if (unsupported == writers__.size())
+                return MessageUnsupported;
+            else if (try_again + unsupported == writers__.size())
+                return MessageTryAgain;
+            else
+                return result;
         }
 
-        // TODO: fix return value issue
         template<typename M = Message, typename std::enable_if<std::is_copy_constructible<M>::value, bool>::type = true>
-        bool sendMessages(const std::vector<Message> &messages, MessageQueueType type = QueueBlockUntilSent) {
-            bool success = true;
-            all_handlers([=, &success](MessageHandler<Message> &writer) {
-                success &= writer.sendMessages(messages, type);
-            });
-            return success;
+        MessageError sendMessages(const std::vector<Message> &messages, MessageQueueType type = QueueBlockUntilSent) {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            size_t unsupported = 0;
+            size_t try_again = 0;
+            size_t failed = 0;
+            MessageError result = MessageSuccess;
+
+            for (const Message &m: messages) {
+                for (auto writer: writers__) {
+                    const MessageError r = writer.send(m, type);
+
+                    switch (r) {
+                        case MessageSuccess: break;
+                        case MessageSuccessLostData: result = r; break;
+                        case MessageTryAgain: try_again++; break;
+                        case MessageUnsupported: unsupported++; break;
+                        case MessageFailed: failed++; break;
+                        default: break;
+                    }
+                }
+            }
+
+            if (failed)
+                return MessageFailed;
+            else if (unsupported == writers__.size())
+                return MessageUnsupported;
+            else if (try_again + unsupported == writers__.size())
+                return MessageTryAgain;
+            else
+                return result;
         }
 
         template<typename M = Message, typename std::enable_if<std::is_copy_constructible<M>::value, bool>::type = true>
-        bool sendMessagesAtomically(const std::vector<Message> &messages, MessageQueueType type = QueueBlockUntilSent) {
-            bool success = true;
-            all_handlers([=, &success](MessageHandler<Message> &writer) {
-                success &= writer.sendMessagesAtomically(messages, type);
-            });
-            return success;
+        MessageError sendMessagesAtomically(const std::vector<Message> &messages, MessageQueueType type = QueueBlockUntilSent) {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            size_t unsupported = 0;
+            size_t try_again = 0;
+            size_t failed = 0;
+            size_t no_atomic = 0;
+            MessageError result = MessageSuccess;
+
+            for (auto writer: writers__) {
+                const MessageError r = writer.sendMessagesAtomically(messages, type);
+
+                switch (r) {
+                    case MessageSuccess: break;
+                    case MessageSuccessLostData: result = r; break;
+                    case MessageTryAgain: try_again++; break;
+                    case MessageUnsupported: unsupported++; break;
+                    case MessageFailed: failed++; break;
+                    case MessageAtomicImpossible: no_atomic++; break;
+                }
+            }
+
+            if (failed)
+                return MessageFailed;
+            else if (unsupported == writers__.size())
+                return MessageUnsupported;
+            else if (no_atomic + unsupported == writers__.size())
+                return MessageAtomicImpossible;
+            else if (try_again + no_atomic + unsupported == writers__.size())
+                return MessageTryAgain;
+            else
+                return result;
         }
 
         void close(bool cancel_pending_messages = false) {
@@ -794,26 +983,39 @@ namespace Skate {
         }
 
     private:
-        std::vector<MessageHandler<Message>> handlers() {
-            std::lock_guard<std::mutex> lock(mtx);
-            std::vector<MessageHandler<Message>> copy;
-
-            // Copy to local storage so we don't hold the lock while predicate is called (consumers can add or remove watchers from this broadcaster while handling a message)
-            for (auto writer: writers)
-                copy.push_back(writer);
-
-            return copy;
-        }
-
         template<typename Pred>
         void all_handlers(Pred pred) {
-            const std::vector<MessageHandler<Message>> copy = handlers();
-
-            for (auto writer: copy)
+            std::lock_guard<std::mutex> lock(mtx);
+            for (auto writer: writers__)
                 pred(writer);
         }
+    };
 
-        std::unordered_set<MessageHandler<Message>> writers;
+    template<typename Message>
+    class MessageListener {
+        std::mutex mtx;
+        std::vector<MessageHandler<Message>> readers__;
+
+    public:
+        typedef Message MessageType;
+
+        MessageListener() {}
+
+        MessageHandler<Message> add(MessageHandler<Message> reader) {
+            std::lock_guard<std::mutex> lock(mtx);
+            readers__.push_back(reader);
+            return reader;
+        }
+        void remove(MessageHandler<Message> reader) {
+            std::lock_guard<std::mutex> lock(mtx);
+            const auto it = readers__.find(reader);
+            if (it != readers__.end())
+                readers__.erase(it);
+        }
+
+        MessageError read(Message &m, MessageQueueType type = QueueBlockUntilDone, MessageReadType consume_type = ReadAndRemove) {
+            return MessageUnsupported;
+        }
     };
 }
 

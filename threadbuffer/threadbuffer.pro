@@ -8,13 +8,14 @@ SOURCES += \
 
 HEADERS += \
     common.h \
-    socket.h \
-    socket_address.h \
-    system_includes.h \
+    io/device.h \
+    socket/address.h \
+    socket/socket.h \
+    system/includes.h \
     threadbuffer.h \
-    environment.h \
-    select.h \
-    poll.h
+    system/environment.h \
+    socket/select.h \
+    socket/poll.h
 
 linux {
     LIBS += -lpthread

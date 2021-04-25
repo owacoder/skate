@@ -3,9 +3,9 @@
 #include <thread>
 #include <vector>
 
-#include "socket.h"
-#include "poll.h"
-#include "select.h"
+#include "socket/socket.h"
+#include "socket/poll.h"
+#include "socket/select.h"
 
 static std::mutex coutMutex;
 static int total;
@@ -40,11 +40,7 @@ public:
 };
 
 std::ostream &operator<<(std::ostream &os, const Skate::SocketAddress &address) {
-    return os << address.to_string(true);
-}
-
-std::ostream &operator<<(std::ostream &os, const Skate::Socket::AddressInfo &address) {
-    return os << address.address.to_string(true);
+    return os << address.to_string();
 }
 
 template<template<typename T, typename A> class Container, typename T, typename A>
@@ -60,9 +56,18 @@ int main()
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
 
-        std::cout << Skate::TCPSocket().remote_server_addresses(Skate::SocketAddress("localhost", 80, Skate::SocketAddress::IPAddressUnspecified)) << std::endl;
+        socket.connect("www.google.com", 80);
+        socket.write("GET / HTTP/1.1\r\n"
+                     "Host: www.google.com\r\n"
+                     "Connection: close\r\n\r\n");
+        std::cout << socket.local_address().to_string(socket.local_port()) << std::endl;
+        std::cout << socket.remote_address().to_string(socket.remote_port()) << std::endl;
+        std::cout << socket.read_all() << std::endl;
+
+        std::cout << "Socket was bound\n";
+        return 0;
     } catch (const std::exception &e) {
-        std::cout << e.what() << std::endl;
+        std::cout << "ERROR: " << e.what() << std::endl;
     }
 
     Skate::Poll poll;

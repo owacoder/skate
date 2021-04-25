@@ -54,13 +54,14 @@ SOURCES       = ..\threadbuffer\main.cpp
 OBJECTS       = release\main.obj
 
 DIST          =  common.h \
-		socket.h \
-		socket_address.h \
-		system_includes.h \
+		io/device.h \
+		socket/address.h \
+		socket/socket.h \
+		system/includes.h \
 		threadbuffer.h \
-		environment.h \
-		select.h \
-		poll.h ..\threadbuffer\main.cpp
+		system/environment.h \
+		socket/select.h \
+		socket/poll.h ..\threadbuffer\main.cpp
 QMAKE_TARGET  = threadbuffer
 DESTDIR        = release\ #avoid trailing-slash linebreak
 TARGET         = threadbuffer.exe
@@ -156,13 +157,14 @@ compiler_clean:
 ####### Compile
 
 release\main.obj: ..\threadbuffer\main.cpp ..\threadbuffer\threadbuffer.h \
-		..\threadbuffer\socket.h \
-		..\threadbuffer\socket_address.h \
-		..\threadbuffer\system_includes.h \
-		..\threadbuffer\environment.h \
-		..\threadbuffer\poll.h \
-		..\threadbuffer\common.h \
-		..\threadbuffer\select.h
+		..\threadbuffer\socket\socket.h \
+		..\threadbuffer\socket\address.h \
+		..\threadbuffer\system\includes.h \
+		..\threadbuffer\system\environment.h \
+		..\threadbuffer\io\device.h \
+		..\threadbuffer\socket\poll.h \
+		..\threadbuffer\socket\common.h \
+		..\threadbuffer\socket\select.h
 
 ####### Install
 
