@@ -9,10 +9,10 @@
 #include <functional>
 #include <chrono>
 #include <cstddef>
+#include <climits>
 
 #if POSIX_OS
-#include <sys/socket.h>
-#include <fcntl.h>
+# include <ifaddrs.h> // For getting interfaces
 #endif
 
 // See https://beej.us/guide/bgnet/html
@@ -284,7 +284,9 @@ namespace Skate {
             while (max) {
                 const int to_read = max < INT_MAX? static_cast<int>(max): INT_MAX;
                 const int read = ::recv(sock, data, to_read, 0);
-                if (read <= 0) {
+                if (read == 0) {
+                    return original_max - max;
+                } else if (read < 0) {
                     handle_error(socket_error());
                     return original_max - max;
                 }
@@ -295,45 +297,66 @@ namespace Skate {
 
             return original_max;
         }
-        std::string read(size_t max) {
+        template<typename Predicate>
+        void read(size_t max, Predicate predicate) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use read() if connected or bound to an address");
             else if (!is_blocking())
                 throw std::logic_error("Socket can only use read() if blocking");
 
             char buffer[0x1000];
-            std::string result;
             while (max) {
                 const int to_read = max < sizeof(buffer)? static_cast<int>(max): sizeof(buffer);
                 const int read = ::recv(sock, buffer, to_read, 0);
-                if (read <= 0) {
+                if (read == 0) {
+                    return;
+                } else if (read < 0) {
                     handle_error(socket_error());
-                    return result;
+                    return;
                 }
 
-                result.append(buffer, read);
+                predicate(static_cast<const char *>(buffer), read);
                 max -= read;
             }
-
-            return result;
         }
-        std::string read_all() {
+        template<typename Predicate>
+        void read_all(Predicate predicate) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use read_all() if connected or bound to an address");
             else if (!is_blocking())
                 throw std::logic_error("Socket can only use read_all() if blocking");
 
             char buffer[0x1000];
-            std::string result;
             while (true) {
                 const int read = ::recv(sock, buffer, sizeof(buffer), 0);
-                if (read <= 0) {
+                if (read == 0) {
+                    return;
+                } else if (read < 0) {
                     handle_error(socket_error());
-                    return result;
+                    return;
                 }
 
-                result.append(buffer, read);
+                predicate(static_cast<const char *>(buffer), read);
             }
+        }
+
+        std::string read(size_t max) {
+            std::string result;
+
+            read(max, [&result](const char *data, size_t len) {
+                result.append(data, len);
+            });
+
+            return result;
+        }
+        std::string read_all() {
+            std::string result;
+
+            read_all([&result](const char *data, size_t len) {
+                result.append(data, len);
+            });
+
+            return result;
         }
 
         bool is_blocking() const noexcept {
@@ -347,7 +370,7 @@ namespace Skate {
             const int flags = ::fcntl(sock, F_GETFL);
             if (flags < 0 ||
                 ::fcntl(sock, F_SETFL, b? (flags & ~O_NONBLOCK): (flags | O_NONBLOCK)) < 0)
-                handle_error(socket_error);
+                handle_error(socket_error());
 #elif WINDOWS_OS
             u_long opt = !b;
             if (::ioctlsocket(sock, FIONBIO, &opt) < 0)
@@ -366,8 +389,41 @@ namespace Skate {
         bool is_closing() const noexcept {return status == Closing;}
         bool is_listening() const noexcept {return status == Listening;}
 
-        static std::vector<SocketAddress> interfaces() {
+        static std::vector<SocketAddress> interfaces(SocketAddress::Type type = SocketAddress::IPAddressUnspecified, bool include_loopback = false) {
+            struct ifaddrs *addresses = nullptr, *ptr = nullptr;
+            std::vector<SocketAddress> result;
 
+            const int err = ::getifaddrs(&addresses);
+            if (err != 0)
+                throw SocketError(nullptr, err);
+
+            try {
+                for (ptr = addresses; ptr; ptr = ptr->ifa_next) {
+                    SocketAddress address;
+
+                    switch (ptr->ifa_addr->sa_family) {
+                        default: break;
+                        case SocketAddress::IPAddressV4:
+                            if (type == SocketAddress::IPAddressUnspecified || type == SocketAddress::IPAddressV4)
+                                address = SocketAddress{reinterpret_cast<struct sockaddr_in *>(ptr->ifa_addr)};
+                            break;
+                        case SocketAddress::IPAddressV6:
+                            if (type == SocketAddress::IPAddressUnspecified || type == SocketAddress::IPAddressV6)
+                                address = SocketAddress{reinterpret_cast<struct sockaddr_in6 *>(ptr->ifa_addr)};
+                            break;
+                    }
+
+                    if (address && (!address.is_loopback() || include_loopback))
+                        result.push_back(std::move(address));
+                }
+            } catch (...) {
+                freeifaddrs(addresses);
+                throw;
+            }
+
+            freeifaddrs(addresses);
+
+            return result;
         }
 
     private:
@@ -397,38 +453,43 @@ namespace Skate {
 
             status = Connecting;
 
-            for (ptr = addresses; ptr; ptr = ptr->ai_next) {
-                switch (ptr->ai_family) {
-                    default: continue;
-                    case SocketAddress::IPAddressV4: /* fallthrough */
-                    case SocketAddress::IPAddressV6: break;
-                }
-
-                sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-                if (sock == invalid_socket) {
-                    err = socket_error();
-                    return err;
-                }
-
-                if (address_is_remote) { // connect() here if remote address
-                    if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
-                        err = socket_error();
-                        close_socket(sock);
-                        sock = invalid_socket;
-                        continue;
+            try {
+                for (ptr = addresses; ptr; ptr = ptr->ai_next) {
+                    switch (ptr->ai_family) {
+                        default: continue;
+                        case SocketAddress::IPAddressV4: /* fallthrough */
+                        case SocketAddress::IPAddressV6: break;
                     }
-                } else { // bind() here if local address
-                    const int yes = 1;
-                    if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
-                        ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
-                        err = socket_error();
-                        close_socket(sock);
-                        sock = invalid_socket;
-                        continue;
-                    }
-                }
 
-                break;
+                    sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+                    if (sock == invalid_socket) {
+                        err = socket_error();
+                        return err;
+                    }
+
+                    if (address_is_remote) { // connect() here if remote address
+                        if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
+                            err = socket_error();
+                            close_socket(sock);
+                            sock = invalid_socket;
+                            continue;
+                        }
+                    } else { // bind() here if local address
+                        const int yes = 1;
+                        if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
+                            ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
+                            err = socket_error();
+                            close_socket(sock);
+                            sock = invalid_socket;
+                            continue;
+                        }
+                    }
+
+                    break;
+                }
+            } catch (...) {
+                freeaddrinfo(addresses);
+                throw;
             }
 
             freeaddrinfo(addresses);

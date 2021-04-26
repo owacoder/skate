@@ -7,6 +7,7 @@
 
 #if POSIX_OS
 # include <unistd.h>
+# include <cstring>
 
 namespace Skate {
     // Really no difference between FileDescriptor and SocketDescriptor on Unix/POSIX systems
@@ -26,7 +27,7 @@ namespace Skate {
             ApiFree
         };
 
-        ApiString() : str(""), len(0), type(ApiNoFree) {}
+        ApiString() : str(const_cast<char *>("")), len(0), type(ApiNoFree) {}
         ApiString(const char *data) : str(nullptr), len(0), type(ApiNoFree) {
             const size_t sz = strlen(data) + 1;
             char *copy = new char[sz];
@@ -124,28 +125,50 @@ namespace Skate {
 
     inline ApiString system_error_string(int system_error) {
         size_t buf_size = 256;
-        char *buf = malloc(buf_size);
+        char *buf = static_cast<char *>(malloc(buf_size));
+        if (buf == nullptr)
+            return {};
 
-        do {
-            if (strerror_r(system_error, buf, buf_size) == 0)
-                break;
+        while (1) {
+            int string_error = 0;
+            errno = 0;
 
-            if (errno != ERANGE) {
+            // See https://linux.die.net/man/3/strerror_r (XSI-compliant vs GNU implementation)
+#if (_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE
+            // XSI-compliant version
+
+            string_error = strerror_r(system_error, buf, buf_size);
+            if (string_error == 0) // Success
+                return ApiString(buf, ApiString::ApiFree);
+            else if (string_error < 0) // Old, sets errno for error that occurred while attempting to get string
+                string_error = errno;
+#else
+            // GNU version
+
+            char *gnu_buf = strerror_r(system_error, buf, buf_size);
+            if (gnu_buf != buf) { // Using const system string?
+                free(buf);
+                return ApiString(gnu_buf, ApiString::ApiNoFree);
+            } else if (errno == 0)
+                return ApiString(buf, ApiString::ApiFree);
+            else
+                string_error = errno;
+#endif
+
+            if (string_error != ERANGE) {
                 free(buf);
                 return {};
             }
 
             buf_size *= 2;
-            char *new_buf = realloc(buf, buf_size);
+            char *new_buf = static_cast<char *>(realloc(buf, buf_size));
             if (new_buf == nullptr) {
                 free(buf);
                 return {};
             }
 
             buf = new_buf;
-        } while (1);
-
-        return ApiString(buf, ApiString::ApiFree);
+        }
     }
 }
 #elif WINDOWS_OS

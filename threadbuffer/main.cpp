@@ -46,7 +46,7 @@ std::ostream &operator<<(std::ostream &os, const Skate::SocketAddress &address) 
 template<template<typename T, typename A> class Container, typename T, typename A>
 std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
     for (const auto &item: container)
-        os << item << "\n";
+        os << item << " Loopback? " << item.is_loopback() << "\n";
     return os;
 }
 
@@ -55,6 +55,8 @@ int main()
     try {
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
+
+        std::cout << Skate::Socket::interfaces(Skate::SocketAddress::IPAddressV4) << "\n";
 
         socket.connect("www.google.com", 80);
         socket.write("GET / HTTP/1.1\r\n"

@@ -6,6 +6,14 @@
 #include <stdexcept>
 #include <string>
 
+#if POSIX_OS
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <fcntl.h>
+#endif
+
 namespace Skate {
     class SocketAddress {
     public:
@@ -90,7 +98,7 @@ namespace Skate {
         bool is_loopback() const {
             switch (address_type) {
                 default: return false;
-                case IPAddressV4: return ipv4 == htonl(INADDR_LOOPBACK);
+                case IPAddressV4: return (ntohl(ipv4) >> 24) == 127;
                 case IPAddressV6: return memcmp(in6addr_loopback.s6_addr, ipv6, sizeof(ipv6)) == 0;
             }
         }

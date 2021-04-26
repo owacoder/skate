@@ -791,7 +791,7 @@ namespace Skate {
         void remove(MessageHandler<Message> writer) {
             std::lock_guard<std::mutex> lock(mtx);
             const auto it = writers__.find(writer);
-            if (it != writers.end())
+            if (it != writers__.end())
                 writers__.erase(it);
         }
 
