@@ -58,6 +58,8 @@ int main()
 
         std::cout << Skate::Socket::interfaces(Skate::SocketAddress::IPAddressV4) << "\n";
 
+        return 0;
+
         socket.connect("www.google.com", 80);
         socket.write("GET / HTTP/1.1\r\n"
                      "Host: www.google.com\r\n"

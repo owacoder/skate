@@ -13,6 +13,12 @@
 
 #if POSIX_OS
 # include <ifaddrs.h> // For getting interfaces
+#elif WINDOWS_OS
+# include <iphlpapi.h> // For getting interfaces
+#
+# if MSVC_COMPILER
+#  pragma comment(lib, "iphlpapi.lib")
+# endif
 #endif
 
 // See https://beej.us/guide/bgnet/html
@@ -340,23 +346,37 @@ namespace Skate {
             }
         }
 
-        std::string read(size_t max) {
-            std::string result;
-
-            read(max, [&result](const char *data, size_t len) {
-                result.append(data, len);
+        void read(size_t max, std::string &str) {
+            read(max, [&str](const char *data, size_t len) {
+                str.append(data, len);
             });
-
-            return result;
         }
-        std::string read_all() {
-            std::string result;
-
-            read_all([&result](const char *data, size_t len) {
-                result.append(data, len);
+        void read(size_t max, std::ostream &os) {
+            read(max, [&os](const char *data, size_t len) {
+                os.write(data, len);
             });
-
-            return result;
+        }
+        void read(size_t max, FILE *out) {
+            read(max, [out](const char *data, size_t len) {
+                fwrite(data, 1, len, out);
+            });
+        }
+        std::string read(size_t max) { std::string result; read(max, result); return result; }
+        void read_all(std::string &str) {
+            read_all([&str](const char *data, size_t len) {
+                str.append(data, len);
+            });
+        }
+        std::string read_all() { std::string result; read_all(result); return result; }
+        void read_all(std::ostream &os) {
+            read_all([&os](const char *data, size_t len) {
+                os.write(data, len);
+            });
+        }
+        void read_all(FILE *out) {
+            read_all([out](const char *data, size_t len) {
+                fwrite(data, 1, len, out);
+            });
         }
 
         bool is_blocking() const noexcept {
@@ -390,6 +410,7 @@ namespace Skate {
         bool is_listening() const noexcept {return status == Listening;}
 
         static std::vector<SocketAddress> interfaces(SocketAddress::Type type = SocketAddress::IPAddressUnspecified, bool include_loopback = false) {
+#if POSIX_OS
             struct ifaddrs *addresses = nullptr, *ptr = nullptr;
             std::vector<SocketAddress> result;
 
@@ -424,6 +445,55 @@ namespace Skate {
             freeifaddrs(addresses);
 
             return result;
+#elif WINDOWS_OS
+            IP_ADAPTER_ADDRESSES *addresses = nullptr;
+            ULONG addresses_buffer_size = 15000, err = 0;
+            std::vector<SocketAddress> result;
+
+            do {
+                addresses = static_cast<IP_ADAPTER_ADDRESSES *>(malloc(addresses_buffer_size));
+
+                err = ::GetAdaptersAddresses(type, 0, NULL, addresses, &addresses_buffer_size);
+                if (err == ERROR_BUFFER_OVERFLOW)
+                    free(addresses);
+            } while (err == ERROR_BUFFER_OVERFLOW);
+
+            try {
+                if (err != ERROR_SUCCESS)
+                    throw SocketError(nullptr, err); // Will rethrow in catch block
+
+                for (auto ptr = addresses; ptr; ptr = ptr->Next) {
+                    // Skip network interfaces that are not up and running
+                    if (ptr->OperStatus != IfOperStatusUp)
+                        continue;
+
+                    // Skip loopback if desired
+                    if (!include_loopback && ptr->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+                        continue;
+
+                    // Just look for unicast addresses
+                    for (auto unicast = ptr->FirstUnicastAddress; unicast; unicast = unicast->Next) {
+                        SocketAddress address;
+
+                        switch (unicast->Address.lpSockaddr->sa_family) {
+                            default:
+                            case SocketAddress::IPAddressV4: address = SocketAddress(reinterpret_cast<struct sockaddr_in *>(unicast->Address.lpSockaddr)); break;
+                            case SocketAddress::IPAddressV6: address = SocketAddress(reinterpret_cast<struct sockaddr_in6 *>(unicast->Address.lpSockaddr)); break;
+                        }
+
+                        if (address && (!address.is_loopback() || include_loopback))
+                            result.push_back(std::move(address));
+                    }
+                }
+
+                free(addresses);
+            } catch (...) {
+                free(addresses);
+                throw;
+            }
+
+            return result;
+#endif
         }
 
     private:
