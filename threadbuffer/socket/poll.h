@@ -14,11 +14,11 @@
 #include <sys/poll.h>
 
 namespace Skate {
-    class Poll {
+    class Poll : public SocketWatcher {
         std::vector<pollfd> fds;
 
     private:
-        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) {
+        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
             WatchFlags watch_flags = 0;
 
             watch_flags |= kernel_flags & POLLIN? WatchRead: 0;
@@ -31,7 +31,7 @@ namespace Skate {
             return watch_flags;
         }
 
-        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) {
+        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
             short kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? POLLIN: 0;
@@ -56,13 +56,17 @@ namespace Skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+        void watch(SocketDescriptor fd, WatchFlags watch_type) {
+            try_watch(fd, watch_type); // Never fails unless an exception is thrown (out of memory)
+        }
+        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
             pollfd desc;
 
             desc.fd = fd;
             desc.events = kernel_flags_from_watch_flags(watch_type);
 
             fds.push_back(desc);
+            return true;
         }
 
         // Removes a file descriptor from all watch types
@@ -83,8 +87,7 @@ namespace Skate {
         // Runs poll() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
         // Returns 0 on success, or a system error if an error occurs
-        template<typename Fn>
-        int poll(Fn fn) {
+        int poll(SocketWatcher::NativeWatchFunction fn) {
             const int ready = ::poll(fds.data(), fds.size(), -1);
             if (ready < 0)
                 return errno;
@@ -99,12 +102,11 @@ namespace Skate {
             return ready? 0: ErrorTimedOut;
         }
 
-        template<typename Fn>
-        int poll(Fn fn, std::chrono::milliseconds timeout) {
+        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             if (timeout.count() > INT_MAX)
                 return EINVAL;
 
-            const int ready = ::poll(fds.data(), fds.size(), timeout.count());
+            const int ready = ::poll(fds.data(), fds.size(), timeout.count() * 1000);
             if (ready < 0)
                 return errno;
 
@@ -121,11 +123,11 @@ namespace Skate {
 }
 #elif WINDOWS_OS // End of POSIX_OS
 namespace Skate {
-    class Poll {
+    class Poll : public SocketWatcher {
         std::vector<struct pollfd> fds;
 
     private:
-        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) {
+        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
             WatchFlags watch_flags = 0;
 
             watch_flags |= kernel_flags & POLLIN? WatchRead: 0;
@@ -138,7 +140,7 @@ namespace Skate {
             return watch_flags;
         }
 
-        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) {
+        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
             short kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? POLLIN: 0;
@@ -164,12 +166,16 @@ namespace Skate {
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
         void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+            try_watch(fd, watch_type); // Never fails unless an exception is thrown (out of memory)
+        }
+        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
             pollfd desc;
 
             desc.fd = fd;
             desc.events = kernel_flags_from_watch_flags(watch_type);
 
             fds.push_back(desc);
+            return true;
         }
 
         // Removes a file descriptor from all watch types
@@ -192,8 +198,7 @@ namespace Skate {
         // Runs poll() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
         // Returns 0 on success, or a system error if an error occurs
-        template<typename Fn>
-        int poll(Fn fn) {
+        int poll(SocketWatcher::NativeWatchFunction fn) {
             const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), -1);
             if (ready < 0)
                 return WSAGetLastError();
@@ -208,8 +213,7 @@ namespace Skate {
             return ready? 0: ErrorTimedOut;
         }
 
-        template<typename Fn>
-        int poll(Fn fn, std::chrono::milliseconds timeout) {
+        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::milliseconds timeout) {
             if (timeout.count() > INT_MAX)
                 return EINVAL;
 
@@ -229,5 +233,10 @@ namespace Skate {
     };
 }
 #endif
+
+// Generic
+namespace Skate {
+
+}
 
 #endif // POLL_H

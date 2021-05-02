@@ -15,7 +15,7 @@
 # include <sys/select.h>
 
 namespace Skate {
-    class Select {
+    class Select : public SocketWatcher {
         SocketDescriptor max_read_descriptor;
         SocketDescriptor max_write_descriptor;
         SocketDescriptor max_except_descriptor;
@@ -56,8 +56,12 @@ namespace Skate {
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
         void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+            if (!try_watch(fd, watch_type))
+                throw std::runtime_error("watch() called with file descriptor greater-than or equal to FD_SETSIZE"); // The only failure reason
+        }
+        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
             if (fd >= FD_SETSIZE)
-                throw std::runtime_error("watch() called with file descriptor greater-than or equal to FD_SETSIZE");
+                return false;
 
             if (watch_type & WatchRead) {
                 FD_SET(fd, &master_read_set);
@@ -73,6 +77,8 @@ namespace Skate {
                 FD_SET(fd, &master_except_set);
                 max_except_descriptor = std::max(fd, max_except_descriptor);
             }
+
+            return true;
         }
 
         // Removes a file descriptor from all watch types
@@ -108,8 +114,7 @@ namespace Skate {
         // Runs select() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
         // Returns 0 on success, Skate::ErrorTimedOut on timeout, or a system error if an error occurs
-        template<typename Fn>
-        int select(Fn fn, struct timeval *timeout = nullptr) const {
+        int poll(SocketWatcher::NativeWatchFunction fn, struct timeval *timeout) {
             const SocketDescriptor max_descriptor = std::max(max_read_descriptor, std::max(max_write_descriptor, max_except_descriptor));
             fd_set read_set, write_set, except_set;
 
@@ -122,7 +127,7 @@ namespace Skate {
                 return errno;
 
             int ready = result;
-            for (SocketDescriptor fd = 0; ready && fd < max_descriptor; ++fd) {
+            for (SocketDescriptor fd = 0; ready && fd <= max_descriptor; ++fd) {
                 WatchFlags watch = 0;
 
                 watch |= FD_ISSET(fd, &read_set)? WatchRead: 0;
@@ -139,20 +144,22 @@ namespace Skate {
             return result? 0: ErrorTimedOut;
         }
 
-        template<typename Fn>
-        int select(Fn fn, std::chrono::microseconds timeout) const {
+        int poll(NativeWatchFunction fn) {
+            return poll(fn, nullptr);
+        }
+        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             struct timeval tm;
 
             tm.tv_sec = timeout.count() / 1000000;
             tm.tv_usec = timeout.count() % 1000000;
 
-            return select(fn, &tm);
+            return poll(fn, &tm);
         }
     };
 }
 #elif WINDOWS_OS // End of POSIX_OS
 namespace Skate {
-    class Select {
+    class Select : public SocketWatcher {
         fd_set master_read_set;
         fd_set master_write_set;
         fd_set master_except_set;
@@ -229,9 +236,13 @@ namespace Skate {
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
         void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
-            if (  master_read_set.fd_count == FD_SETSIZE && (watch_type & WatchRead  )) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for reading");
-            if ( master_write_set.fd_count == FD_SETSIZE && (watch_type & WatchWrite )) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for writing");
-            if (master_except_set.fd_count == FD_SETSIZE && (watch_type & WatchExcept)) throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched for exceptions");
+            if (!try_watch(fd, watch_type))
+                throw std::runtime_error("watch() called with FD_SETSIZE descriptors already being watched"); // The only failure reason
+        }
+        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+            if (  master_read_set.fd_count == FD_SETSIZE && (watch_type & WatchRead  )) return false;
+            if ( master_write_set.fd_count == FD_SETSIZE && (watch_type & WatchWrite )) return false;
+            if (master_except_set.fd_count == FD_SETSIZE && (watch_type & WatchExcept)) return false;
 
             if (watch_type & WatchRead)
                 FD_SET(fd, &master_read_set);
@@ -241,6 +252,8 @@ namespace Skate {
 
             if (watch_type & WatchExcept)
                 FD_SET(fd, &master_except_set);
+
+            return true;
         }
 
         // Removes a file descriptor from all watch types
@@ -261,8 +274,7 @@ namespace Skate {
         // Runs select() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
         // Returns 0 on success, Skate::ErrorTimedOut on timeout, or a system error if an error occurs
-        template<typename Fn>
-        int select(Fn fn, const timeval *timeout = nullptr) const {
+        int poll(SocketWatcher::NativeWatchFunction fn, const timeval *timeout) {
             fd_set read_set, write_set, except_set;
 
             memcpy(&read_set, &master_read_set, sizeof(master_read_set));
@@ -278,14 +290,16 @@ namespace Skate {
             return ready? 0: ErrorTimedOut;
         }
 
-        template<typename Fn>
-        int select(Fn fn, std::chrono::microseconds timeout) const {
+        int poll(SocketWatcher::NativeWatchFunction fn) {
+            return poll(fn, nullptr);
+        }
+        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             struct timeval tm;
 
             tm.tv_sec = timeout.count() / 1000000;
             tm.tv_usec = timeout.count() % 1000000;
 
-            return select(fn, &tm);
+            return poll(fn, &tm);
         }
     };
 }

@@ -4,8 +4,7 @@
 #include <vector>
 
 #include "socket/socket.h"
-#include "socket/poll.h"
-#include "socket/select.h"
+#include "socket/server.h"
 
 static std::mutex coutMutex;
 static int total;
@@ -55,11 +54,23 @@ int main()
     try {
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
+        Skate::SocketServer<Skate::Select> server;
 
-        std::cout << Skate::Socket::interfaces(Skate::SocketAddress::IPAddressV4) << "\n";
+        socket.bind(Skate::SocketAddress::any(), 8089);
+        server.listen(socket, [](Skate::Socket *connection) {
+            std::cout << "New connection to " << connection->remote_address().to_string(connection->remote_port()) << std::endl;
+        }, [](Skate::Socket *connection, Skate::WatchFlags flags) {
+            if (flags & Skate::WatchWrite) {
+                std::cout << "Writing to " << connection->remote_address().to_string(connection->remote_port()) << std::endl;
+                connection->write("HTTP/1.1 200 OK\r\n\r\nTest");
+                connection->disconnect();
+            }
+        });
+        //server.run();
 
-        return 0;
+        //return 0;
 
+        socket.disconnect();
         socket.connect("www.google.com", 80);
         socket.write("GET / HTTP/1.1\r\n"
                      "Host: www.google.com\r\n"
@@ -72,6 +83,7 @@ int main()
         return 0;
     } catch (const std::exception &e) {
         std::cout << "ERROR: " << e.what() << std::endl;
+        return 0;
     }
 
     Skate::Poll poll;

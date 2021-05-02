@@ -7,15 +7,16 @@ SOURCES += \
         main.cpp
 
 HEADERS += \
-    common.h \
+    threadbuffer.h \
     io/device.h \
+    system/includes.h \
+    system/environment.h \
+    socket/common.h \
     socket/address.h \
     socket/socket.h \
-    system/includes.h \
-    threadbuffer.h \
-    system/environment.h \
     socket/select.h \
-    socket/poll.h
+    socket/poll.h \
+    socket/server.h
 
 linux {
     LIBS += -lpthread

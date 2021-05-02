@@ -11,6 +11,8 @@
 #include <cstddef>
 #include <climits>
 
+#include <mutex>
+
 #if POSIX_OS
 # include <ifaddrs.h> // For getting interfaces
 #elif WINDOWS_OS
@@ -32,8 +34,10 @@ namespace Skate {
         int error;
 
     public:
-        SocketError(Socket *sock, int system_error)
-            : std::runtime_error(system_error_string(system_error).to_utf8())
+        SocketError(Socket *sock, int system_error, const char *description = nullptr)
+            : std::runtime_error(description && strlen(description)?
+                                     std::string(description):
+                                     system_error_string(system_error).to_utf8())
             , sock(sock)
             , error(system_error)
         {}
@@ -41,6 +45,9 @@ namespace Skate {
         Socket *socket() const noexcept {return sock;}
         int native_error() const noexcept {return error;}
     };
+
+    template<typename SocketWatcher>
+    class SocketServer;
 
     class Socket : public IODevice {
         Socket(const Socket &) = delete;
@@ -58,11 +65,18 @@ namespace Skate {
             Listening
         };
 
+    public:
+        typedef std::function<bool (Socket *, int, const char *)> ErrorFunction;
+
     protected:
-        static constexpr SocketDescriptor invalid_socket = -1;
+        template<typename SocketWatcher>
+        friend class SocketServer;
 
 #if POSIX_OS
         static inline int close_socket(SocketDescriptor s) {return ::close(s);}
+        static inline bool socket_would_block(int system_error) {
+            return system_error == EAGAIN || system_error == EWOULDBLOCK;
+        }
         static inline int socket_error() {return errno;}
         static constexpr int no_address = EADDRNOTAVAIL;
 #elif WINDOWS_OS
@@ -71,23 +85,35 @@ namespace Skate {
         static constexpr int no_address = ERROR_HOST_UNREACHABLE;
 #endif
 
-        std::function<void (Socket *, int)> _on_error;
-        void handle_error(int system_error) {
+        ErrorFunction _on_error;
+
+        // Handles a system error that occurred.
+        //
+        // If description is non-null, it provides a user-readable description of what error occurred.
+        //
+        // If return value is false (or never returns) then abort current operation.
+        // If return value is true, attempt to continue current operation.
+        bool handle_error(int system_error, const char *description = nullptr) {
             if (system_error == 0)
-                return;
+                return false;
 
             if (_on_error)
-                _on_error(this, system_error);
-            else
-                throw SocketError(this, system_error);
+                return _on_error(this, system_error, description);
+            else {
+                default_error_handler(this, system_error, description);
+                return false; // Never reached as default handler throws
+            }
         }
 
         Socket(SocketDescriptor sock)
             : sock(sock)
             , status(sock == invalid_socket? Unconnected: Connected)
+            , nonblocking(false)
         {}
 
     public:
+        static constexpr SocketDescriptor invalid_socket = -1;
+
         enum Type {
             AnySocket = 0,
             StreamSocket = SOCK_STREAM,
@@ -126,9 +152,16 @@ namespace Skate {
             } catch (const SocketError &) {}
         }
 
+        // Default error handler (can be used in an external error handler if necessary)
+        static void default_error_handler(Socket *socket, int system_error, const char *description = nullptr) {
+            throw SocketError(socket, system_error, description);
+        }
+
+        // Returns the native socket descriptor
+        SocketDescriptor native() const {return sock;}
+
         // Error handling callback
-        template<typename Predicate>
-        void on_error(Predicate p) {_on_error = p;}
+        void on_error(ErrorFunction fn) {_on_error = fn;}
 
         // Reimplement in client to override behavior of address resolution
         virtual Type type() const {return AnySocket;}
@@ -140,7 +173,7 @@ namespace Skate {
             if (!is_unconnected())
                 throw std::logic_error("Socket was already connected or bound to an address");
 
-            handle_error(try_bind(type(), protocol(), address, port, false));
+            bind(type(), protocol(), address, port, false);
 
             return *this;
         }
@@ -148,8 +181,10 @@ namespace Skate {
         Socket &connect(SocketAddress address, uint16_t port) {
             if (!is_unconnected())
                 throw std::logic_error("Socket was already connected or bound to an address");
+            else if (!is_blocking())
+                throw std::logic_error("connect() must only be used on blocking sockets");
 
-            handle_error(try_bind(type(), protocol(), address, port, true));
+            bind(type(), protocol(), address, port, true);
 
             return *this;
         }
@@ -159,7 +194,11 @@ namespace Skate {
             if (!is_bound())
                 throw std::logic_error("Socket can only use listen() if bound to an address");
 
-            handle_error(::listen(sock, backlog));
+            const int err = ::listen(sock, backlog);
+            if (err)
+                handle_error(err);
+            else
+                status = Listening;
 
             return *this;
         }
@@ -226,12 +265,6 @@ namespace Skate {
             return port;
         }
 
-        // Runs message loop listening and accepting connections
-        template<typename Handler>
-        void run() {
-
-        }
-
         // Synchronously disconnects connection
         Socket &disconnect() {
             SocketDescriptor temp = sock;
@@ -244,6 +277,7 @@ namespace Skate {
             return *this;
         }
 
+        // Shuts down either the read part of the socket, the write part, or both
         Socket &shutdown(Shutdown type = ShutdownReadWrite) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use shutdown() if connected or bound to an address");
@@ -254,37 +288,59 @@ namespace Skate {
         }
 
         // Synchronously writes all data to socket
-        Socket &write(const char *data, size_t len) {
+        // Returns the number of bytes successfully written
+        //
+        // For nonblocking sockets, this will only write data until it will not block
+        size_t write(const char *data, size_t len) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use write()/put() if connected or bound to an address");
-            else if (!is_blocking())
-                throw std::logic_error("Socket can only use write()/put() if blocking");
 
+            const size_t original_size = len;
             while (len) {
                 const int to_send = len < INT_MAX? static_cast<int>(len): INT_MAX;
                 const int sent = ::send(sock, data, to_send, 0);
                 if (sent < 0) {
-                    handle_error(socket_error());
-                    break;
+                    const int err = socket_error();
+                    if (socket_would_block(err) || !handle_error(err))
+                        return original_size - len;
+                    continue;
                 }
 
                 data += sent;
                 len -= sent;
             }
 
+            return original_size;
+        }
+        Socket &write(const char *data) {
+            if (!is_blocking())
+                throw std::logic_error("write() variants must be used only on blocking sockets");
+
+            write(data, strlen(data));
             return *this;
         }
-        Socket &write(const char *data) {return write(data, strlen(data));}
-        Socket &write(const std::string &data) {return write(&data[0], data.length());}
-        Socket &put(unsigned char c) {return write(reinterpret_cast<const char *>(&c), 1);}
+        Socket &write(const std::string &data) {
+            if (!is_blocking())
+                throw std::logic_error("write() variants must be used only on blocking sockets");
+
+            write(&data[0], data.length());
+            return *this;
+        }
+        Socket &put(unsigned char c) {
+            if (!is_blocking())
+                throw std::logic_error("put() must be used only on blocking sockets");
+
+            write(reinterpret_cast<const char *>(&c), 1);
+            return *this;
+        }
 
         // Synchronously reads data from socket
         // Returns number of bytes read
+        //
+        // For nonblocking sockets, this will only read all the data currently available for reading in the socket, up to max
         size_t read(char *data, size_t max) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use read() if connected or bound to an address");
-            else if (!is_blocking())
-                throw std::logic_error("Socket can only use read() if blocking");
 
             const size_t original_max = max;
             while (max) {
@@ -293,8 +349,10 @@ namespace Skate {
                 if (read == 0) {
                     return original_max - max;
                 } else if (read < 0) {
-                    handle_error(socket_error());
-                    return original_max - max;
+                    const int err = socket_error();
+                    if (socket_would_block(err) || handle_error(err))
+                        return original_max - max;
+                    continue;
                 }
 
                 data += read;
@@ -303,12 +361,15 @@ namespace Skate {
 
             return original_max;
         }
+        // Synchronously reads up to max bytes from the socket and sends them to predicate as
+        // void (const char *data, size_t len);
+        // The predicate may be called several times with new data, it should be considered an append function
+        //
+        // For nonblocking sockets, this will only read data currently available for reading in the socket, up to max bytes
         template<typename Predicate>
-        void read(size_t max, Predicate predicate) {
+        void read(uint64_t max, Predicate predicate) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use read() if connected or bound to an address");
-            else if (!is_blocking())
-                throw std::logic_error("Socket can only use read() if blocking");
 
             char buffer[0x1000];
             while (max) {
@@ -317,20 +378,25 @@ namespace Skate {
                 if (read == 0) {
                     return;
                 } else if (read < 0) {
-                    handle_error(socket_error());
-                    return;
+                    const int err = socket_error();
+                    if (socket_would_block(err) || !handle_error(err))
+                        return;
+                    continue;
                 }
 
                 predicate(static_cast<const char *>(buffer), read);
                 max -= read;
             }
         }
+        // Synchronously reads all data from the socket and sends it to predicate as
+        // void (const char *data, size_t len);
+        // The predicate may be called several times with new data, it should be considered an append function
+        //
+        // For nonblocking sockets, this will only read all the data currently available for reading in the socket
         template<typename Predicate>
         void read_all(Predicate predicate) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use read_all() if connected or bound to an address");
-            else if (!is_blocking())
-                throw std::logic_error("Socket can only use read_all() if blocking");
 
             char buffer[0x1000];
             while (true) {
@@ -338,14 +404,15 @@ namespace Skate {
                 if (read == 0) {
                     return;
                 } else if (read < 0) {
-                    handle_error(socket_error());
-                    return;
+                    const int err = socket_error();
+                    if (socket_would_block(err) || !handle_error(err))
+                        return;
+                    continue;
                 }
 
                 predicate(static_cast<const char *>(buffer), read);
             }
         }
-
         void read(size_t max, std::string &str) {
             read(max, [&str](const char *data, size_t len) {
                 str.append(data, len);
@@ -379,25 +446,30 @@ namespace Skate {
             });
         }
 
-        bool is_blocking() const noexcept {
-            if (sock == invalid_socket)
-                return false;
+        // Returns true if this socket is blocking (the default)
+        bool is_blocking() const noexcept {return !nonblocking;}
 
-            return !nonblocking;
-        }
+        // Sets whether this socket is blocking or asynchronous
         void set_blocking(bool b) {
+            if (sock == invalid_socket) {
+                nonblocking = !b;
+                return;
+            }
+
 #if POSIX_OS
             const int flags = ::fcntl(sock, F_GETFL);
             if (flags < 0 ||
                 ::fcntl(sock, F_SETFL, b? (flags & ~O_NONBLOCK): (flags | O_NONBLOCK)) < 0)
                 handle_error(socket_error());
+            else
+                nonblocking = !b;
 #elif WINDOWS_OS
             u_long opt = !b;
             if (::ioctlsocket(sock, FIONBIO, &opt) < 0)
                 handle_error(socket_error());
+            else
+                nonblocking = !b;
 #endif
-
-            nonblocking = !b;
         }
 
         State state() const noexcept {return status;}
@@ -409,6 +481,8 @@ namespace Skate {
         bool is_closing() const noexcept {return status == Closing;}
         bool is_listening() const noexcept {return status == Listening;}
 
+        // Returns the local interface addresses for the local computer
+        // Only active addresses are returned, and the desired types can be filtered with the parameters to this function
         static std::vector<SocketAddress> interfaces(SocketAddress::Type type = SocketAddress::IPAddressUnspecified, bool include_loopback = false) {
 #if POSIX_OS
             struct ifaddrs *addresses = nullptr, *ptr = nullptr;
@@ -497,15 +571,18 @@ namespace Skate {
         }
 
     private:
-        int try_bind(Type socket_type,
-                     Protocol protocol_type,
-                     SocketAddress address,
-                     uint16_t port,
-                     bool address_is_remote) {
+        // Performs a synchronous (blocking) bind or connect to the given address
+        // If address_is_remote is true, a connect() is performed
+        // If address_is_remote is false, a bind() is performed
+        void bind(Type socket_type,
+                  Protocol protocol_type,
+                  SocketAddress address,
+                  uint16_t port,
+                  bool address_is_remote) {
+            static std::mutex gai_strerror_mtx;
             struct addrinfo hints;
             struct addrinfo *addresses = nullptr, *ptr = nullptr;
 
-            sock = invalid_socket; // Initialize socket to invalid before attempting any system calls so it will be invalid if an error occurs
             status = LookingUpHost;
 
             memset(&hints, 0, sizeof(hints));
@@ -514,65 +591,97 @@ namespace Skate {
             hints.ai_protocol = protocol_type;
             hints.ai_flags = AI_PASSIVE;
 
-            int err = ::getaddrinfo(address? address.to_string().c_str(): NULL,
+            int err = 0;
+            std::string err_description;
+
+            do {
+                err = ::getaddrinfo(address? address.to_string().c_str(): NULL,
                                     port? std::to_string(port).c_str(): NULL,
                                     &hints,
                                     &addresses);
-            if (err)
-                return err;
+
+                if (err == EAI_SYSTEM) {
+                    err = errno;
+                    err_description.clear();
+                } else if (err) {
+                    {
+                        std::lock_guard<std::mutex> lock(gai_strerror_mtx);
+                        err_description = gai_strerror(err);
+                    }
+
+                    // Map to the most similar system errors
+                    switch (err) {
+                        case EAI_ADDRFAMILY:                  break; // No mapping
+                        case EAI_AGAIN:         err = EAGAIN; break;
+                        case EAI_BADFLAGS:                    break; // Won't happen
+                        case EAI_FAIL:                        break;
+                        case EAI_FAMILY:                      break;
+                        case EAI_MEMORY:        err = ENOMEM; break;
+                        case EAI_NODATA:                      break;
+                        case EAI_NONAME:                      break;
+                        case EAI_SERVICE:                     break;
+                        case EAI_SOCKTYPE:                    break;
+                    }
+                } else {
+                    err_description.clear();
+                }
+            } while (handle_error(err, err_description.c_str()));
 
             status = Connecting;
 
-            try {
-                for (ptr = addresses; ptr; ptr = ptr->ai_next) {
-                    switch (ptr->ai_family) {
-                        default: continue;
-                        case SocketAddress::IPAddressV4: /* fallthrough */
-                        case SocketAddress::IPAddressV6: break;
-                    }
+            do {
+                try {
+                    for (ptr = addresses; ptr; ptr = ptr->ai_next) {
+                        switch (ptr->ai_family) {
+                            default: continue;
+                            case SocketAddress::IPAddressV4: break;
+                            case SocketAddress::IPAddressV6: break;
+                        }
 
-                    sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-                    if (sock == invalid_socket) {
-                        err = socket_error();
-                        return err;
-                    }
-
-                    if (address_is_remote) { // connect() here if remote address
-                        if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
+                        sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
+                        if (sock == invalid_socket) {
                             err = socket_error();
-                            close_socket(sock);
-                            sock = invalid_socket;
                             continue;
                         }
-                    } else { // bind() here if local address
-                        const int yes = 1;
-                        if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
-                            ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
-                            err = socket_error();
-                            close_socket(sock);
-                            sock = invalid_socket;
-                            continue;
-                        }
-                    }
 
+                        if (address_is_remote) { // connect() here if remote address
+                            if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
+                                err = socket_error();
+                                close_socket(sock);
+                                sock = invalid_socket;
+                                continue;
+                            }
+                        } else { // bind() here if local address
+                            const int yes = 1;
+                            if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
+                                ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
+                                err = socket_error();
+                                close_socket(sock);
+                                sock = invalid_socket;
+                                continue;
+                            }
+                        }
+
+                        break; // Successful, no errors; breaks address search loop, leaving ptr non-null
+                    }
+                } catch (...) {
+                    freeaddrinfo(addresses);
+                    throw;
+                }
+
+                if (ptr != nullptr) { // Successful connection was made only if ptr is nonnull
+                    status = address_is_remote? Connected: Bound;
                     break;
                 }
-            } catch (...) {
-                freeaddrinfo(addresses);
-                throw;
-            }
+
+                status = Unconnected;
+            } while (handle_error(err? err: no_address));
 
             freeaddrinfo(addresses);
 
-            if (ptr != nullptr) // Only non-NULL if valid address was bound or connected
-                status = address_is_remote? Connected: Bound;
-            else {
-                status = Unconnected;
-                if (!err)
-                    err = no_address;
-            }
-
-            return err;
+            // Prior to this call, the blocking mode could have been set but there was no descriptor to set it on
+            // This needs to be done now
+            set_blocking(is_blocking());
         }
 
     protected:

@@ -315,7 +315,7 @@ namespace Skate {
     public:
         typedef MessageInterface<Message> Interface;
 
-        // TODO: do we really need the throw?
+        // TODO: do we really need the throw? It's helpful, but may not be necessary
         MessageHandler(std::shared_ptr<Interface> iface) : d(iface) {
             if (!d)
                 throw std::runtime_error("MessageHandler initialized with null interface");
