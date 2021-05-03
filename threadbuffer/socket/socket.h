@@ -15,6 +15,7 @@
 
 #if POSIX_OS
 # include <ifaddrs.h> // For getting interfaces
+# include <sys/ioctl.h>
 #elif WINDOWS_OS
 # include <iphlpapi.h> // For getting interfaces
 #
@@ -66,6 +67,13 @@ namespace Skate {
         };
 
     public:
+        // Handles a system error that occurred.
+        //
+        // If description is non-null, it provides a user-readable description of what error occurred.
+        //
+        // If exception is thrown, the current operation is aborted
+        // If return value is false then continue current operation
+        // If return value is true, attempt to restart current operation
         typedef std::function<bool (Socket *, int, const char *)> ErrorFunction;
 
     protected:
@@ -87,12 +95,6 @@ namespace Skate {
 
         ErrorFunction _on_error;
 
-        // Handles a system error that occurred.
-        //
-        // If description is non-null, it provides a user-readable description of what error occurred.
-        //
-        // If return value is false (or never returns) then abort current operation.
-        // If return value is true, attempt to continue current operation.
         bool handle_error(int system_error, const char *description = nullptr) {
             if (system_error == 0)
                 return false;
@@ -167,42 +169,6 @@ namespace Skate {
         virtual Type type() const {return AnySocket;}
         virtual Protocol protocol() const {return AnyProtocol;}
 
-        // Socket functionality
-        // Synchronously binds to specified address and port
-        Socket &bind(SocketAddress address, uint16_t port) {
-            if (!is_unconnected())
-                throw std::logic_error("Socket was already connected or bound to an address");
-
-            bind(type(), protocol(), address, port, false);
-
-            return *this;
-        }
-        // Synchronously connects to specified address and port
-        Socket &connect(SocketAddress address, uint16_t port) {
-            if (!is_unconnected())
-                throw std::logic_error("Socket was already connected or bound to an address");
-            else if (!is_blocking())
-                throw std::logic_error("connect() must only be used on blocking sockets");
-
-            bind(type(), protocol(), address, port, true);
-
-            return *this;
-        }
-
-        // Starts socket listening for connections
-        Socket &listen(int backlog = SOMAXCONN) {
-            if (!is_bound())
-                throw std::logic_error("Socket can only use listen() if bound to an address");
-
-            const int err = ::listen(sock, backlog);
-            if (err)
-                handle_error(err);
-            else
-                status = Listening;
-
-            return *this;
-        }
-
         // Returns remote address information (only if connected)
         // port is in native byte order, and is indeterminate if an error occurs
         SocketAddress remote_address(uint16_t *port = nullptr) {
@@ -265,6 +231,42 @@ namespace Skate {
             return port;
         }
 
+        // Socket functionality
+        // Synchronously binds to specified address and port
+        Socket &bind(SocketAddress address, uint16_t port) {
+            if (!is_unconnected())
+                throw std::logic_error("Socket was already connected or bound to an address");
+
+            bind(address, port, false);
+
+            return *this;
+        }
+        // Synchronously connects to specified address and port
+        Socket &connect(SocketAddress address, uint16_t port) {
+            if (!is_unconnected())
+                throw std::logic_error("Socket was already connected or bound to an address");
+            else if (!is_blocking())
+                throw std::logic_error("connect() must only be used on blocking sockets");
+
+            bind(address, port, true);
+
+            return *this;
+        }
+
+        // Starts socket listening for connections
+        Socket &listen(int backlog = SOMAXCONN) {
+            if (!is_bound())
+                throw std::logic_error("Socket can only use listen() if bound to an address");
+
+            const int err = ::listen(sock, backlog);
+            if (err)
+                handle_error(err);
+            else
+                status = Listening;
+
+            return *this;
+        }
+
         // Synchronously disconnects connection
         Socket &disconnect() {
             SocketDescriptor temp = sock;
@@ -298,7 +300,7 @@ namespace Skate {
             const size_t original_size = len;
             while (len) {
                 const int to_send = len < INT_MAX? static_cast<int>(len): INT_MAX;
-                const int sent = ::send(sock, data, to_send, 0);
+                const int sent = ::send(sock, data, to_send, MSG_NOSIGNAL);
                 if (sent < 0) {
                     const int err = socket_error();
                     if (socket_would_block(err) || !handle_error(err))
@@ -446,6 +448,24 @@ namespace Skate {
             });
         }
 
+        // Returns the number of bytes waiting to be read without blocking
+        size_t bytes_available() {
+            if (sock == invalid_socket || is_blocking())
+                return 0;
+
+#if POSIX_OS
+            int bytes = 0;
+            while (::ioctl(sock, FIONREAD, &bytes) < 0 && handle_error(socket_error()))
+                ;
+            return size_t(bytes);
+#elif WINDOWS_OS
+            ULONG bytes = 0;
+            while (::ioctlsocket(sock, FIONREAD, &bytes) < 0 && handle_error(socket_error()))
+                ;
+            return bytes;
+#endif
+        }
+
         // Returns true if this socket is blocking (the default)
         bool is_blocking() const noexcept {return !nonblocking;}
 
@@ -574,9 +594,7 @@ namespace Skate {
         // Performs a synchronous (blocking) bind or connect to the given address
         // If address_is_remote is true, a connect() is performed
         // If address_is_remote is false, a bind() is performed
-        void bind(Type socket_type,
-                  Protocol protocol_type,
-                  SocketAddress address,
+        void bind(SocketAddress address,
                   uint16_t port,
                   bool address_is_remote) {
             static std::mutex gai_strerror_mtx;
@@ -587,8 +605,8 @@ namespace Skate {
 
             memset(&hints, 0, sizeof(hints));
             hints.ai_family = address.type();
-            hints.ai_socktype = socket_type;
-            hints.ai_protocol = protocol_type;
+            hints.ai_socktype = type();
+            hints.ai_protocol = protocol();
             hints.ai_flags = AI_PASSIVE;
 
             int err = 0;
@@ -632,26 +650,44 @@ namespace Skate {
             do {
                 try {
                     for (ptr = addresses; ptr; ptr = ptr->ai_next) {
+                        const int yes = 1;              // setsockopt option
+                        bool is_broadcast = false;      // is address a broadcast address
+
                         switch (ptr->ai_family) {
                             default: continue;
-                            case SocketAddress::IPAddressV4: break;
+                            case SocketAddress::IPAddressV4:
+                                is_broadcast = SocketAddress(reinterpret_cast<struct sockaddr_in *>(ptr->ai_addr));
+                                break;
                             case SocketAddress::IPAddressV6: break;
                         }
 
+                        // Create new socket descriptor
                         sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
                         if (sock == invalid_socket) {
                             err = socket_error();
                             continue;
                         }
 
-                        if (address_is_remote) { // connect() here if remote address
+                        // If a broadcast address, try to set the socket option
+                        // It really doesn't matter if this call fails as it's just to set permissions
+                        // connect() or bind() will give the real error
+                        if (is_broadcast)
+                            ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes));
+
+                        if (address_is_remote) {
+
+                            // connect() if remote address
+
                             if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
                                 err = socket_error();
                                 close_socket(sock);
                                 sock = invalid_socket;
                                 continue;
                             }
-                        } else { // bind() here if local address
+                        } else {
+
+                            // bind() if local address
+
                             const int yes = 1;
                             if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
                                 ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
@@ -671,7 +707,7 @@ namespace Skate {
 
                 if (ptr != nullptr) { // Successful connection was made only if ptr is nonnull
                     status = address_is_remote? Connected: Bound;
-                    break;
+                    break; // Break error handling loop to finish up
                 }
 
                 status = Unconnected;
@@ -694,6 +730,48 @@ namespace Skate {
     public:
         UDPSocket() {}
         virtual ~UDPSocket() {}
+
+        void write_datagram(SocketAddress address, uint16_t port, const char *data, size_t len) {
+            if (is_connected())
+                throw std::logic_error("write_datagram() must not be called on a connected socket");
+
+            const int yes = 1;
+            struct sockaddr_storage sockaddr;
+            address.to_native(&sockaddr, port);
+
+            // Create socket just for datagram and enable broadcast if necessary
+            SocketDescriptor s = ::socket(sockaddr.ss_family, DatagramSocket, UDPProtocol);
+            if (s == invalid_socket)
+                handle_error(socket_error());
+
+            try {
+                // Enable broadcast if a broadcast address
+                if (address.is_broadcast() &&
+                                 ::setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0)
+                    handle_error(socket_error());
+
+                // Send packet to socket
+                int err;
+                do {
+                    err = 0;
+                    const ssize_t written = ::sendto(s, data, len, 0,
+                                                     reinterpret_cast<struct sockaddr *>(&sockaddr), sizeof(sockaddr));
+                    if (written < 0)
+                        err = socket_error();
+                } while (handle_error(err));
+            } catch (...) {
+                close_socket(s);
+                throw;
+            }
+
+            handle_error(close_socket(s));
+        }
+        void write_datagram(SocketAddress address, uint16_t port, const char *data) {
+            write_datagram(address, port, data, strlen(data));
+        }
+        void write_datagram(SocketAddress address, uint16_t port, const std::string &str) {
+            write_datagram(address, port, str.c_str(), str.length());
+        }
 
         virtual Type type() const {return DatagramSocket;}
         virtual Protocol protocol() const {return UDPProtocol;}

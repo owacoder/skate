@@ -54,7 +54,14 @@ int main()
     try {
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
+        Skate::UDPSocket udp;
         Skate::SocketServer<Skate::Select> server;
+
+        udp.connect("192.168.1.255", 80);
+        udp.write("");
+        udp.write_datagram("255.255.255.255", 80, "Test");
+
+        return 0;
 
         socket.bind(Skate::SocketAddress::any(), 8089);
         server.listen(socket, [](Skate::Socket *connection) {
@@ -71,9 +78,9 @@ int main()
         //return 0;
 
         socket.disconnect();
-        socket.connect("www.google.com", 80);
+        socket.connect("owacoder.com", 80);
         socket.write("GET / HTTP/1.1\r\n"
-                     "Host: www.google.com\r\n"
+                     "Host: owacoder.com\r\n"
                      "Connection: close\r\n\r\n");
         std::cout << socket.local_address().to_string(socket.local_port()) << std::endl;
         std::cout << socket.remote_address().to_string(socket.remote_port()) << std::endl;
@@ -85,11 +92,6 @@ int main()
         std::cout << "ERROR: " << e.what() << std::endl;
         return 0;
     }
-
-    Skate::Poll poll;
-    Skate::Select select;
-
-    poll.poll([](Skate::SocketDescriptor, Skate::WatchFlags) {});
 
     typedef std::string Message;
     std::unique_ptr<Skate::MessageBroadcaster<Message>> msg(new Skate::MessageBroadcaster<Message>());

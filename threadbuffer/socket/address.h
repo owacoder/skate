@@ -147,6 +147,8 @@ namespace Skate {
         explicit operator std::string() const {return to_string();}
         operator bool() const {return !is_null();}
 
+        // Converts address to host, with port to include in native address
+        // port is in host byte order
         void to_native(struct sockaddr_storage *a, uint16_t port = 0) {
             if (a == nullptr)
                 return;

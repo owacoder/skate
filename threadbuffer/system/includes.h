@@ -8,6 +8,7 @@
 #if POSIX_OS
 # include <unistd.h>
 # include <cstring>
+# include <csignal>
 
 namespace Skate {
     // Really no difference between FileDescriptor and SocketDescriptor on Unix/POSIX systems
@@ -17,7 +18,12 @@ namespace Skate {
     static constexpr int ErrorTimedOut = ETIMEDOUT;
 
     // Startup wrapper for Skate, requires a single object to be defined either statically, or at the start of main()
-    class StartupWrapper {};
+    class StartupWrapper {
+    public:
+        StartupWrapper() {
+            ::signal(SIGPIPE, SIG_IGN);
+        }
+    };
 
     class ApiString {
     public:
@@ -214,6 +220,11 @@ namespace Skate {
 
     // Startup wrapper for Skate, requires a single object to be defined either statically, or at the start of main()/WinMain()
     class StartupWrapper {
+    public:
+        StartupWrapper() {
+            ::signal(SIGPIPE, SIG_IGN);
+        }
+
     private:
         WSAStartupWrapper wsaStartup;
     };
