@@ -243,8 +243,8 @@ namespace Skate {
         }
         // Synchronously connects to specified address and port
         Socket &connect(SocketAddress address, uint16_t port) {
-            if (!is_unconnected())
-                throw std::logic_error("Socket was already connected or bound to an address");
+            if (!is_unconnected() && !is_bound())
+                throw std::logic_error("connect() must be called on an unconnected or bound socket");
             else if (!is_blocking())
                 throw std::logic_error("connect() must only be used on blocking sockets");
 
@@ -289,10 +289,16 @@ namespace Skate {
             return *this;
         }
 
-        // Synchronously writes all data to socket
+        // Synchronously data to socket
         // Returns the number of bytes successfully written
         //
-        // For nonblocking sockets, this will only write data until it will not block
+        // For stream sockets:
+        //     For nonblocking sockets, this will only write data until it will not block
+        //
+        // For datagram sockets:
+        //     This will send the data as a single datagram
+        //     There is no way to differentiate between zero-length outgoing packets and a failure to send on a nonblocking socket
+        //
         size_t write(const char *data, size_t len) {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use write()/put() if connected or bound to an address");
@@ -339,9 +345,15 @@ namespace Skate {
         // Synchronously reads data from socket
         // Returns number of bytes read
         //
-        // For nonblocking sockets, this will only read all the data currently available for reading in the socket, up to max
+        // For stream sockets:
+        //     For nonblocking sockets, this will only read all the data currently available for reading in the socket, up to max
+        //
+        // For datagram sockets:
+        //     This will read one datagram from the socket, truncating the message if it doesn't fit in the provided buffer
+        //     There is no way to differentiate between zero-length incoming packets and a failure to read on a nonblocking socket
+        //
         size_t read(char *data, size_t max) {
-            if (!is_connected() && !is_bound() && !is_listening())
+            if (!is_connected() && !is_bound())
                 throw std::logic_error("Socket can only use read() if connected or bound to an address");
 
             const size_t original_max = max;
@@ -363,14 +375,21 @@ namespace Skate {
 
             return original_max;
         }
+
         // Synchronously reads up to max bytes from the socket and sends them to predicate as
         // void (const char *data, size_t len);
-        // The predicate may be called several times with new data, it should be considered an append function
         //
-        // For nonblocking sockets, this will only read data currently available for reading in the socket, up to max bytes
+        // For stream sockets:
+        //     The predicate may be called several times with new data, it should be considered an append function
+        //     For nonblocking sockets, this will only read data currently available for reading in the socket, up to max bytes
+        //
+        // For datagram sockets:
+        //     The predicate is called once with the entire data of the packet, up to max bytes
+        //     For nonblocking sockets, if the read would block, the predicate is not called
+        //
         template<typename Predicate>
         void read(uint64_t max, Predicate predicate) {
-            if (!is_connected() && !is_bound() && !is_listening())
+            if (!is_connected() && !is_bound())
                 throw std::logic_error("Socket can only use read() if connected or bound to an address");
 
             char buffer[0x1000];
@@ -390,14 +409,22 @@ namespace Skate {
                 max -= read;
             }
         }
+
         // Synchronously reads all data from the socket and sends it to predicate as
         // void (const char *data, size_t len);
-        // The predicate may be called several times with new data, it should be considered an append function
         //
-        // For nonblocking sockets, this will only read all the data currently available for reading in the socket
+        // For stream sockets:
+        //     The predicate may be called several times with new data, it should be considered an append function
+        //     For blocking sockets, this will read data until the sender disconnects or shuts down its write end
+        //     For nonblocking sockets, this will only read all the data currently available for reading in the socket
+        //
+        // For datagram sockets:
+        //     The predicate is called once with the entire data of the packet
+        //     For nonblocking sockets, if the read would block, the predicate is not called
+        //
         template<typename Predicate>
         void read_all(Predicate predicate) {
-            if (!is_connected() && !is_bound() && !is_listening())
+            if (!is_connected() && !is_bound())
                 throw std::logic_error("Socket can only use read_all() if connected or bound to an address");
 
             char buffer[0x1000];
@@ -731,40 +758,56 @@ namespace Skate {
         UDPSocket() {}
         virtual ~UDPSocket() {}
 
+        size_t pending_datagram_size() const {
+
+        }
+
+        size_t read_datagram(char *data, size_t max, SocketAddress *address = nullptr, uint16_t *port = nullptr) {
+            if (!is_bound() && !is_connected())
+                throw std::logic_error("Socket can only use read_datagram() if bound or connected to an address");
+
+            struct sockaddr_storage addr;
+            socklen_t addrlen;
+
+            long read;
+            int err;
+            do {
+                err = 0;
+                addrlen = sizeof(addr);
+                read = ::recvfrom(sock, data, max, 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
+                if (read < 0)
+                    err = socket_error();
+            } while (handle_error(err));
+
+            SocketAddress sender_addr(&addr, port);
+            if (address)
+                *address = sender_addr;
+
+            return read;
+        }
+
         void write_datagram(SocketAddress address, uint16_t port, const char *data, size_t len) {
-            if (is_connected())
-                throw std::logic_error("write_datagram() must not be called on a connected socket");
+            if (!is_bound() && !is_connected())
+                throw std::logic_error("Socket can only use write_datagram() if bound or connected to an address");
 
             const int yes = 1;
-            struct sockaddr_storage sockaddr;
-            address.to_native(&sockaddr, port);
+            struct sockaddr_storage addr;
+            address.to_native(&addr, port);
 
-            // Create socket just for datagram and enable broadcast if necessary
-            SocketDescriptor s = ::socket(sockaddr.ss_family, DatagramSocket, UDPProtocol);
-            if (s == invalid_socket)
+            // Enable broadcast if a broadcast address
+            if (address.is_broadcast() &&
+                             ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0)
                 handle_error(socket_error());
 
-            try {
-                // Enable broadcast if a broadcast address
-                if (address.is_broadcast() &&
-                                 ::setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0)
-                    handle_error(socket_error());
-
-                // Send packet to socket
-                int err;
-                do {
-                    err = 0;
-                    const ssize_t written = ::sendto(s, data, len, 0,
-                                                     reinterpret_cast<struct sockaddr *>(&sockaddr), sizeof(sockaddr));
-                    if (written < 0)
-                        err = socket_error();
-                } while (handle_error(err));
-            } catch (...) {
-                close_socket(s);
-                throw;
-            }
-
-            handle_error(close_socket(s));
+            // Send packet to socket
+            int err;
+            do {
+                err = 0;
+                const ssize_t written = ::sendto(sock, data, len, 0,
+                                                 reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
+                if (written < 0)
+                    err = socket_error();
+            } while (handle_error(err));
         }
         void write_datagram(SocketAddress address, uint16_t port, const char *data) {
             write_datagram(address, port, data, strlen(data));

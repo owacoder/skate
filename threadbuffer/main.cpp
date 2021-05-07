@@ -57,6 +57,7 @@ int main()
         Skate::UDPSocket udp;
         Skate::SocketServer<Skate::Select> server;
 
+        udp.bind(Skate::SocketAddress::any(), 8080);
         udp.connect("192.168.1.255", 80);
         udp.write("");
         udp.write_datagram("255.255.255.255", 80, "Test");

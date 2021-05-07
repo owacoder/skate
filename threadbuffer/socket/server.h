@@ -106,34 +106,35 @@ namespace Skate {
         }
 
         void poll() {
-            const int err = system_watcher.poll([&](SocketDescriptor desc, WatchFlags flags) {
-                if (desc == listener->native()) { // Listening socket is ready to read
-                    struct sockaddr_storage remote_addr;
-                    socklen_t remote_addr_len = sizeof(remote_addr);
+            int err;
 
-                    do {
-#if POSIX_OS
-                        const SocketDescriptor remote = ::accept(desc,
-                                                                 reinterpret_cast<struct sockaddr *>(&remote_addr),
-                                                                 &remote_addr_len);
+            do {
+                err = system_watcher.poll([&](SocketDescriptor desc, WatchFlags flags) {
+                    if (desc == listener->native()) { // Listening socket is ready to read
+                        struct sockaddr_storage remote_addr;
+                        socklen_t remote_addr_len = sizeof(remote_addr);
 
-                        if (remote == Socket::invalid_socket) {
-                            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                                break;
+                        do {
+    #if POSIX_OS
+                            const SocketDescriptor remote = ::accept(desc,
+                                                                     reinterpret_cast<struct sockaddr *>(&remote_addr),
+                                                                     &remote_addr_len);
 
-                            listener->handle_error(errno);
-                        }
-                        else
-                            new_native_connection_callback(remote);
-#endif
-                    } while (!listener->is_blocking()); // If non-blocking listener socket, then read all available new connections immediately
-                } else { // Some other socket had an event, trigger the user's callback
-                    existing_native_connection(desc, flags);
-                }
-            });
+                            if (remote == Socket::invalid_socket) {
+                                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                                    break;
 
-            if (err)
-                listener->handle_error(err);
+                                listener->handle_error(errno);
+                            }
+                            else
+                                new_native_connection_callback(remote);
+    #endif
+                        } while (!listener->is_blocking()); // If non-blocking listener socket, then read all available new connections immediately
+                    } else { // Some other socket had an event, trigger the user's callback
+                        existing_native_connection(desc, flags);
+                    }
+                });
+            } while (listener->handle_error(err));
         }
     };
 }

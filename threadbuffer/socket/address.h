@@ -35,16 +35,37 @@ namespace Skate {
             }
         }
         explicit SocketAddress(uint32_t ipv4) : address_type(IPAddressV4), ipv4(htonl(ipv4)) {}
-        explicit SocketAddress(const struct sockaddr_storage *addr) : address_type(static_cast<Type>(addr->ss_family)) {
+        explicit SocketAddress(const struct sockaddr_storage *addr, uint16_t *port_out = nullptr) : address_type(static_cast<Type>(addr->ss_family)) {
             switch (addr->ss_family) {
-                default: address_type = IPAddressUnspecified; break;
-                case IPAddressV4: ipv4 = reinterpret_cast<const struct sockaddr_in *>(addr)->sin_addr.s_addr; break;
-                case IPAddressV6: memcpy(ipv6, reinterpret_cast<const struct sockaddr_in6 *>(addr)->sin6_addr.s6_addr, sizeof(ipv6)); break;
+                default:
+                    address_type = IPAddressUnspecified;
+                    if (port_out)
+                        *port_out = 0;
+                    break;
+                case IPAddressV4: {
+                    const struct sockaddr_in *a = reinterpret_cast<const struct sockaddr_in *>(addr);
+                    ipv4 = a->sin_addr.s_addr;
+                    if (port_out)
+                        *port_out = ntohs(a->sin_port);
+                    break;
+                }
+                case IPAddressV6: {
+                    const struct sockaddr_in6 *a = reinterpret_cast<const struct sockaddr_in6 *>(addr);
+                    memcpy(ipv6, a->sin6_addr.s6_addr, sizeof(ipv6));
+                    if (port_out)
+                        *port_out = ntohs(a->sin6_port);
+                    break;
+                }
             }
         }
-        explicit SocketAddress(const struct sockaddr_in *addr) : address_type(IPAddressV4), ipv4(addr->sin_addr.s_addr) {}
-        explicit SocketAddress(const struct sockaddr_in6 *addr) : address_type(IPAddressV6) {
+        explicit SocketAddress(const struct sockaddr_in *addr, uint16_t *port_out = nullptr) : address_type(IPAddressV4), ipv4(addr->sin_addr.s_addr) {
+            if (port_out)
+                *port_out = ntohs(addr->sin_port);
+        }
+        explicit SocketAddress(const struct sockaddr_in6 *addr, uint16_t *port_out = nullptr) : address_type(IPAddressV6) {
             memcpy(ipv6, addr->sin6_addr.s6_addr, sizeof(ipv6));
+            if (port_out)
+                *port_out = ntohs(addr->sin6_port);
         }
 
         static SocketAddress any(Type type = IPAddressV4) {
