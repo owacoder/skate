@@ -1,16 +1,34 @@
 #ifndef SKATE_SERVER_H
 #define SKATE_SERVER_H
 
+#include "socket.h"
+
 #include "select.h"
 #include "poll.h"
+#if LINUX_OS
+# include "epoll.h"
+#endif
+
+#include <unordered_set>
+#include <thread>
 
 namespace Skate {
-    template<typename SystemWatcher = Poll>
+    namespace impl {
+#if LINUX_OS
+        typedef EPoll DefaultSystemWatcher;
+#elif POSIX_OS
+        typedef Poll DefaultSystemWatcher;
+#elif WINDOWS_OS
+        typedef Poll DefaultSystemWatcher;
+#endif
+    }
+
+    template<typename SystemWatcher = impl::DefaultSystemWatcher>
     class SocketServer {
     public:
         typedef std::function<void (SocketDescriptor)> NewNativeConnectionFunction;
         typedef std::function<void (Socket *)> NewConnectionFunction;
-        typedef std::function<void (Socket *, WatchFlags)> WatchFunction;
+        typedef std::function<void (Socket *, WatchFlags &)> WatchFunction;
 
     protected:
         std::unordered_map<SocketDescriptor, std::unique_ptr<Socket>> sockets;
@@ -36,18 +54,18 @@ namespace Skate {
                 new_connection_callback(connection);
         }
 
-        void existing_native_connection(SocketDescriptor client, WatchFlags flags) {
-            const auto it = sockets.find(client);
-            Socket * const connection = it->second.get();
+        void existing_native_connection(SocketDescriptor desc, WatchFlags flags) {
+            const auto it = sockets.find(desc);
+            Socket * const socket = it->second.get();
 
             // assert(it != sockets.end());
             // assert(watch_callback);
-            watch_callback(connection, flags);
+            watch_callback(socket, flags);
 
             // Was it a hangup, or socket disconnected in callback? If so, unwatch and delete
-            if ((flags & WatchHangup) || connection->is_unconnected()) {
-                system_watcher.unwatch(client);
-                sockets.erase(client);
+            if ((flags & WatchHangup) || socket->is_unconnected()) {
+                system_watcher.unwatch_dead_descriptor(desc);
+                sockets.erase(desc);
             }
         }
 
@@ -109,13 +127,15 @@ namespace Skate {
             int err;
 
             do {
+                std::this_thread::yield();
+
                 err = system_watcher.poll([&](SocketDescriptor desc, WatchFlags flags) {
                     if (desc == listener->native()) { // Listening socket is ready to read
                         struct sockaddr_storage remote_addr;
                         socklen_t remote_addr_len = sizeof(remote_addr);
 
                         do {
-    #if POSIX_OS
+#if POSIX_OS
                             const SocketDescriptor remote = ::accept(desc,
                                                                      reinterpret_cast<struct sockaddr *>(&remote_addr),
                                                                      &remote_addr_len);
@@ -125,13 +145,21 @@ namespace Skate {
                                     break;
 
                                 listener->handle_error(errno);
+                                break;
                             }
                             else
                                 new_native_connection_callback(remote);
-    #endif
+#endif
                         } while (!listener->is_blocking()); // If non-blocking listener socket, then read all available new connections immediately
                     } else { // Some other socket had an event, trigger the user's callback
+                        const WatchFlags original_flags = flags;
+
                         existing_native_connection(desc, flags);
+
+                        // If library user changed the watch flags for the descriptor, so update the watcher
+                        if (flags != original_flags) {
+                            system_watcher.modify(desc, flags);
+                        }
                     }
                 });
             } while (listener->handle_error(err));

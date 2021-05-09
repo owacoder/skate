@@ -28,11 +28,33 @@ namespace Skate {
 
         typedef std::function<void (SocketDescriptor, WatchFlags)> NativeWatchFunction;
 
+        // Returns which events are currently being watched on the socket
+        // Some watcher types (e.g. epoll(), kqueue()) may not have this information and will always return 0 (not watching)
         virtual WatchFlags watching(SocketDescriptor socket) const = 0;
+
+        // Watches a descriptor with the specified watch flags
         virtual void watch(SocketDescriptor socket, WatchFlags watch_type) = 0;
+
+        // Attempts to watch a descriptor with the specified watch flags, returns false if not possible
         virtual bool try_watch(SocketDescriptor socket, WatchFlags watch_type) = 0;
+
+        // Modifies the watch type for a specified socket
+        virtual void modify(SocketDescriptor socket, WatchFlags new_watch_type) {
+            unwatch(socket);
+            watch(socket, new_watch_type);
+        }
+
+        // Unwatches a descriptor that may still be open
         virtual void unwatch(SocketDescriptor socket) = 0;
 
+        // Unwatches a descriptor known to be closed already
+        virtual void unwatch_dead_descriptor(SocketDescriptor socket) {unwatch(socket);}
+
+        // Clears all descriptors from this watcher
+        virtual void clear() = 0;
+
+        // Polls the watcher to obtain events that happened, returns system error on failure, 0 on success
+        // The first variant is infinite timeout, the second is timeout specified in microseconds
         virtual int poll(NativeWatchFunction fn) = 0;
         virtual int poll(NativeWatchFunction fn, std::chrono::microseconds us) = 0;
 

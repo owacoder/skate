@@ -55,14 +55,16 @@ int main()
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
         Skate::UDPSocket udp;
-        Skate::SocketServer<Skate::Select> server;
+        Skate::SocketServer<Skate::EPoll> server;
 
+#if 0
         udp.bind(Skate::SocketAddress::any(), 8080);
         udp.connect("192.168.1.255", 80);
         udp.write("");
         udp.write_datagram("255.255.255.255", 80, "Test");
 
         return 0;
+#endif
 
         socket.bind(Skate::SocketAddress::any(), 8089);
         server.listen(socket, [](Skate::Socket *connection) {
@@ -74,7 +76,7 @@ int main()
                 connection->disconnect();
             }
         });
-        //server.run();
+        server.run();
 
         //return 0;
 
@@ -89,10 +91,13 @@ int main()
 
         std::cout << "Socket was bound\n";
         return 0;
-    } catch (const std::exception &e) {
+    } catch (int) {}
+#if 0
+    catch (const std::exception &e) {
         std::cout << "ERROR: " << e.what() << std::endl;
         return 0;
     }
+#endif
 
     typedef std::string Message;
     std::unique_ptr<Skate::MessageBroadcaster<Message>> msg(new Skate::MessageBroadcaster<Message>());

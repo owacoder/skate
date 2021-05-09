@@ -99,14 +99,14 @@ namespace Skate {
                     fn(desc.fd, watch_flags);
             }
 
-            return ready? 0: ErrorTimedOut;
+            return 0;
         }
 
         int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             if (timeout.count() > INT_MAX)
                 return EINVAL;
 
-            const int ready = ::poll(fds.data(), fds.size(), timeout.count() * 1000);
+            const int ready = ::poll(fds.data(), fds.size(), timeout.count() / 1000);
             if (ready < 0)
                 return errno;
 
@@ -210,14 +210,14 @@ namespace Skate {
                     fn(desc.fd, watch_flags);
             }
 
-            return ready? 0: ErrorTimedOut;
+            return 0;
         }
 
-        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::milliseconds timeout) {
+        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             if (timeout.count() > INT_MAX)
                 return EINVAL;
 
-            const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), timeout.count());
+            const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), timeout.count() / 1000);
             if (ready < 0)
                 return WSAGetLastError();
 
@@ -233,10 +233,5 @@ namespace Skate {
     };
 }
 #endif
-
-// Generic
-namespace Skate {
-
-}
 
 #endif // POLL_H

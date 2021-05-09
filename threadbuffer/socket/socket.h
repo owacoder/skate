@@ -409,7 +409,7 @@ namespace Skate {
                         continue;
                     }
 
-                    predicate(static_cast<const char *>(packet.data()), size_t(read));
+                    predicate(packet.c_str(), size_t(read));
                 }
             } else {
                 while (max) {
@@ -460,7 +460,7 @@ namespace Skate {
                         continue;
                     }
 
-                    predicate(static_cast<const char *>(packet.data()), size_t(read));
+                    predicate(packet.c_str(), size_t(read));
                 }
             } else {
                 char buffer[0x1000];
@@ -869,7 +869,7 @@ namespace Skate {
 
                     uint16_t port;
                     SocketAddress address(&addr, &port);
-                    p(&packet[0], read, address, port);
+                    p(packet.c_str(), read, address, port);
 
                     return read;
                 }

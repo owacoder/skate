@@ -16,7 +16,9 @@ HEADERS += \
     socket/socket.h \
     socket/select.h \
     socket/poll.h \
-    socket/server.h
+    socket/server.h \
+    socket/kqueue.h \
+    socket/epoll.h
 
 linux {
     LIBS += -lpthread

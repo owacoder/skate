@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <cerrno>
 
+#include <memory>
+#include <unordered_map>
+
 #include "../system/includes.h"
 #include "common.h"
 
