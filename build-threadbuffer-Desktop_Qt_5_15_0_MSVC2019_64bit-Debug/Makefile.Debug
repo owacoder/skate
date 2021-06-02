@@ -53,15 +53,20 @@ OBJECTS_DIR   = debug
 SOURCES       = ..\threadbuffer\main.cpp 
 OBJECTS       = debug\main.obj
 
-DIST          =  common.h \
+DIST          =  socket/iocp.h \
+		socket/wsaasyncselect.h \
+		threadbuffer.h \
 		io/device.h \
+		system/includes.h \
+		system/environment.h \
+		socket/common.h \
 		socket/address.h \
 		socket/socket.h \
-		system/includes.h \
-		threadbuffer.h \
-		system/environment.h \
 		socket/select.h \
-		socket/poll.h ..\threadbuffer\main.cpp
+		socket/poll.h \
+		socket/server.h \
+		socket/kqueue.h \
+		socket/epoll.h ..\threadbuffer\main.cpp
 QMAKE_TARGET  = threadbuffer
 DESTDIR        = debug\ #avoid trailing-slash linebreak
 TARGET         = threadbuffer.exe
@@ -163,9 +168,12 @@ debug\main.obj: ..\threadbuffer\main.cpp ..\threadbuffer\threadbuffer.h \
 		..\threadbuffer\system\includes.h \
 		..\threadbuffer\system\environment.h \
 		..\threadbuffer\io\device.h \
-		..\threadbuffer\socket\poll.h \
+		..\threadbuffer\socket\server.h \
+		..\threadbuffer\socket\select.h \
 		..\threadbuffer\socket\common.h \
-		..\threadbuffer\socket\select.h
+		..\threadbuffer\socket\poll.h \
+		..\threadbuffer\socket\epoll.h \
+		..\threadbuffer\socket\wsaasyncselect.h
 
 ####### Install
 

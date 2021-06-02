@@ -2,14 +2,16 @@
 #define SKATE_SOCKET_H
 
 #include "address.h"
-#include "../io/device.h"
+#include "../io/buffer.h"
 
 #include <memory>
 #include <vector>
+#include <deque>
 #include <functional>
 #include <chrono>
 #include <cstddef>
 #include <climits>
+#include <algorithm>
 
 #include <mutex>
 
@@ -20,7 +22,7 @@
 # include <iphlpapi.h> // For getting interfaces
 #
 # if MSVC_COMPILER
-#  pragma comment(lib, "iphlpapi.lib")
+#  pragma comment(lib, "iphlpapi")
 # endif
 #endif
 
@@ -50,7 +52,7 @@ namespace Skate {
     template<typename SocketWatcher>
     class SocketServer;
 
-    class Socket : public IODevice {
+    class Socket {
         Socket(const Socket &) = delete;
         Socket(Socket &&) = delete;
         Socket &operator=(const Socket &) = delete;
@@ -89,8 +91,13 @@ namespace Skate {
         static constexpr int no_address = EADDRNOTAVAIL;
 #elif WINDOWS_OS
         static inline int close_socket(SocketDescriptor s) {return ::closesocket(s);}
+        static inline bool socket_would_block(int system_error) {
+            return system_error == WSAEWOULDBLOCK;
+        }
         static inline int socket_error() {return ::WSAGetLastError();}
         static constexpr int no_address = ERROR_HOST_UNREACHABLE;
+#else
+# error Platform not supported
 #endif
 
         ErrorFunction _on_error;
@@ -107,10 +114,10 @@ namespace Skate {
             }
         }
 
-        Socket(SocketDescriptor sock)
+        Socket(SocketDescriptor sock, bool nonblocking = false)
             : sock(sock)
             , status(sock == invalid_socket? Unconnected: Connected)
-            , nonblocking(false)
+            , nonblocking(nonblocking)
         {}
 
     public:
@@ -140,6 +147,8 @@ namespace Skate {
             ShutdownWrite = SD_SEND,
             ShutdownReadWrite = SD_BOTH
         };
+#else
+# error Platform not supported
 #endif
 
         // Initialization and destruction
@@ -289,7 +298,7 @@ namespace Skate {
             return *this;
         }
 
-        // Synchronously data to socket
+        // Synchronously write data to socket
         // Returns the number of bytes successfully written
         //
         // For stream sockets:
@@ -377,6 +386,12 @@ namespace Skate {
             return original_max;
         }
 
+        // A simple, user-configurable storage location for TCP (or similar stream socket) read data
+        InputOutputBuffer<char> &read_buffer() { return rbuffer; }
+
+        // A simple, user-configurable storage location for UDP/TCP (or really any socket type) write data
+        // Data is written in
+
         // Synchronously reads up to max bytes from the socket and sends them to predicate as
         // `void (const char *data, size_t len)`
         //
@@ -452,7 +467,7 @@ namespace Skate {
                 std::string packet(bytes_available(), '\0');
 
                 while (true) {
-                    const int read = ::recv(sock, &packet[0], packet.size(), 0);
+                    const int read = ::recv(sock, &packet[0], static_cast<int>(packet.size()), 0);
                     if (read < 0) {
                         const int err = socket_error();
                         if (socket_would_block(err) || !handle_error(err))
@@ -484,6 +499,11 @@ namespace Skate {
                 str.append(data, len);
             });
         }
+        void read(size_t max, InputOutputBuffer<char> &buffer) {
+            read(max, [&buffer](const char *data, size_t len) {
+                buffer.write(data, data + len);
+            });
+        }
         void read(size_t max, std::ostream &os) {
             read(max, [&os](const char *data, size_t len) {
                 os.write(data, len);
@@ -501,6 +521,11 @@ namespace Skate {
             });
         }
         std::string read_all() { std::string result; read_all(result); return result; }
+        void read_all(InputOutputBuffer<char> &buffer) {
+            read_all([&buffer](const char *data, size_t len) {
+                buffer.write(data, data + len);
+            });
+        }
         void read_all(std::ostream &os) {
             read_all([&os](const char *data, size_t len) {
                 os.write(data, len);
@@ -527,6 +552,8 @@ namespace Skate {
             while (::ioctlsocket(sock, FIONREAD, &bytes) < 0 && handle_error(socket_error()))
                 ;
             return bytes;
+#else
+# error Platform not supported
 #endif
         }
 
@@ -553,6 +580,8 @@ namespace Skate {
                 handle_error(socket_error());
             else
                 nonblocking = !b;
+#else
+# error Platform not supported
 #endif
         }
 
@@ -651,6 +680,8 @@ namespace Skate {
             }
 
             return result;
+#else
+# error Platform not supported
 #endif
         }
 
@@ -674,7 +705,7 @@ namespace Skate {
             hints.ai_flags = AI_PASSIVE;
 
             int err = 0;
-            std::string err_description;
+            ApiString err_description;
 
             do {
                 err = ::getaddrinfo(address? address.to_string().c_str(): NULL,
@@ -682,32 +713,42 @@ namespace Skate {
                                     &hints,
                                     &addresses);
 
+#if POSIX_OS
                 if (err == EAI_SYSTEM) {
                     err = errno;
                     err_description.clear();
-                } else if (err) {
+                } else
+
+#endif
+                /* else (if POSIX_OS) */ if (err) {
                     {
                         std::lock_guard<std::mutex> lock(gai_strerror_mtx);
+#if WINDOWS_OS
+                        err_description = gai_strerrorW(err);
+#else
                         err_description = gai_strerror(err);
+#endif
                     }
 
                     // Map to the most similar system errors
                     switch (err) {
+#if POSIX_OS
                         case EAI_ADDRFAMILY:                  break; // No mapping
+                        case EAI_NODATA:                      break; // Windows doesn't like this
+#endif
                         case EAI_AGAIN:         err = EAGAIN; break;
                         case EAI_BADFLAGS:                    break; // Won't happen
                         case EAI_FAIL:                        break;
                         case EAI_FAMILY:                      break;
                         case EAI_MEMORY:        err = ENOMEM; break;
-                        case EAI_NODATA:                      break;
                         case EAI_NONAME:                      break;
                         case EAI_SERVICE:                     break;
                         case EAI_SOCKTYPE:                    break;
                     }
                 } else {
-                    err_description.clear();
+                    err_description = {};
                 }
-            } while (handle_error(err, err_description.c_str()));
+            } while (err && handle_error(err, err_description.to_utf8().c_str()));
 
             status = Connecting;
 
@@ -788,6 +829,9 @@ namespace Skate {
         SocketDescriptor sock;
         State status;
         bool nonblocking;
+
+        std::deque<InputOutputBuffer<char>> wbuffer;
+        InputOutputBuffer<char> rbuffer;
     };
 
     class UDPSocket : public Socket {
@@ -919,8 +963,9 @@ namespace Skate {
 
             // Send packet to socket
             while (true) {
-                const ssize_t written = ::sendto(sock, data, len, 0,
-                                                 reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
+                const int to_write = len < INT_MAX? static_cast<int>(len): INT_MAX;
+                const int written = ::sendto(sock, data, to_write, 0,
+                                             reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
                 if (written < 0) {
                     const int err = socket_error();
                     if (socket_would_block(err) || !handle_error(err))

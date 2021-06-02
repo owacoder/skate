@@ -7,6 +7,11 @@ SOURCES += \
         main.cpp
 
 HEADERS += \
+    containers/abstract_list.h \
+    containers/tree.h \
+    io/buffer.h \
+    socket/iocp.h \
+    socket/wsaasyncselect.h \
     threadbuffer.h \
     io/device.h \
     system/includes.h \

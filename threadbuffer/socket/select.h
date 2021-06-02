@@ -39,7 +39,16 @@ namespace Skate {
         }
 
     public:
-        Select() {clear();}
+        Select()
+            : max_read_descriptor(-1)
+            , max_write_descriptor(-1)
+            , max_except_descriptor(-1)
+        {
+            FD_ZERO(&master_read_set);
+            FD_ZERO(&master_write_set);
+            FD_ZERO(&master_except_set);
+        }
+        virtual ~Select() {}
 
         // Returns which watch types are being watched for the given file descriptor,
         // or 0 if the file descriptor is not being watched.
@@ -222,7 +231,12 @@ namespace Skate {
         }
 
     public:
-        Select() {clear();}
+        Select() {
+            FD_ZERO(&master_read_set);
+            FD_ZERO(&master_write_set);
+            FD_ZERO(&master_except_set);
+        }
+        virtual ~Select() {}
 
         // Returns which watch types are being watched for the given socket descriptor,
         // or 0 if the file descriptor is not being watched.
@@ -277,7 +291,7 @@ namespace Skate {
         // Runs select() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
         // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
         // Returns 0 on success, Skate::ErrorTimedOut on timeout, or a system error if an error occurs
-        int poll(SocketWatcher::NativeWatchFunction fn, const timeval *timeout) {
+        int poll(SocketWatcher::NativeWatchFunction fn, struct timeval *timeout) {
             fd_set read_set, write_set, except_set;
 
             memcpy(&read_set, &master_read_set, sizeof(master_read_set));
@@ -299,7 +313,7 @@ namespace Skate {
         int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
             struct timeval tm;
 
-            tm.tv_sec = timeout.count() / 1000000;
+            tm.tv_sec = static_cast<long>(timeout.count() / 1000000);
             tm.tv_usec = timeout.count() % 1000000;
 
             return poll(fn, &tm);

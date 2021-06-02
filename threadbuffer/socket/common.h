@@ -20,6 +20,9 @@ namespace Skate {
     class SocketServer;
 
     class SocketWatcher {
+        SocketWatcher(const SocketWatcher &) = delete;
+        SocketWatcher &operator=(const SocketWatcher &) = delete;
+
     protected:
         SocketWatcher() {}
 
@@ -39,15 +42,18 @@ namespace Skate {
         virtual bool try_watch(SocketDescriptor socket, WatchFlags watch_type) = 0;
 
         // Modifies the watch type for a specified socket
+        // If the descriptor is not in the set, nothing happens
         virtual void modify(SocketDescriptor socket, WatchFlags new_watch_type) {
             unwatch(socket);
             watch(socket, new_watch_type);
         }
 
         // Unwatches a descriptor that may still be open
+        // If the descriptor is not in the set, nothing happens
         virtual void unwatch(SocketDescriptor socket) = 0;
 
         // Unwatches a descriptor known to be closed already
+        // If the descriptor is not in the set, nothing happens
         virtual void unwatch_dead_descriptor(SocketDescriptor socket) {unwatch(socket);}
 
         // Clears all descriptors from this watcher

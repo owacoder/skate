@@ -189,8 +189,11 @@ namespace Skate {
 # include <windows.h>
 
 # if MSVC_COMPILER
-#  pragma comment(lib, "ws2_32.lib")
+#  pragma comment(lib, "ws2_32")
 # endif
+
+// Define missing MSG_NOSIGNAL flag to nothing since Windows doesn't use it
+#define MSG_NOSIGNAL 0
 
 namespace Skate {
     typedef HANDLE FileDescriptor;
@@ -221,9 +224,7 @@ namespace Skate {
     // Startup wrapper for Skate, requires a single object to be defined either statically, or at the start of main()/WinMain()
     class StartupWrapper {
     public:
-        StartupWrapper() {
-            ::signal(SIGPIPE, SIG_IGN);
-        }
+        StartupWrapper() {}
 
     private:
         WSAStartupWrapper wsaStartup;
@@ -393,6 +394,8 @@ namespace Skate {
 // Handy reference for Windows Async programming:
 // https://www.microsoftpressstore.com/articles/article.aspx?p=2224047&seqNum=5
 // and http://www.kegel.com/c10k.html
+#else
+# error Platform not supported
 #endif
 
 #endif // SKATE_SYSTEM_INCLUDES_H

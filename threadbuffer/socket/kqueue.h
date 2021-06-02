@@ -42,7 +42,7 @@ namespace Skate {
             if (queue == Skate::Socket::invalid_socket)
                 throw std::runtime_error(system_error_string(errno).to_utf8());
         }
-        ~KQueue() { close(queue); }
+        virtual ~KQueue() { close(queue); }
 
         virtual WatchFlags watching(SocketDescriptor) const {
             // TODO: no way to determine if kernel has socket in set already
@@ -115,7 +115,7 @@ namespace Skate {
         int poll(NativeWatchFunction fn, std::chrono::microseconds us) {
             struct timespec tm;
 
-            tm.tv_sec = us.count() / 1000000;
+            tm.tv_sec = static_cast<long>(us.count() / 1000000);
             tm.tv_nsec = (us.count() % 1000000) * 1000;
 
             return poll(fn, &tm);

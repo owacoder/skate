@@ -11,6 +11,7 @@ namespace Skate {
     class EPoll : public SocketWatcher {
         int queue;
 
+    public:
         static WatchFlags watch_flags_from_kernel_flags(uint32_t kernel_flags) noexcept {
             WatchFlags watch_flags = 0;
 
@@ -35,12 +36,11 @@ namespace Skate {
             return kernel_flags;
         }
 
-    public:
         EPoll() : queue(::epoll_create1(0)) {
             if (queue == Socket::invalid_socket)
                 throw std::runtime_error(system_error_string(errno).to_utf8());
         }
-        ~EPoll() { close(queue); }
+        virtual ~EPoll() { close(queue); }
 
         virtual WatchFlags watching(SocketDescriptor) const {
             // TODO: no way to determine if kernel has socket in set already
@@ -99,15 +99,18 @@ namespace Skate {
             return 0;
         }
 
-        int poll(NativeWatchFunction fn, std::chrono::microseconds us) {
+        int poll(NativeWatchFunction fn, std::chrono::microseconds timeout) {
+            if (timeout.count() > INT_MAX)
+                return EINVAL;
+
             struct epoll_event events[1024];
 
-            const int ready = ::epoll_wait(queue, events, sizeof(events)/sizeof(*events), us.count() / 1000);
+            const int ready = ::epoll_wait(queue, events, sizeof(events)/sizeof(*events), timeout.count() / 1000);
             if (ready < 0)
                 return errno;
 
-            for (int i = 0; i < ready; ++i) {
-                fn(events[i].data.fd, watch_flags_from_kernel_flags(events[i].events));
+            for (const auto &ev: events) {
+                fn(ev.data.fd, watch_flags_from_kernel_flags(ev.events));
             }
 
             return ready? 0: ErrorTimedOut;

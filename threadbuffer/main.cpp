@@ -3,6 +3,9 @@
 #include <thread>
 #include <vector>
 
+#include "io/buffer.h"
+#include "containers/tree.h"
+
 #include "socket/socket.h"
 #include "socket/server.h"
 
@@ -49,13 +52,84 @@ std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
     return os;
 }
 
+#include <containers/abstract_list.h>
+#include <forward_list>
+
 int main()
 {
+#if 0
+    dynamic_tree<std::string, false> t, copy;
+    dynamic_tree<std::string, false>::iterator it = t.root();
+
+    t.value() = "Value";
+
+    it = t.replace(it, "Value");
+    it = t.add_child(t.add_child(it, "Left"), {});
+    t.add_child(it, "Right");
+    copy = t;
+
+    for (auto it = t.postorder_begin(); it.exists(); ++it)
+        std::cout << *it << std::endl;
+
+    std::cout << "  Height: " << t.height() << std::endl;
+    std::cout << "    Size: " << t.size() << std::endl;
+    std::cout << "  Leaves: " << t.leaf_count() << std::endl;
+    std::cout << "Branches: " << t.branch_count() << std::endl;
+#endif
+
+    std::vector<char> vec;
+    std::forward_list<char> lst = {'A', 'B', 'C'};
+    std::string test_string;
+
+    Skate::AbstractList(lst) += Skate::AbstractList(lst);
+    Skate::AbstractList(test_string) = Skate::AbstractList(vec) = Skate::AbstractList(lst);
+    Skate::AbstractList(test_string) += Skate::AbstractList(test_string);
+
+    for (const auto &element : vec) {
+        std::cout << element;
+    }
+
+    std::cout << std::endl;
+    std::cout << test_string << std::endl;
+
+    return 0;
+
+#if 1
+    Skate::InputOutputBuffer<char> buffer;
+
+    buffer.write_from("Test");
+
+    std::cout << buffer.read<std::string>(3);
+
+    buffer.write('!');
+
+    std::cout << buffer.read<std::string>(1);
+
+    return 0;
+#endif
+
+#if 1
+    Skate::dynamic_tree<std::string> t("Value");
+
+    *t = "C:\\";
+    t.append_child("RECYCLE BIN");
+    t.append_child("Folder");
+    for (size_t i = 0; i < 100; ++i)
+        t.append_child(std::to_string(i+1));
+
+    for (auto it = t.preorder_begin(); it != t.end(); ++it) {
+        std::cout << std::string(it.depth(), ' ');
+        std::cout << *it << std::endl;
+    }
+
+    return 0;
+#endif
+
     try {
         Skate::StartupWrapper wrapper;
         Skate::TCPSocket socket;
         Skate::UDPSocket udp;
-        Skate::SocketServer<Skate::EPoll> server;
+        Skate::SocketServer<Skate::Poll> server;
 
 #if 0
         udp.bind(Skate::SocketAddress::any(), 8080);
@@ -66,19 +140,30 @@ int main()
         return 0;
 #endif
 
+        socket.set_blocking(false);
         socket.bind(Skate::SocketAddress::any(), 8089);
         server.listen(socket, [](Skate::Socket *connection) {
-            std::cout << "New connection to " << connection->remote_address().to_string(connection->remote_port()) << std::endl;
-        }, [](Skate::Socket *connection, Skate::WatchFlags flags) {
-            if (flags & Skate::WatchWrite) {
-                std::cout << "Writing to " << connection->remote_address().to_string(connection->remote_port()) << std::endl;
-                connection->write("HTTP/1.1 200 OK\r\n\r\nTest");
-                connection->disconnect();
+            std::cout << "New connection to " << connection->remote_address().to_string(connection->remote_port()) <<
+                         " is " << (connection->is_blocking()? "blocking": "nonblocking") << std::endl;
+            return Skate::WatchRead;
+        }, [](Skate::Socket *connection, Skate::WatchFlags watching, Skate::WatchFlags event) -> Skate::WatchFlags {
+            if (connection->is_blocking()) {
+                // Special handling for blocking sockets
+            } else {
+                // Special handling for nonblocking sockets
+                if (event & Skate::WatchRead) {
+                    connection->read_all(connection->read_buffer());
+                    std::cout << connection->read_buffer().read_all<std::string>() << std::endl;
+                } else if (event & Skate::WatchWrite) {
+                    std::cout << "Writing to " << connection->remote_address().to_string(connection->remote_port()) << std::endl;
+                    connection->write("HTTP/1.1 200 OK\r\n\r\nTest");
+                    return 0;
+                }
             }
+
+            return watching;
         });
         server.run();
-
-        //return 0;
 
         socket.disconnect();
         socket.connect("owacoder.com", 80);
@@ -91,13 +176,10 @@ int main()
 
         std::cout << "Socket was bound\n";
         return 0;
-    } catch (int) {}
-#if 0
-    catch (const std::exception &e) {
+    } catch (const std::exception &e) {
         std::cout << "ERROR: " << e.what() << std::endl;
         return 0;
     }
-#endif
 
     typedef std::string Message;
     std::unique_ptr<Skate::MessageBroadcaster<Message>> msg(new Skate::MessageBroadcaster<Message>());
