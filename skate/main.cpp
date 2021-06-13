@@ -77,24 +77,49 @@ int main()
     std::cout << "Branches: " << t.branch_count() << std::endl;
 #endif
 
-#if 0
+#if 1
     std::array<char, 16> arr;
-    std::vector<char> vec;
-    std::list<char> lst = {'A', 'B', 'C'}, slst;
+    std::vector<int> vec;
+    std::list<char> lst = {'A', 'B', 'C'};
+    std::forward_list<char> slst;
     std::set<char> set;
     std::string test_string;
     std::pair<char, int> pair;
-    std::tuple<char, char> tuple;
+    std::pair<char, char> pair2;
+    std::tuple<char, char, int> tuple;
+    std::bitset<4> bitset;
 
-    // Skate::AbstractList(pair) = Skate::AbstractList("JKL");
-    Skate::AbstractList(slst) += Skate::AbstractList("123");
-    Skate::AbstractList(test_string) = Skate::AbstractList(vec) = Skate::AbstractList(lst);
+    bitset[0] = false;
+    bitset[1] = true;
+    bitset[2] = true;
+    bitset[3] = true;
+
+    // TODO:
+    // pair = tuple
+    // tuple = pair
+    // pair = other pair
+    // tuple = other tuple
+
+    Skate::AbstractList(pair) = Skate::AbstractList("JKL");
+    Skate::AbstractList(tuple) = Skate::AbstractList("JKL");
+    Skate::AbstractList(vec) = Skate::AbstractList(tuple);
+    //Skate::AbstractList(slst) = Skate::AbstractList("Wahoo!") + Skate::AbstractList(tuple);
+    Skate::AbstractList(slst) += Skate::AbstractList(tuple);
+    Skate::AbstractList(vec) = Skate::AbstractList(pair);
+    Skate::AbstractList(test_string) = Skate::AbstractList(lst);
     Skate::AbstractList(test_string) += Skate::AbstractList(test_string);
 
     Skate::AbstractList(vec) = Skate::AbstractList(test_string);
-    Skate::AbstractList(arr) = Skate::AbstractList("123");
+    Skate::AbstractList(arr) = Skate::AbstractList(tuple);
     Skate::AbstractList(set) = Skate::AbstractList({'!', '@', '#'});
+    Skate::AbstractList(set) += Skate::AbstractList(tuple);
     Skate::AbstractList(test_string) += Skate::AbstractList(set);
+    Skate::AbstractList(vec) = Skate::AbstractList(bitset);
+    Skate::AbstractList(bitset) = Skate::AbstractList(vec);
+
+    std::cout << "  pair: " << pair.first << "," << pair.second << "\n";
+
+    std::cout << " tuple: " << std::get<0>(tuple) << "," << std::get<1>(tuple) << "," << std::get<2>(tuple) << "\n";
 
     std::cout << "   arr: ";
     for (const auto &element : arr) {

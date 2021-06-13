@@ -720,9 +720,8 @@ namespace Skate {
 #if POSIX_OS
                 if (err == EAI_SYSTEM) {
                     err = errno;
-                    err_description.clear();
+                    err_description = {};
                 } else
-
 #endif
                 /* else (if POSIX_OS) */ if (err) {
                     {
