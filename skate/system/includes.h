@@ -40,7 +40,7 @@ namespace Skate {
             memcpy(copy, data, sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(char *data, DestroyType type) : str(data), len(strlen(data)), type(type) {}
@@ -51,7 +51,7 @@ namespace Skate {
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
@@ -72,7 +72,7 @@ namespace Skate {
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
 
             return *this;
@@ -117,7 +117,7 @@ namespace Skate {
 
     public:
         char *str;
-        size_t len;
+        size_t len; // Length of str, not including NUL-terminator
         DestroyType type;
 
         void destroy() {
@@ -191,6 +191,12 @@ namespace Skate {
 # include <ws2tcpip.h>
 # include <windows.h>
 
+// Necessary for Event classes
+# include <chrono>
+# include <memory>
+# include <vector>
+# include <string>
+
 # if MSVC_COMPILER
 #  pragma comment(lib, "ws2_32")
 # endif
@@ -253,7 +259,7 @@ namespace Skate {
             memcpy(copy, data, sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(LPWSTR data, DestroyType type) : str(data), len(wcslen(data)), type(type) {}
@@ -272,7 +278,7 @@ namespace Skate {
             }
 
             str = result;
-            len = chars;
+            len = chars - 1;
             type = ApiDeleteArray;
         }
         ApiString(const std::string &utf8) : ApiString(utf8.c_str()) {}
@@ -282,7 +288,7 @@ namespace Skate {
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
@@ -303,7 +309,7 @@ namespace Skate {
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz;
+            len = sz - 1;
             type = ApiDeleteArray;
 
             return *this;
@@ -328,7 +334,6 @@ namespace Skate {
             const char *error = "Cannot convert ApiString to UTF-8";
 
             std::string result;
-            const size_t len = wcslen(str);
             if (len > INT_MAX)
                 throw std::runtime_error(error);
 

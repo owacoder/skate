@@ -52,7 +52,7 @@ std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
     return os;
 }
 
-#include <containers/abstract_list.h>
+#include <containers/abstract_map.h>
 #include <forward_list>
 
 int main()
@@ -88,6 +88,16 @@ int main()
     std::pair<char, char> pair2;
     std::tuple<char, char, int> tuple;
     std::bitset<4> bitset;
+    std::valarray<int> valarray;
+    std::map<std::string, std::string> map;
+
+    map.insert({"A", "1"});
+    map.insert({"B", "2"});
+    map.insert({"C", "3"});
+
+    for (const auto &value : Skate::AbstractMap(map).values()) {
+        std::cout << "Map element: " << value << std::endl;
+    }
 
     bitset[0] = false;
     bitset[1] = true;
@@ -116,10 +126,18 @@ int main()
     Skate::AbstractList(test_string) += Skate::AbstractList(set);
     Skate::AbstractList(vec) = Skate::AbstractList(bitset);
     Skate::AbstractList(bitset) = Skate::AbstractList(vec);
+    Skate::AbstractList(valarray) << Skate::AbstractList(vec);
+    //Skate::AbstractList(vec) = Skate::AbstractList(valarray);
 
     std::cout << "  pair: " << pair.first << "," << pair.second << "\n";
 
     std::cout << " tuple: " << std::get<0>(tuple) << "," << std::get<1>(tuple) << "," << std::get<2>(tuple) << "\n";
+
+    std::cout << "valarr: ";
+    for (const auto &element : valarray) {
+        std::cout << element << ",";
+    }
+    std::cout << std::endl;
 
     std::cout << "   arr: ";
     for (const auto &element : arr) {

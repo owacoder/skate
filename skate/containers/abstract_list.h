@@ -1,6 +1,28 @@
 #ifndef SKATE_ABSTRACT_LIST_H
 #define SKATE_ABSTRACT_LIST_H
 
+/* ----------------------------------------------------------------------------------------------------
+ * Abstract wrappers allow iteration, copy-assign, copy-append, move-assign, and move-append operations
+ *
+ * operator=() allows assignment to the current abstract list
+ * operator<<() or operator+=() append another list to the current abstract list (EXCEPTION: only supported on dynamically-sized containers)
+ * clear() supports clearing a list to empty or default-constructed values (for dynamically-sized containers, clears to empty, for fixed-sized containers, clears each element to default-constructed)
+ * push_back() supports appending a new value to the end of the list (EXCEPTION: only supported on dynamically-sized containers)
+ * pop_back() supports removing the last value from the end of the list (TODO)
+ * size() returns the size of the current abstract list
+ * begin() and end() return iterators to the current abstract list (EXCEPTION: non-range abstract lists don't support this)
+ *
+ * One limitation is that non-range abstract lists cannot be assigned to other non-range abstract lists
+ * of a different type
+ *
+ * Desired compatibility:
+ *   - STL
+ *   - Qt
+ *   - MFC
+ *   - POCO
+ * ----------------------------------------------------------------------------------------------------
+ */
+
 // Basic container and string support
 #include <string>
 #include <cstring>
@@ -24,100 +46,111 @@
 // Needed for some min()/max()/distance() stuff
 #include <algorithm>
 
-/* ----------------------------------------------------------------------------------------------------
- * Abstract wrappers allow iteration, copy-assign, copy-append, move-assign, and move-append operations
+/*
+ * STL Container types supported:
  *
- * One limitation is that non-range abstract lists cannot be assigned to other non-range abstract lists
- * of a different type
+ * std::basic_string<T>
+ * std::array<T, size_t> (fixed size)
+ * std::vector<T, ...>
+ * std::deque<T, ...>
+ * std::forward_list<T, ...>
+ * std::list<T, ...>
+ * std::set<T, ...>
+ * std::unordered_set<T, ...>
+ * std::multiset<T, ...>
+ * std::unordered_multiset<T, ...>
+ * std::pair<T, U> (fixed size, not iterable)
+ * std::tuple<...> (fixed size, not iterable)
+ * std::bitset<size_t> (fixed size)
+ * std::valarray<T>
  *
- * Desired compatibility:
- *   - STL
- *   - Qt
- *   - MFC
- *   - POCO
- *   - WTL
- * ----------------------------------------------------------------------------------------------------
+ * Basic generic iterator ranges are supported in this header
+ * Basic pointer ranges are supported in this header as well
+ *
  */
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER(type)                           \
+#define SKATE_IMPL_ABSTRACT_LIST_WRAPPER                            \
     private:                                                        \
-        template<typename, typename> friend class type##Const;      \
+        template<typename, typename> friend class AbstractListWrapperConst; \
         Container &c;                                               \
     public:                                                         \
-        typedef typename Container::iterator iterator;              \
-        typedef typename Container::const_iterator const_iterator;  \
+        typedef decltype(std::begin(Container())) iterator;         \
+        typedef decltype(impl::cbegin(Container())) const_iterator; \
                                                                     \
         iterator begin() { return std::begin(c); }                  \
         iterator end() { return std::end(c); }                      \
         constexpr const_iterator begin() const { return std::begin(c); } \
         constexpr const_iterator end() const { return std::end(c); } \
                                                                     \
-        constexpr type(Container &c) : c(c) {}
-// SKATE_IMPL_ABSTRACT_WRAPPER
+        constexpr AbstractListWrapper(Container &c) : c(c) {}
+// SKATE_IMPL_ABSTRACT_LIST_WRAPPER
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER_RVALUE(type)                    \
+#define SKATE_IMPL_ABSTRACT_LIST_WRAPPER_RVALUE                     \
     private:                                                        \
-        template<typename, typename> friend class type;             \
+        template<typename, typename> friend class AbstractListWrapper; \
         Container c;                                                \
-        type##RValue(const type##RValue &) = delete;                \
-        type##RValue &operator=(const type##RValue &) = delete;     \
+        AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete; \
+        AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete; \
     public:                                                         \
-        typedef typename Container::iterator iterator;              \
-        typedef typename Container::const_iterator const_iterator;  \
+        typedef decltype(std::begin(Container())) iterator;         \
+        typedef decltype(impl::cbegin(Container())) const_iterator; \
                                                                     \
         iterator begin() { return std::begin(c); }                  \
         iterator end() { return std::end(c); }                      \
         constexpr const_iterator begin() const { return std::begin(c); } \
         constexpr const_iterator end() const { return std::end(c); } \
                                                                     \
-        constexpr type##RValue(Container &&c) : c(std::move(c)) {}
-// SKATE_IMPL_ABSTRACT_WRAPPER
+        constexpr AbstractListWrapperRValue(Container &&c) : c(std::move(c)) {}
+// SKATE_IMPL_ABSTRACT_LIST_WRAPPER_RVALUE
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER_CONST(type)                     \
+#define SKATE_IMPL_ABSTRACT_LIST_WRAPPER_CONST                      \
     private:                                                        \
-        template<typename, typename> friend class type;             \
+        template<typename, typename> friend class AbstractListWrapper; \
         const Container &c;                                         \
     public:                                                         \
-        typedef typename Container::const_iterator const_iterator;  \
+        typedef decltype(impl::cbegin(Container())) const_iterator; \
                                                                     \
         constexpr const_iterator begin() const { return std::begin(c); } \
         constexpr const_iterator end() const { return std::end(c); } \
                                                                     \
-        constexpr type##Const(const Container &c) : c(c) {}         \
-        constexpr type##Const(const type<Container, T> &other) : c(other.c) {}
-// SKATE_IMPL_ABSTRACT_WRAPPER_CONST
+        constexpr AbstractListWrapperConst(const Container &c) : c(c) {} \
+        constexpr AbstractListWrapperConst(const AbstractListWrapper<Container, T> &other) : c(other.c) {}
+// SKATE_IMPL_ABSTRACT_LIST_WRAPPER_CONST
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(type) \
-    type &operator=(const type &other) {                            \
+#define SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN              \
+    AbstractListWrapper &operator=(const AbstractListWrapper &other) { \
         c = other.c;                                                \
         return *this;                                               \
     }                                                               \
-    type &operator=(const type##Const<Container, T> &other) {       \
+    AbstractListWrapper &operator=(const AbstractListWrapperConst<Container, T> &other) { \
         c = other.c;                                                \
         return *this;                                               \
     }                                                               \
-    type &operator=(type##RValue<Container, T> &&other) {           \
+    AbstractListWrapper &operator=(AbstractListWrapperRValue<Container, T> &&other) { \
         c = std::move(other.c);                                     \
         return *this;                                               \
     }
-// SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN
+// SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
 
 #define SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(type)            \
     template<typename OtherContainer, typename OtherT>              \
     type &operator=(const type<OtherContainer, OtherT> &other) {    \
-        c.clear();                                                  \
+        clear();                                                    \
         return *this += type##Const<OtherContainer, OtherT>(other); \
     }                                                               \
     template<typename OtherContainer, typename OtherT>              \
     type &operator=(const type##Const<OtherContainer, OtherT> &other) { \
-        c.clear();                                                  \
+        clear();                                                    \
         return *this += other;                                      \
     }                                                               \
     template<typename OtherContainer, typename OtherT>              \
     type &operator=(type##RValue<OtherContainer, OtherT> &&other) { \
-        c.clear();                                                  \
+        clear();                                                    \
         return *this += std::move(other);                           \
-    }                                                               \
+    }
+// SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN
+
+#define SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(type)            \
     template<typename OtherContainer, typename OtherT>              \
     type &operator<<(const type<OtherContainer, OtherT> &other) {   \
         return *this += other;                                      \
@@ -134,15 +167,15 @@
     type &operator+=(const type<OtherContainer, OtherT> &other) {   \
         return *this += type##Const<OtherContainer, OtherT>(other); \
     }
-// SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN
+// SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(type)            \
+#define SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE                  \
     constexpr size_t size() const {                                 \
         return c.size();                                            \
     }
 // SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
-#define SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE(type)                \
+#define SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE                      \
     constexpr size_t size() const {                                 \
         return begin() == end() ? 0 : std::distance(begin(), end()); \
     }
@@ -150,18 +183,25 @@
 
 namespace Skate {
     namespace impl {
+        // Helper to determine if member exists
         template<typename> struct exists {typedef int type;};
+
+        // C++11 cbegin() implementation (std is C++14)
+        template<typename T>
+        auto cbegin(const T &item) -> decltype(std::begin(item)) {
+            return std::begin(item);
+        }
 
         // Set insert iterator, like std::back_insert_iterator, but for sets
         template<typename Container>
         class set_insert_iterator : public std::iterator<std::output_iterator_tag, void, void, void, void> {
-            Container &c;
+            Container *c;
 
         public:
-            constexpr set_insert_iterator(Container &c) : c(c) {}
+            constexpr set_insert_iterator(Container &c) : c(&c) {}
 
             template<typename T>
-            set_insert_iterator &operator=(T &&element) { c.insert(std::forward<T>(element)); return *this; }
+            set_insert_iterator &operator=(T &&element) { c->insert(std::forward<T>(element)); return *this; }
 
             set_insert_iterator &operator*() { return *this; }
             set_insert_iterator &operator++() { return *this; }
@@ -175,6 +215,9 @@ namespace Skate {
         // Internal class that supports converting a container to a range or output iterator
         //
         // This is useful for classes that cannot be iterated from, like std::pair or std::tuple
+        //
+        // Use AbstractListAppend<Container> to do the actual appending
+        //
         // ------------------------------------------------
         template<typename Container>
         class AbstractListAppend;
@@ -300,6 +343,9 @@ namespace Skate {
         // Internal class that supports converting a range to a container
         //
         // This is useful for classes that cannot be iterated or appended to, like std::pair or std::tuple
+        //
+        // Use AbstractListToContainer<Container> to do the actual appending
+        //
         // ------------------------------------------------
         template<typename Container>
         class AbstractListToContainer;
@@ -352,20 +398,67 @@ namespace Skate {
         };
     }
 
-    template<typename Container, typename T = typename Container::value_type>
-    class AbstractListWrapper {};
+    // Abstract container that allows iteration between a start and end iterator
+    template<typename Iterator>
+    class AbstractIteratorList {
+        Iterator first, last;
+        size_t sz;
 
-    template<typename Container, typename T = typename Container::value_type>
+    public:
+        constexpr Iterator begin() const { return first; }
+        constexpr Iterator end() const { return last; }
+
+        constexpr size_t size() const { return sz; }
+
+        constexpr AbstractIteratorList(Iterator first, Iterator last) : first(first), last(last), sz(std::distance(first, last)) {}
+        constexpr AbstractIteratorList(Iterator first, Iterator last, size_t size) : first(first), last(last), sz(size) {}
+    };
+
+    // ------------------------------------------------
+    // Base templates for main container types
+    // ------------------------------------------------
+    template<typename Container, typename T>
+    class AbstractListWrapper;
+
+    template<typename Container, typename T = typename std::iterator_traits<decltype(std::begin(Container()))>::value_type>
     class AbstractListWrapperConst {
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONST(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE(AbstractListWrapperConst)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_CONST
+        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE
     };
 
-    template<typename Container, typename T = typename Container::value_type>
+    template<typename Container, typename T = typename std::iterator_traits<decltype(std::begin(Container()))>::value_type>
     class AbstractListWrapperRValue {
-        SKATE_IMPL_ABSTRACT_WRAPPER_RVALUE(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE(AbstractListWrapperRValue)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_RVALUE
+        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE
     };
+
+    // ------------------------------------------------
+    // Specialization for AbstractIteratorList<Iterator>
+    // ------------------------------------------------
+    template<typename Iterator>
+    class AbstractListWrapperConst<AbstractIteratorList<Iterator>, void> {
+        typedef void T;
+
+        template<typename, typename> friend class AbstractListWrapper;
+
+    public:
+        typedef AbstractIteratorList<Iterator> Container;
+
+    private:
+        Container c;
+
+    public:
+        typedef Iterator const_iterator;
+
+        constexpr const_iterator begin() const { return c.begin(); }
+        constexpr const_iterator end() const { return c.end(); }
+
+        constexpr AbstractListWrapperConst(Iterator begin, Iterator end) : c(begin, end) {}
+        constexpr AbstractListWrapperConst(const Container &c) : c(c) {}
+
+        constexpr size_t size() const { return c.size(); }
+    };
+    // ------------------------------------------------
 
     // ------------------------------------------------
     // Specialization for std::pair<T, U>
@@ -400,6 +493,8 @@ namespace Skate {
 
     private:
         Container c;
+        AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
+        AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
 
     public:
         constexpr AbstractListWrapperRValue(Container &&c) : c(std::move(c)) {}
@@ -422,7 +517,7 @@ namespace Skate {
     public:
         constexpr AbstractListWrapper(Container &c) : c(c) {}
 
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
 
         template<typename OtherContainer, typename OtherT>
         AbstractListWrapper &operator=(const AbstractListWrapper<OtherContainer, OtherT> &other) {
@@ -438,6 +533,8 @@ namespace Skate {
             impl::AbstractListToContainer<Container>(c, std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
             return *this;
         }
+
+        void clear() { c = decltype(c){}; }
 
         // TODO: non-range abstract lists cannot be assigned to a std::pair<> abstract list ATM
 
@@ -478,6 +575,8 @@ namespace Skate {
 
     private:
         Container c;
+        AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
+        AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
 
     public:
         constexpr AbstractListWrapperRValue(Container &&c) : c(std::move(c)) {}
@@ -500,7 +599,7 @@ namespace Skate {
     public:
         constexpr AbstractListWrapper(Container &c) : c(c) {}
 
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
 
         template<typename OtherContainer, typename OtherT>
         AbstractListWrapper &operator=(const AbstractListWrapper<OtherContainer, OtherT> &other) {
@@ -516,6 +615,8 @@ namespace Skate {
             impl::AbstractListToContainer<Container>(c, std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
             return *this;
         }
+
+        void clear() { c = decltype(c){}; }
 
         // TODO: non-range abstract lists cannot be assigned to a std::tuple<> abstract list ATM
 
@@ -597,6 +698,8 @@ namespace Skate {
         constexpr AbstractListWrapper(T *c, size_t n) : c(c), n(n) {}
         constexpr size_t size() const { return n; }
 
+        void clear() { std::fill(begin(), end(), T{}); }
+
         template<typename OtherContainer, typename OtherT>
         AbstractListWrapper &operator=(const AbstractListWrapper<OtherContainer, OtherT> &other) {
             return *this = AbstractListWrapperConst<OtherContainer, OtherT>(other);
@@ -656,7 +759,7 @@ namespace Skate {
 
             bool operator*() const { return (*c)[offset]; }
             const_bitset_iterator &operator++() { ++offset; return *this; }
-            const_bitset_iterator &operator++(int) { auto copy = *this; ++*this; return copy; }
+            const_bitset_iterator operator++(int) { auto copy = *this; ++*this; return copy; }
 
             bool operator==(const_bitset_iterator other) const { return (offset == other.offset) && (c == other.c); }
             bool operator!=(const_bitset_iterator other) const { return !(*this == other); }
@@ -672,7 +775,7 @@ namespace Skate {
 
             typename std::bitset<N>::reference operator*() { return (*c)[offset]; }
             bitset_iterator &operator++() { ++offset; return *this; }
-            bitset_iterator &operator++(int) { auto copy = *this; ++*this; return copy; }
+            bitset_iterator operator++(int) { auto copy = *this; ++*this; return copy; }
 
             bool operator==(bitset_iterator other) const { return (offset == other.offset) && (c == other.c); }
             bool operator!=(bitset_iterator other) const { return !(*this == other); }
@@ -696,7 +799,7 @@ namespace Skate {
         constexpr const_iterator end() const { return const_iterator(c, N); }
 
         constexpr AbstractListWrapperConst(const Container &c) : c(c) {}
-        constexpr AbstractListWrapperConst(const AbstractListWrapper<std::bitset<N>, void> &other) : c(other.c) {}
+        constexpr AbstractListWrapperConst(const AbstractListWrapper<Container, void> &other) : c(other.c) {}
 
         constexpr size_t size() const { return N; }
     };
@@ -709,7 +812,9 @@ namespace Skate {
     private:
         template<typename, typename> friend class AbstractListWrapper;
 
-        const Container &c;
+        Container c;
+        AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
+        AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
 
     public:
         typedef impl::const_bitset_iterator<N> const_iterator;
@@ -745,6 +850,8 @@ namespace Skate {
         constexpr AbstractListWrapper(Container &c) : c(c) {}
 
         constexpr size_t size() const { return N; }
+
+        void clear() { c.reset(); }
 
         template<typename OtherContainer, typename OtherT>
         AbstractListWrapper &operator=(const AbstractListWrapper<OtherContainer, OtherT> &other) {
@@ -792,6 +899,232 @@ namespace Skate {
     // ------------------------------------------------
 
     // ------------------------------------------------
+    // Specialization for std::valarray<T>
+    // ------------------------------------------------
+    namespace impl {
+        template<typename T>
+        class const_valarray_iterator : public std::iterator<std::forward_iterator_tag, const T> {
+            const std::valarray<T> *c;
+            size_t offset;
+
+        public:
+            constexpr const_valarray_iterator(const std::valarray<T> &c, size_t offset) : c(&c), offset(offset) {}
+
+            const T &operator*() const { return (*c)[offset]; }
+            const_valarray_iterator &operator++() { ++offset; return *this; }
+            const_valarray_iterator operator++(int) { auto copy = *this; ++*this; return copy; }
+
+            bool operator==(const_valarray_iterator other) const { return (offset == other.offset) && (c == other.c); }
+            bool operator!=(const_valarray_iterator other) const { return !(*this == other); }
+        };
+
+        template<typename T>
+        class valarray_iterator : public std::iterator<std::forward_iterator_tag, T> {
+            std::valarray<T> *c;
+            size_t offset;
+
+        public:
+            constexpr valarray_iterator(std::valarray<T> &c, size_t offset) : c(&c), offset(offset) {}
+
+            T &operator*() const { return (*c)[offset]; }
+            valarray_iterator &operator++() { ++offset; return *this; }
+            valarray_iterator operator++(int) { auto copy = *this; ++*this; return copy; }
+
+            bool operator==(valarray_iterator other) const { return (offset == other.offset) && (c == other.c); }
+            bool operator!=(valarray_iterator other) const { return !(*this == other); }
+        };
+    }
+
+    template<typename T>
+    class AbstractListWrapperConst<std::valarray<T>, T> {
+    public:
+        typedef std::valarray<T> Container;
+
+    private:
+        template<typename, typename> friend class AbstractListWrapper;
+
+        const Container &c;
+
+    public:
+        typedef impl::const_valarray_iterator<T> const_iterator;
+
+        constexpr const_iterator begin() const { return const_iterator(c, 0); }
+        constexpr const_iterator end() const { return const_iterator(c, c.size()); }
+
+        constexpr AbstractListWrapperConst(const Container &c) : c(c) {}
+        constexpr AbstractListWrapperConst(const AbstractListWrapper<Container, T> &other) : c(other.c) {}
+
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+    };
+
+    template<typename T>
+    class AbstractListWrapperRValue<std::valarray<T>, T> {
+    public:
+        typedef std::valarray<T> Container;
+
+    private:
+        template<typename, typename> friend class AbstractListWrapper;
+
+        Container c;
+        AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
+        AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
+
+    public:
+        typedef impl::const_valarray_iterator<T> const_iterator;
+
+        constexpr const_iterator begin() const { return const_iterator(c, 0); }
+        constexpr const_iterator end() const { return const_iterator(c, c.size()); }
+
+        constexpr AbstractListWrapperRValue(Container &&c) : c(std::move(c)) {}
+
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+    };
+
+    template<typename T>
+    class AbstractListWrapper<std::valarray<T>, T> {
+    public:
+        typedef std::valarray<T> Container;
+
+    private:
+        template<typename, typename> friend class AbstractListWrapperConst;
+
+        Container &c;
+
+    public:
+        typedef impl::valarray_iterator<T> iterator;
+        typedef impl::const_valarray_iterator<T> const_iterator;
+
+        iterator begin() { return iterator(c, 0); }
+        iterator end() { return iterator(c, c.size()); }
+        constexpr const_iterator begin() const { return const_iterator(c, 0); }
+        constexpr const_iterator end() const { return const_iterator(c, c.size()); }
+
+        constexpr AbstractListWrapper(Container &c) : c(c) {}
+
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.resize(0); }
+
+        template<typename OtherContainer, typename OtherT>
+        AbstractListWrapper &operator=(const AbstractListWrapper<OtherContainer, OtherT> &other) {
+            return *this = AbstractListWrapperConst<OtherContainer, OtherT>(other);
+        }
+
+        void push_back(T &&value) {
+            Container copy = c;
+            c.resize(c.size() + 1);
+
+            if (copy.size())
+                std::copy(std::make_move_iterator(copy.begin()), std::make_move_iterator(copy.end()), std::begin(c));
+
+            c[c.size() - 1] = std::forward<T>(value);
+        }
+
+        // Assign other abstract list to this one
+        template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperConst<OtherContainer, OtherT>::begin)>::type = 0>
+        AbstractListWrapper &operator=(const AbstractListWrapperConst<OtherContainer, OtherT> &other) {
+            c.resize(other.size());
+
+            if (c.size()) // Possibly undefined behavior for std::begin(<empty valarray>)
+                std::copy(other.begin(), other.end(), std::begin(c));
+
+            return *this;
+        }
+        template<typename OtherContainer, typename OtherT, typename Append = impl::AbstractListAppend<OtherContainer>, size_t complete = sizeof(Append)>
+        AbstractListWrapper &operator=(const AbstractListWrapperConst<OtherContainer, OtherT> &other) {
+            c.resize(other.size());
+
+            if (c.size()) // Possibly undefined behavior for std::begin(<empty valarray>)
+                Append(std::begin(c), other.c);
+
+            return *this;
+        }
+
+        // Move-assign other abstract list to this one
+        template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperRValue<OtherContainer, OtherT>::begin)>::type = 0>
+        AbstractListWrapper &operator=(AbstractListWrapperRValue<OtherContainer, OtherT> &&other) {
+            c.resize(other.size());
+
+            if (c.size()) // Possibly undefined behavior for std::begin(<empty valarray>)
+                std::copy(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), std::begin(c));
+
+            return *this;
+        }
+        template<typename OtherContainer, typename OtherT, typename Append = impl::AbstractListAppend<OtherContainer>, size_t complete = sizeof(Append)>
+        AbstractListWrapper &operator=(AbstractListWrapperRValue<OtherContainer, OtherT> &&other) {
+            c.resize(other.size());
+
+            if (c.size()) // Possibly undefined behavior for std::begin(<empty valarray>)
+                Append(std::begin(c), std::move(other.c));
+
+            return *this;
+        }
+
+        // Append other abstract list to this one
+        template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperConst<OtherContainer, OtherT>::begin)>::type = 0>
+        AbstractListWrapper &operator+=(const AbstractListWrapperConst<OtherContainer, OtherT> &other) {
+            const size_t diff = other.size();
+
+            Container copy = Container(size() + diff);
+
+            if (copy.size()) {
+                std::copy_n(std::make_move_iterator(begin()), size(), std::begin(copy));
+                std::copy_n(other.begin(), diff, std::begin(copy) + size());
+            }
+
+            c.swap(copy);
+
+            return *this;
+        }
+        template<typename OtherContainer, typename OtherT, typename Append = impl::AbstractListAppend<OtherContainer>, size_t complete = sizeof(Append)>
+        AbstractListWrapper &operator+=(const AbstractListWrapperConst<OtherContainer, OtherT> &other) {
+            Container copy = Container(size() + other.size());
+
+            if (copy.size()) {
+                std::copy_n(std::make_move_iterator(begin()), size(), std::begin(copy));
+                Append(std::begin(copy) + size(), other.c);
+            }
+
+            c.swap(copy);
+
+            return *this;
+        }
+
+        // Move-append other abstract list to this one
+        template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperRValue<OtherContainer, OtherT>::begin)>::type = 0>
+        AbstractListWrapper &operator+=(AbstractListWrapperRValue<OtherContainer, OtherT> &&other) {
+            const size_t diff = other.size();
+
+            Container copy = Container(size() + diff);
+
+            if (copy.size()) {
+                std::copy_n(std::make_move_iterator(begin()), size(), std::begin(copy));
+                std::copy_n(std::make_move_iterator(other.begin()), diff, std::begin(copy) + size());
+            }
+
+            c.swap(copy);
+
+            return *this;
+        }
+        template<typename OtherContainer, typename OtherT, typename Append = impl::AbstractListAppend<OtherContainer>, size_t complete = sizeof(Append)>
+        AbstractListWrapper &operator+=(AbstractListWrapperRValue<OtherContainer, OtherT> &&other) {
+            Container copy = Container(size() + other.size());
+
+            if (copy.size()) {
+                std::copy_n(std::make_move_iterator(begin()), size(), std::begin(copy));
+                Append(std::begin(copy) + size(), std::move(other.c));
+            }
+
+            c.swap(copy);
+
+            return *this;
+        }
+    };
+    // ------------------------------------------------
+
+    // ------------------------------------------------
     // Specialization for std::basic_string<T>
     // ------------------------------------------------
     template<typename T, typename... ContainerParams>
@@ -799,10 +1132,17 @@ namespace Skate {
     public:
         typedef std::basic_string<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.push_back(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperConst<OtherContainer, OtherT>::begin)>::type = 0>
@@ -848,10 +1188,17 @@ namespace Skate {
     public:
         typedef std::vector<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.push_back(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
@@ -903,10 +1250,17 @@ namespace Skate {
     public:
         typedef std::deque<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.push_back(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
@@ -956,10 +1310,11 @@ namespace Skate {
     public:
         typedef std::forward_list<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE
 
     private:
         // Set insert iterator, like std::back_insert_iterator, but for sets
@@ -979,6 +1334,13 @@ namespace Skate {
         };
 
     public:
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            fwdlist_back_insert_iterator it(*this);
+            *it++ = std::forward<T>(value);
+        }
+
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
             if (&other.c == &c) {
@@ -1063,10 +1425,17 @@ namespace Skate {
     public:
         typedef std::list<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.push_back(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
@@ -1113,10 +1482,17 @@ namespace Skate {
     public:
         typedef std::set<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.insert(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
@@ -1160,10 +1536,17 @@ namespace Skate {
     public:
         typedef std::unordered_set<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.insert(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         AbstractListWrapper &operator+=(const AbstractListWrapperConst<Container, T> &other) {
@@ -1207,10 +1590,17 @@ namespace Skate {
     public:
         typedef std::multiset<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.insert(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperConst<OtherContainer, OtherT>::begin)>::type = 0>
@@ -1246,10 +1636,17 @@ namespace Skate {
     public:
         typedef std::unordered_multiset<T, ContainerParams...> Container;
 
-        SKATE_IMPL_ABSTRACT_WRAPPER(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_SIMPLE_ASSIGN(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
         SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
+
+        void clear() { c.clear(); }
+
+        void push_back(T &&value) {
+            c.insert(std::forward<T>(value));
+        }
 
         // Append other abstract list to this one
         template<typename OtherContainer, typename OtherT, typename impl::exists<decltype(&AbstractListWrapperConst<OtherContainer, OtherT>::begin)>::type = 0>
@@ -1372,17 +1769,25 @@ namespace Skate {
     AbstractListWrapperConst<const T *, T> AbstractList(const T *c, size_t n) {
         return {c, n};
     }
+    template<typename Iterator>
+    AbstractListWrapperConst<AbstractIteratorList<Iterator>, void> AbstractList(Iterator begin, Iterator end) {
+        return AbstractIteratorList<Iterator>{begin, end};
+    }
+    template<typename Iterator>
+    AbstractListWrapperConst<AbstractIteratorList<Iterator>, void> AbstractList(Iterator begin, Iterator end, size_t size) {
+        return AbstractIteratorList<Iterator>{begin, end, size};
+    }
 
     // The following select the appropriate class for the given parameter
-    template<typename Container, typename T = typename Container::value_type>
+    template<typename Container, typename T = typename std::iterator_traits<decltype(std::begin(Container()))>::value_type>
     AbstractListWrapperConst<Container, T> AbstractList(const Container &c) {
         return {c};
     }
-    template<typename Container, typename T = typename Container::value_type>
+    template<typename Container, typename T = typename std::iterator_traits<decltype(std::begin(Container()))>::value_type>
     AbstractListWrapper<Container, T> AbstractList(Container &c) {
         return {c};
     }
-    template<typename Container, typename T = typename Container::value_type>
+    template<typename Container, typename T = typename std::iterator_traits<decltype(std::begin(Container()))>::value_type>
     AbstractListWrapperRValue<Container, T> AbstractList(Container &&c) {
         return {std::move(c)};
     }

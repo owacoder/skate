@@ -7,7 +7,12 @@ SOURCES += \
         main.cpp
 
 HEADERS += \
+    containers/MFC/mfc_abstract_list.h \
+    containers/POCO/poco_abstract_list.h \
+    containers/Qt/qt_abstract_list.h \
+    containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
+    containers/abstract_map.h \
     containers/tree.h \
     io/buffer.h \
     socket/iocp.h \
