@@ -7,8 +7,10 @@
  * operator=() allows assignment to the current abstract list
  * operator<<() or operator+=() append another list to the current abstract list (EXCEPTION: only supported on dynamically-sized containers)
  * clear() supports clearing a list to empty or default-constructed values (for dynamically-sized containers, clears to empty, for fixed-sized containers, clears each element to default-constructed)
+ * push_front() supports prepending a new value to the beginning of the list (EXCEPTION: only supported on dynamically-sized containers, TODO)
+ * pop_front() supports removing the beginning value of the list (the list must not be empty, TODO)
  * push_back() supports appending a new value to the end of the list (EXCEPTION: only supported on dynamically-sized containers)
- * pop_back() supports removing the last value from the end of the list (TODO)
+ * pop_back() supports removing the last value from the end of the list (the list must not be empty, TODO)
  * size() returns the size of the current abstract list
  * begin() and end() return iterators to the current abstract list (EXCEPTION: non-range abstract lists don't support this)
  *

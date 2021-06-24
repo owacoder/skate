@@ -8,6 +8,9 @@
  * clear() supports clearing a map to empty
  * size() returns the size of the current abstract map (number of key/value pairs)
  * operator[] returns a (possibly new) reference to a value with the specified key in the abstract map
+ * value() returns the value of a specific key in the map
+ * insert() adds a new key/value pair to the map, or replaces it if it exists in a single-value map
+ * erase() removes a key/value pair from the map
  * contains() returns true if the key exists in the map
  * begin() and end() return iterators to the current abstract map with a specialization-defined iterator type
  * keys() returns an abstract list allowing iteration of the current abstract map's keys

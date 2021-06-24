@@ -25,6 +25,7 @@ namespace Skate {
         }
     };
 
+
     class ApiString {
     public:
         enum DestroyType {
@@ -34,24 +35,23 @@ namespace Skate {
         };
 
         ApiString() : str(const_cast<char *>("")), len(0), type(ApiNoFree) {}
-        ApiString(const char *data) : str(nullptr), len(0), type(ApiNoFree) {
-            const size_t sz = strlen(data) + 1;
+        ApiString(const char *data, size_t datalen) : str(nullptr), len(datalen), type(ApiNoFree) {
+            const size_t sz = len + 1;
             char *copy = new char[sz];
             memcpy(copy, data, sz * sizeof(*copy));
 
             str = copy;
-            len = sz - 1;
             type = ApiDeleteArray;
         }
+        ApiString(const char *data) : ApiString(data, strlen(data)) {}
         ApiString(char *data, DestroyType type) : str(data), len(strlen(data)), type(type) {}
-        ApiString(const std::string &data) : ApiString(data.c_str()) {}
-        ApiString(const ApiString &other) : str(nullptr), len(0), type(ApiNoFree) {
+        ApiString(const std::string &data) : ApiString(data.data(), data.length()) {}
+        ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
             const size_t sz = other.size() + 1;
             char *copy = new char[sz];
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
@@ -239,7 +239,7 @@ namespace Skate {
         WSAStartupWrapper wsaStartup;
     };
 
-    // A simple system NUL-terminated API string class that is just used for converting to and from system strings.
+    // A simple sized, always NUL-terminated API string class that is just used for converting to and from system strings.
     // Allows various forms of destroying the contained string, including Windows-specific GlobalFree and LocalFree
     // Can be converted to and from std::strings formatted in UTF-8.
     class ApiString {
@@ -253,42 +253,47 @@ namespace Skate {
         };
 
         ApiString() : str(const_cast<LPWSTR>(L"")), len(0), type(ApiNoFree) {}
-        ApiString(LPCWSTR data) : str(nullptr), len(0), type(ApiNoFree) {
-            const size_t sz = wcslen(data) + 1;
+        ApiString(LPCWSTR data, size_t len) : str(nullptr), len(len), type(ApiNoFree) {
+            const size_t sz = len + 1;
             LPWSTR copy = new WCHAR[sz];
             memcpy(copy, data, sz * sizeof(*copy));
 
             str = copy;
-            len = sz - 1;
             type = ApiDeleteArray;
         }
+        ApiString(LPCWSTR data) : ApiString(data, wcslen(data)) {}
         ApiString(LPWSTR data, DestroyType type) : str(data), len(wcslen(data)), type(type) {}
-        ApiString(const char *utf8) : str(nullptr), len(0), type(ApiNoFree) {
+        ApiString(const char *utf8, size_t utf8len) : str(nullptr), len(0), type(ApiNoFree) {
             const char *error = "Cannot create ApiString from UTF-8";
 
-            const int chars = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, -1, NULL, 0);
+            if (utf8len > INT_MAX)
+                throw std::runtime_error(error);
+
+            const int chars = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, static_cast<int>(utf8len), NULL, 0);
             if (!chars)
                 throw std::runtime_error(error);
 
-            LPWSTR result = new WCHAR[chars];
+            LPWSTR result = new WCHAR[chars + 1];
 
-            if (!MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, -1, result, chars)) {
+            if (!MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, static_cast<int>(utf8len), result, chars)) {
                 delete[] result;
                 throw std::runtime_error(error);
             }
 
+            result[chars] = 0; // NUL-terminate manually
+
             str = result;
-            len = chars - 1;
+            len = chars;
             type = ApiDeleteArray;
         }
-        ApiString(const std::string &utf8) : ApiString(utf8.c_str()) {}
-        ApiString(const ApiString &other) : str(nullptr), len(0), type(ApiNoFree) {
+        ApiString(const char *utf8) : ApiString(utf8, strlen(utf8)) {}
+        ApiString(const std::string &utf8) : ApiString(utf8.data(), utf8.size()) {}
+        ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
             const size_t sz = other.size() + 1;
             LPWSTR copy = new WCHAR[sz];
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
             str = copy;
-            len = sz - 1;
             type = ApiDeleteArray;
         }
         ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
@@ -329,11 +334,11 @@ namespace Skate {
 
         static ApiString from_utf8(const std::string &utf8) {return ApiString(utf8);}
         static ApiString from_utf8(const char *utf8) {return ApiString(utf8);}
+        static ApiString from_utf8(const char *utf8, size_t utf8len) {return ApiString(utf8, utf8len);}
 
         std::string to_utf8() const {
             const char *error = "Cannot convert ApiString to UTF-8";
 
-            std::string result;
             if (len > INT_MAX)
                 throw std::runtime_error(error);
 
@@ -341,10 +346,12 @@ namespace Skate {
             if (!bytes)
                 throw std::runtime_error(error);
 
-            result.resize(bytes);
+            std::string result(bytes, '\0');
 
             if (!WideCharToMultiByte(CP_UTF8, 0, str, static_cast<int>(len), &result[0], bytes, NULL, NULL))
                 throw std::runtime_error(error);
+
+            result.resize(bytes - 1);
 
             return result;
         }
