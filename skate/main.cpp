@@ -52,8 +52,9 @@ std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
     return os;
 }
 
-#include <containers/abstract_map.h>
-#include <forward_list>
+//#include "containers/abstract_map.h"
+#include "containers/adapters/adapters.h"
+#include <map>
 
 int main()
 {
@@ -77,7 +78,26 @@ int main()
     std::cout << "Branches: " << t.branch_count() << std::endl;
 #endif
 
-#if 1
+    std::vector<std::string> v = {"A\nnewline'\"", "1", "2", "3"};
+    std::map<std::wstring, std::vector<std::string>> map;
+
+    map[L"default🌍רי"] = {"Test string 1", "2nd string & 3rd string"};
+    map[L"test\b\001"] = {};
+
+    Skate::put_unicode<char>{}(std::cout, 127757);
+    //std::cout << Skate::impl::is_map<int>::value << std::endl;
+    //std::cout << Skate::impl::is_map<typename std::remove_cv<decltype(map)>::type>::value << std::endl;
+    //std::cout << Skate::impl::is_map<std::map<int, int>>::value << std::endl;
+
+    //std::wcout << Skate::json(map) << std::endl;
+    std::cout << Skate::json(map, 2) << Skate::json(true) << std::endl;
+    std::cout << Skate::csv(v, '\t') << std::endl;
+    std::cout << Skate::xml_doc(map, 1) << std::endl;
+    //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
+
+    return 0;
+
+#if 0
     std::array<char, 16> arr;
     std::vector<int> vec;
     std::list<char> lst = {'A', 'B', 'C'};
@@ -90,14 +110,15 @@ int main()
     std::bitset<4> bitset;
     std::valarray<int> valarray;
     std::map<std::string, std::string> map;
+    std::multimap<std::string, std::string> mmap;
 
-    map.insert({"A", "1"});
-    map.insert({"B", "2"});
-    map.insert({"C", "3"});
+    auto abstract_map = Skate::AbstractMap(map);
+    abstract_map["A"] = "1";
+    abstract_map["B"] = "2";
+    abstract_map["C"] = "3";
+    Skate::AbstractMap(mmap) += abstract_map;
 
-    for (const auto &value : Skate::AbstractMap(map).values()) {
-        std::cout << "Map element: " << value << std::endl;
-    }
+    Skate::AbstractMap(mmap).values().apply([](const auto &el) {std::cout << "Map element: " << el << std::endl;});
 
     bitset[0] = false;
     bitset[1] = true;
@@ -131,12 +152,12 @@ int main()
 
     std::cout << "  pair: " << pair.first << "," << pair.second << "\n";
 
-    std::cout << " tuple: " << std::get<0>(tuple) << "," << std::get<1>(tuple) << "," << std::get<2>(tuple) << "\n";
+    std::cout << " tuple: ";
+    Skate::AbstractList(tuple).apply([](const auto &el) { std::cout << el << ",";});
+    std::cout << std::endl;
 
     std::cout << "valarr: ";
-    for (const auto &element : valarray) {
-        std::cout << element << ",";
-    }
+    Skate::AbstractList(valarray).apply([](const int &el) {std::cout << el << ",";});
     std::cout << std::endl;
 
     std::cout << "   arr: ";
@@ -187,7 +208,6 @@ int main()
         udp.write_datagram("255.255.255.255", 80, "Test");
 
         return 0;
-#endif
 
         socket.set_blocking(false);
         socket.bind(Skate::SocketAddress::any(), 8089);
@@ -225,6 +245,7 @@ int main()
 
         std::cout << "Socket was bound\n";
         return 0;
+#endif
     } catch (const std::exception &e) {
         std::cout << "ERROR: " << e.what() << std::endl;
         return 0;

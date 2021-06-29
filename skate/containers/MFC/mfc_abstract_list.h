@@ -6,21 +6,21 @@
 #include "../abstract_list.h"
 
 /*
- * TODO: Container types:
+ * Container types supported:
  *
  * CArray
- * CByteArray
- * CDWordArray
+ * CByteArray (TODO)
+ * CDWordArray (TODO)
  * CList
- * CObArray
- * CObList
- * CPtrArray
- * CPtrList
- * CStringArray
- * CStringList
- * CStringT (atlstr.h)
- * CUIntArray
- * CWordArray
+ * CObArray (TODO)
+ * CObList (TODO)
+ * CPtrArray (TODO)
+ * CPtrList (TODO)
+ * CStringArray (TODO)
+ * CStringList (TODO)
+ * CStringT (TODO, atlstr.h)
+ * CUIntArray (TODO)
+ * CWordArray (TODO)
  *
  */
 
@@ -45,7 +45,8 @@
 #define SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE              \
     constexpr size_t size() const {                                 \
         return size_t(c.GetSize());                                 \
-    }
+    }                                                               \
+    constexpr bool empty() const { return size() == 0; }
 // SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
 
 namespace Skate {
@@ -140,6 +141,7 @@ namespace Skate {
     class AbstractListWrapperConst<CList<T, ContainerParams...>, T> {
     public:
         typedef CList<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapper;
@@ -155,18 +157,29 @@ namespace Skate {
         constexpr AbstractListWrapperConst(const Container &c) : c(c) {}
         constexpr AbstractListWrapperConst(const AbstractListWrapper<Container, T> &other) : c(other.c) {}
 
+        T &back() { return c.GetTail(); }
+        constexpr const T &back() const { return c.GetTail(); }
+
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
+
+        template<typename F>
+        void apply(F f) const {
+            POSITION pos = c.GetHeadPosition();
+            while (pos)
+                f(c.GetNext(pos));
+        }
     };
 
     template<typename T, typename... ContainerParams>
     class AbstractListWrapperRValue<CList<T, ContainerParams...>, T> {
     public:
         typedef CList<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapper;
 
-        Container c;
+        Container &&c;
         AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
         AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
 
@@ -179,17 +192,26 @@ namespace Skate {
         constexpr const_iterator begin() const { return const_iterator(c, c.GetHeadPosition()); }
         constexpr const_iterator end() const { return const_iterator(c, NULL); }
 
-        AbstractListWrapperRValue(Container &&other) {
-            std::copy(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), impl::mfc_clist_back_inserter(c));
-        }
+        constexpr AbstractListWrapperRValue(Container &&other) : c(std::move(other)) {}
+
+        T &back() { return c.GetTail(); }
+        constexpr const T &back() const { return c.GetTail(); }
 
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
+
+        template<typename F>
+        void apply(F f) {
+            POSITION pos = c.GetHeadPosition();
+            while (pos)
+                f(c.GetNext(pos));
+        }
     };
 
     template<typename T, typename... ContainerParams>
     class AbstractListWrapper<CList<T, ContainerParams...>, T> {
     public:
         typedef CList<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapperConst;
@@ -207,7 +229,7 @@ namespace Skate {
 
         constexpr AbstractListWrapper(Container &c) : c(c) {}
 
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
 
         void clear() { c.RemoveAll(); }
@@ -240,6 +262,10 @@ namespace Skate {
             return *this += std::move(other);
         }
 
+        T &back() { return c.GetTail(); }
+        constexpr const T &back() const { return c.GetTail(); }
+
+        void pop_back() { c.RemoveTail(); }
         void push_back(T &&value) {
             impl::mfc_clist_push_back_iterator it(*this);
             *it++ = std::forward<T>(value);
@@ -268,6 +294,20 @@ namespace Skate {
             Append(impl::mfc_clist_back_inserter(c), std::move(other.c));
             return *this;
         }
+
+        template<typename F>
+        void apply(F f) {
+            POSITION pos = c.GetHeadPosition();
+            while (pos)
+                f(c.GetNext(pos));
+        }
+
+        template<typename F>
+        void apply(F f) const {
+            POSITION pos = c.GetHeadPosition();
+            while (pos)
+                f(c.GetNext(pos));
+        }
     };
     // ------------------------------------------------
 
@@ -278,6 +318,7 @@ namespace Skate {
     class AbstractListWrapperConst<CArray<T, ContainerParams...>, T> {
     public:
         typedef CArray<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapper;
@@ -293,18 +334,25 @@ namespace Skate {
         constexpr AbstractListWrapperConst(const Container &c) : c(c) {}
         constexpr AbstractListWrapperConst(const AbstractListWrapper<Container, T> &other) : c(other.c) {}
 
+        T &back() { return c[size() - 1]; }
+        constexpr const T &back() const { return c[size() - 1]; }
+
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
+
+        template<typename F>
+        void apply(F f) const { for (const auto &el : *this) f(el); }
     };
 
     template<typename T, typename... ContainerParams>
     class AbstractListWrapperRValue<CArray<T, ContainerParams...>, T> {
     public:
         typedef CArray<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapper;
 
-        Container c;
+        Container &&c;
         AbstractListWrapperRValue(const AbstractListWrapperRValue &) = delete;
         AbstractListWrapperRValue &operator=(const AbstractListWrapperRValue &) = delete;
 
@@ -317,17 +365,22 @@ namespace Skate {
         constexpr const_iterator begin() const { return c.GetData(); }
         constexpr const_iterator end() const { return c.GetData() + c.GetSize(); }
 
-        AbstractListWrapperRValue(Container &&other) {
-            std::copy(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()), impl::mfc_carray_back_inserter(c));
-        }
+        constexpr AbstractListWrapperRValue(Container &&other) : c(std::move(other)) {}
+
+        T &back() { return c[size() - 1]; }
+        constexpr const T &back() const { return c[size() - 1]; }
 
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
+
+        template<typename F>
+        void apply(F f) { for (auto &el : *this) f(el); }
     };
 
     template<typename T, typename... ContainerParams>
     class AbstractListWrapper<CArray<T, ContainerParams...>, T> {
     public:
         typedef CArray<T, ContainerParams...> Container;
+        typedef T Value;
 
     private:
         template<typename, typename> friend class AbstractListWrapperConst;
@@ -345,7 +398,7 @@ namespace Skate {
 
         constexpr AbstractListWrapper(Container &c) : c(c) {}
 
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
 
         void clear() { c.RemoveAll(); }
@@ -378,6 +431,10 @@ namespace Skate {
             return *this += std::move(other);
         }
 
+        T &back() { return c[size() - 1]; }
+        constexpr const T &back() const { return c[size() - 1]; }
+
+        void pop_back() { c.SetSize(size() - 1); }
         void push_back(T &&value) {
             impl::mfc_carray_push_back_iterator it(*this);
             *it++ = std::forward<T>(value);
@@ -406,6 +463,12 @@ namespace Skate {
             Append(impl::mfc_carray_back_inserter(c), std::move(other.c));
             return *this;
         }
+
+        template<typename F>
+        void apply(F f) { for (auto &el : *this) f(el); }
+
+        template<typename F>
+        void apply(F f) const { for (const auto &el : *this) f(el); }
     };
     // ------------------------------------------------
 

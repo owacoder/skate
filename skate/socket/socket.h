@@ -497,7 +497,7 @@ namespace Skate {
         template<typename Container>
         void read_into(size_t max, Container &c) {
             read(max, [&c](const char *data, size_t len) {
-                AbstractList(c) += AbstractList(data, len);
+                std::copy(data, data + len, std::back_inserter(c));
             });
         }
         void read(size_t max, InputOutputBuffer<char> &buffer) {
@@ -520,7 +520,7 @@ namespace Skate {
         template<typename Container>
         void read_all_into(Container &c) {
             read_all([&c](const char *data, size_t len) {
-                AbstractList(c) += AbstractList(data, len);
+                std::copy(data, data + len, std::back_inserter(c));
             });
         }
         template<typename Container>

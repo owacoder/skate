@@ -1,5 +1,5 @@
 TEMPLATE = app
-CONFIG += console c++11
+CONFIG += console c++17
 CONFIG -= app_bundle
 CONFIG -= qt
 
@@ -13,6 +13,8 @@ HEADERS += \
     containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
     containers/abstract_map.h \
+    containers/adapters/adapters.h \
+    containers/adapters/utf.h \
     containers/tree.h \
     io/buffer.h \
     socket/iocp.h \

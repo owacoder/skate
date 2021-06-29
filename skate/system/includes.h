@@ -36,9 +36,10 @@ namespace Skate {
 
         ApiString() : str(const_cast<char *>("")), len(0), type(ApiNoFree) {}
         ApiString(const char *data, size_t datalen) : str(nullptr), len(datalen), type(ApiNoFree) {
-            const size_t sz = len + 1;
-            char *copy = new char[sz];
-            memcpy(copy, data, sz * sizeof(*copy));
+            char *copy = new char[len + 1];
+            memcpy(copy, data, len * sizeof(*copy));
+
+            copy[len] = 0; // NUL-terminate manually
 
             str = copy;
             type = ApiDeleteArray;
@@ -47,9 +48,10 @@ namespace Skate {
         ApiString(char *data, DestroyType type) : str(data), len(strlen(data)), type(type) {}
         ApiString(const std::string &data) : ApiString(data.data(), data.length()) {}
         ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
-            const size_t sz = other.size() + 1;
-            char *copy = new char[sz];
-            memcpy(copy, other.data(), sz * sizeof(*copy));
+            char *copy = new char[len + 1];
+            memcpy(copy, other.data(), len * sizeof(*copy));
+
+            copy[len] = 0; // NUL-terminate manually
 
             str = copy;
             type = ApiDeleteArray;
@@ -67,12 +69,14 @@ namespace Skate {
 
             destroy();
 
-            const size_t sz = other.size() + 1;
-            char *copy = new char[sz];
+            const size_t sz = other.size();
+            char *copy = new char[sz + 1];
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
+            copy[sz] = 0; // NUL-terminate manually
+
             str = copy;
-            len = sz - 1;
+            len = sz;
             type = ApiDeleteArray;
 
             return *this;
@@ -254,9 +258,10 @@ namespace Skate {
 
         ApiString() : str(const_cast<LPWSTR>(L"")), len(0), type(ApiNoFree) {}
         ApiString(LPCWSTR data, size_t len) : str(nullptr), len(len), type(ApiNoFree) {
-            const size_t sz = len + 1;
-            LPWSTR copy = new WCHAR[sz];
-            memcpy(copy, data, sz * sizeof(*copy));
+            LPWSTR copy = new WCHAR[len + 1];
+            memcpy(copy, data, len * sizeof(*copy));
+
+            copy[len] = 0; // NUL-terminate manually
 
             str = copy;
             type = ApiDeleteArray;
@@ -289,9 +294,10 @@ namespace Skate {
         ApiString(const char *utf8) : ApiString(utf8, strlen(utf8)) {}
         ApiString(const std::string &utf8) : ApiString(utf8.data(), utf8.size()) {}
         ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
-            const size_t sz = other.size() + 1;
-            LPWSTR copy = new WCHAR[sz];
-            memcpy(copy, other.data(), sz * sizeof(*copy));
+            LPWSTR copy = new WCHAR[len + 1];
+            memcpy(copy, other.data(), len * sizeof(*copy));
+
+            copy[len] = 0; // NUL-terminate manually
 
             str = copy;
             type = ApiDeleteArray;
@@ -309,12 +315,14 @@ namespace Skate {
 
             destroy();
 
-            const size_t sz = other.size() + 1;
-            LPWSTR copy = new WCHAR[sz];
+            const size_t sz = other.size();
+            LPWSTR copy = new WCHAR[sz + 1];
             memcpy(copy, other.data(), sz * sizeof(*copy));
 
+            copy[sz] = 0; // NUL-terminate manually
+
             str = copy;
-            len = sz - 1;
+            len = sz;
             type = ApiDeleteArray;
 
             return *this;

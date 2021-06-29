@@ -14,6 +14,9 @@
  * QVarLengthArray<T, int>
  * QSet<T>
  *
+ * QString (TODO)
+ * QByteArray (TODO)
+ *
  */
 
 #include <QList>
@@ -33,12 +36,16 @@ namespace Skate {
 
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
-        SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_COMPLEX_ASSIGN
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
         void clear() { c.clear(); }
 
+        T &back() { return c.back(); }
+        constexpr const T &back() const { return c.back(); }
+
+        void pop_back() { c.pop_back(); }
         void push_back(T &&value) {
             c.push_back(std::forward<T>(value));
         }
@@ -98,12 +105,16 @@ namespace Skate {
 
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
-        SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_COMPLEX_ASSIGN
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
         void clear() { c.clear(); }
 
+        T &back() { return c.back(); }
+        constexpr const T &back() const { return c.back(); }
+
+        void pop_back() { c.pop_back(); }
         void push_back(T &&value) {
             c.push_back(std::forward<T>(value));
         }
@@ -155,12 +166,16 @@ namespace Skate {
 
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
-        SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_COMPLEX_ASSIGN
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
         void clear() { c.clear(); }
 
+        T &back() { return c.back(); }
+        constexpr const T &back() const { return c.back(); }
+
+        void pop_back() { c.pop_back(); }
         void push_back(T &&value) {
             c.push_back(std::forward<T>(value));
         }
@@ -220,12 +235,16 @@ namespace Skate {
 
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
-        SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_COMPLEX_ASSIGN
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
         void clear() { c.clear(); }
 
+        T &back() { return c.back(); }
+        constexpr const T &back() const { return c.back(); }
+
+        void pop_back() { c.pop_back(); }
         void push_back(T &&value) {
             c.push_back(std::forward<T>(value));
         }
@@ -291,8 +310,8 @@ namespace Skate {
 
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER
         SKATE_IMPL_ABSTRACT_LIST_WRAPPER_SIMPLE_ASSIGN
-        SKATE_IMPL_ABSTRACT_WRAPPER_COMPLEX_ASSIGN(AbstractListWrapper)
-        SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND(AbstractListWrapper)
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_COMPLEX_ASSIGN
+        SKATE_IMPL_ABSTRACT_LIST_WRAPPER_DEFAULT_APPEND
         SKATE_IMPL_ABSTRACT_WRAPPER_CONTAINER_SIZE
 
         void clear() { c.clear(); }

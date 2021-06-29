@@ -1,8 +1,6 @@
 #ifndef SKATE_IO_BUFFER_H
 #define SKATE_IO_BUFFER_H
 
-#include "../containers/abstract_list.h"
-
 namespace Skate {
     template<typename T> class InputOutputBuffer;
 
@@ -16,12 +14,12 @@ namespace Skate {
 
             void read_from_buffer_into(InputOutputBuffer<T> &buffer, size_t max) {
                 buffer.read(max, [&](const T *data, size_t count) {
-                    AbstractList(c) += AbstractList(data, count);
+                    std::copy(data, data + count, std::back_inserter(c));
                 });
             }
             void read_all_from_buffer_into(InputOutputBuffer<T> &buffer) {
                 buffer.read_all([&](const T *data, size_t count) {
-                    AbstractList(c) += AbstractList(data, count);
+                    std::copy(data, data + count, std::back_inserter(c));
                 });
             }
         };
