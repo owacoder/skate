@@ -45,16 +45,28 @@ std::ostream &operator<<(std::ostream &os, const Skate::SocketAddress &address) 
     return os << address.to_string();
 }
 
-template<template<typename T, typename A> class Container, typename T, typename A>
-std::ostream &operator<<(std::ostream &os, const Container<T, A> &container) {
-    for (const auto &item: container)
-        os << item << " Loopback? " << item.is_loopback() << "\n";
-    return os;
-}
-
 //#include "containers/abstract_map.h"
+#include <QString>
+#include <QList>
+#include <QMap>
+
 #include "containers/adapters/adapters.h"
 #include <map>
+
+struct Point {
+    int x, y;
+    Point() : x(), y() {}
+};
+
+template<typename StreamChar>
+void skate_json(std::basic_istream<StreamChar> &is, Point &p) {
+
+}
+
+template<typename StreamChar>
+void skate_json(std::basic_ostream<StreamChar> &os, const Point &p) {
+    os << Skate::json(std::vector<int>{{p.x, p.y}});
+}
 
 int main()
 {
@@ -79,10 +91,32 @@ int main()
 #endif
 
     std::vector<std::string> v = {"A\nnewline'\"", "1", "2", "3"};
-    std::map<std::wstring, std::vector<std::string>> map;
+    std::unordered_map<std::string, QList<std::string>> map;
 
-    map[L"default🌍רי"] = {"Test string 1", "2nd string & 3rd string"};
-    map[L"test\b\001"] = {};
+    // map["default\xf0\x9f\x8c\x8d"] = {};
+    // map["test"] = {};
+
+    //std::cout << typeid(decltype(map)).name() << std::endl;
+
+#if 1
+    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[],\"\":[\"default\", \"\"]}");
+    for (Skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
+        std::cout << "Codepoint: " << cp.character() << '\n';
+    }
+
+    std::cout << '\n';
+
+    jstream.clear();
+    jstream.seekg(0);
+    if (jstream >> Skate::json(map))
+        std::cout << Skate::json(map) << '\n';
+    else
+        std::cout << "An error occurred\n";
+
+    std::cout << Skate::to_json(Point());
+
+    return 0;
+#endif
 
     Skate::put_unicode<char>{}(std::cout, 127757);
     //std::cout << Skate::impl::is_map<int>::value << std::endl;
@@ -90,9 +124,9 @@ int main()
     //std::cout << Skate::impl::is_map<std::map<int, int>>::value << std::endl;
 
     //std::wcout << Skate::json(map) << std::endl;
-    std::cout << Skate::json(map, 2) << Skate::json(true) << std::endl;
-    std::cout << Skate::csv(v, '\t') << std::endl;
-    std::cout << Skate::xml_doc(map, 1) << std::endl;
+    //std::cout << Skate::json(map, 2) << Skate::json(true) << std::endl;
+    //std::cout << Skate::csv(v, '\t', 127757) << std::endl;
+    //std::cout << Skate::xml_doc(map, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
     return 0;
