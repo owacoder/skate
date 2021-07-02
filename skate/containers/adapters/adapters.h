@@ -65,7 +65,7 @@ namespace Skate {
 
     // Determine if type is a map pair (has first/second members, or key()/value() functions)
     template<typename MapPair>
-    struct map_pair_helper {
+    struct is_map_pair_helper {
         struct none {};
 
         // Test for indirect first/second pair
@@ -118,26 +118,26 @@ namespace Skate {
 
     // Determine if type is a map (iterator has first/second members, or key()/value() functions)
     template<typename Map>
-    struct map_helper {
+    struct is_map_helper {
         struct none {};
 
-        template<typename U, typename _ = Map> static typename std::enable_if<map_pair_helper<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
+        template<typename U, typename _ = Map> static typename std::enable_if<is_map_pair_helper<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
         template<typename U> static none test(...);
 
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
     };
 
     template<typename Map>
-    struct string_map_helper {
+    struct is_string_map_helper {
         struct none {};
 
-        template<typename U, typename _ = Map> static typename std::enable_if<is_string_base<typename map_pair_helper<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
+        template<typename U, typename _ = Map> static typename std::enable_if<is_string_base<typename is_map_pair_helper<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
         template<typename U> static none test(...);
 
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
     };
 
-    template<typename MapPair, typename = typename map_pair_helper<MapPair>::key_type> struct key_of;
+    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::key_type> struct key_of;
 
     template<typename MapPair>
     struct key_of<MapPair, decltype(std::declval<MapPair>()->first)> {
@@ -163,7 +163,7 @@ namespace Skate {
         const decltype(std::declval<MapPair>().key()) &operator()(const _ &m) const { return m.key(); }
     };
 
-    template<typename MapPair, typename = typename map_pair_helper<MapPair>::value_type> struct value_of;
+    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::value_type> struct value_of;
 
     template<typename MapPair>
     struct value_of<MapPair, decltype(std::declval<MapPair>()->second)> {
@@ -194,11 +194,11 @@ namespace Skate {
     // Strip const/volatile off type
     template<typename T>
     struct is_map_base : public std::integral_constant<bool, is_map<typename base_type<T>::type>::value ||
-                                                             map_helper<typename base_type<T>::type>::value> {};
+                                                             is_map_helper<typename base_type<T>::type>::value> {};
 
     template<typename T>
     struct is_string_map_base : public std::integral_constant<bool, is_map_base<T>::value &&
-                                                                    string_map_helper<T>::value> {};
+                                                                    is_string_map_helper<T>::value> {};
 
     // Determine if type is unique_ptr
     template<typename T> struct is_unique_ptr : public std::false_type {};
@@ -272,8 +272,8 @@ namespace Skate {
         constexpr JsonReader(Type &ref) : ref(ref) {}
 
         // User object overload, skate_to_json(stream, object)
-        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(std::declval<std::basic_istream<StreamChar> &>(), std::declval<_>()))>::type = 0>
-        void write(std::basic_istream<StreamChar> &is) const {
+        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(std::declval<std::basic_istream<StreamChar> &>(), std::declval<_ &>()))>::type = 0>
+        void read(std::basic_istream<StreamChar> &is) const {
             // Library user is responsible for validating read JSON in the callback function
             skate_json(is, ref);
         }
@@ -370,7 +370,11 @@ namespace Skate {
         }
 
         // String overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value &&
+                                                                                 type_exists<decltype(
+                                                                                             // Only if put_unicode is available
+                                                                                             std::declval<put_unicode<typename base_type<decltype(*begin(std::declval<_>()))>::type>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
+                                                                                             )>::value, int>::type = 0>
         void read(std::basic_istream<StreamChar> &is) {
             // Underlying char type of string
             typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type StringChar;
@@ -1185,10 +1189,10 @@ namespace Skate {
     }
 
     template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, const QString &str) {
+    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
         std::wstring wstr;
         is >> Skate::json(wstr);
-        str = wstr;
+        str = QString::fromStdWString(wstr);
         return is;
     }
 

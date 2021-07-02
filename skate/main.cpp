@@ -91,7 +91,7 @@ int main()
 #endif
 
     std::vector<std::string> v = {"A\nnewline'\"", "1", "2", "3"};
-    std::unordered_map<std::string, QList<std::string>> map;
+    std::unordered_map<QString, QStringList> map;
 
     // map["default\xf0\x9f\x8c\x8d"] = {};
     // map["test"] = {};
@@ -113,7 +113,7 @@ int main()
     else
         std::cout << "An error occurred\n";
 
-    std::cout << Skate::to_json(Point());
+    std::cout << Skate::json(Point());
 
     return 0;
 #endif
