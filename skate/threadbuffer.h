@@ -79,7 +79,7 @@ private:
 };
 #endif
 
-namespace Skate {
+namespace skate {
     enum MessageQueueType {
         QueueBlockUntilDone,// Guarantees that a message was received and handled completely by a consumer, blocking until a consumer is available and until the message is completely handled.
                             // Returns MessageSuccess if the message was handled, MessageFailed if an error occurred while sending or processing the message.
@@ -508,7 +508,7 @@ namespace Skate {
 
 #include <functional>
 #include <thread>
-namespace Skate {
+namespace skate {
     template<typename Message>
     class MessageCallbackInterface : public MessageInterface<Message>
     {
@@ -706,7 +706,7 @@ namespace Skate {
 
 #include <ostream>
 #include <type_traits>
-namespace Skate {
+namespace skate {
     template<typename Message>
     class MessageStreamWriterInterface : public MessageCallbackInterface<Message>
     {
@@ -742,7 +742,7 @@ namespace Skate {
 }
     
 #include <fstream>
-namespace Skate {
+namespace skate {
     template<typename Message>
     class MessageFileWriterInterface : public MessageStreamWriterInterface<Message>
     {
@@ -764,7 +764,7 @@ namespace Skate {
     };
 }
 
-namespace Skate {
+namespace skate {
     // Broadcasts a message to one or more message handlers
     // Message handlers are not allowed to call any function of a MessageBroadcaster object
     template<typename Message>

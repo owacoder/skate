@@ -14,7 +14,7 @@
 #include <fcntl.h>
 #endif
 
-namespace Skate {
+namespace skate {
     class SocketAddress {
     public:
         enum Type {

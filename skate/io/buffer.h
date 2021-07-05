@@ -1,7 +1,9 @@
 #ifndef SKATE_IO_BUFFER_H
 #define SKATE_IO_BUFFER_H
 
-namespace Skate {
+#include <algorithm>
+
+namespace skate {
     template<typename T> class InputOutputBuffer;
 
     namespace impl {

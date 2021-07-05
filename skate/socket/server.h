@@ -14,7 +14,7 @@
 
 #include <type_traits>
 
-namespace Skate {
+namespace skate {
     namespace impl {
 #if LINUX_OS
         typedef EPoll DefaultSystemWatcher;

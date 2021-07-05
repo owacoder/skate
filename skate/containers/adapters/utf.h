@@ -8,8 +8,10 @@
 
 #if __cplusplus
 #include <string>
+#include <iostream>
+#include <cstring>
 
-namespace Skate {
+namespace skate {
 #else // C only
 #include <string.h>
 
@@ -492,30 +494,28 @@ namespace Skate {
             return utf8next(utf8, len, current);
         }
 
-        std::basic_istream<char> &operator()(std::basic_istream<char> &is, unicode_codepoint &codepoint) {
+        bool operator()(std::basic_streambuf<char> &is, unicode_codepoint &codepoint) {
             char utf8[UTF8_MAX_CHAR_BYTES] = { 0 };
 
             codepoint = UTF_ERROR;
-            is >> utf8[0];
+            auto c = is.sbumpc();
+            if (c == std::char_traits<char>::eof())
+                return false;
+            utf8[0] = std::char_traits<char>::to_char_type(c);
 
-            if (!is)
-                return is;
-
-            size_t count = utf8high5bitstobytecount(utf8[0]);
+            std::streamsize count = utf8high5bitstobytecount(utf8[0]);
             if (count > 1) {
-                is.get(&utf8[1], count);
-
-                if (!is)
-                    return is;
+                if (is.sgetn(&utf8[1], count - 1) != count - 1)
+                    return false;
             }
 
             codepoint = utf8next(utf8, nullptr);
             if (!codepoint.valid()) {
                 while (count-- > 1)
-                    is.putback(utf8[count]);
+                    is.sungetc();
             }
 
-            return is;
+            return true;
         }
     };
 
@@ -528,30 +528,28 @@ namespace Skate {
             return utf8next(utf8, len, current);
         }
 
-        std::basic_istream<char8_t> &operator()(std::basic_istream<char8_t> &is, unicode_codepoint &codepoint) {
+        bool operator()(std::basic_streambuf<char> &is, unicode_codepoint &codepoint) {
             char utf8[UTF8_MAX_CHAR_BYTES] = { 0 };
 
             codepoint = UTF_ERROR;
-            is >> utf8[0];
+            auto c = is.sbumpc();
+            if (c == std::char_traits<char>::eof())
+                return false;
+            utf8[0] = c;
 
-            if (!is)
-                return is;
-
-            size_t count = utf8high5bitstobytecount(utf8[0]);
+            std::streamsize count = utf8high5bitstobytecount(utf8[0]);
             if (count > 1) {
-                is.get(&utf8[1], count);
-
-                if (!is)
-                    return is;
+                if (is.sgetn(&utf8[1], count - 1) != count - 1)
+                    return false;
             }
 
             codepoint = utf8next(utf8, nullptr);
             if (!codepoint.valid()) {
                 while (count-- > 1)
-                    is.putback(utf8[count]);
+                    is.sungetc();
             }
 
-            return is;
+            return true;
         }
     };
 #endif
@@ -575,21 +573,26 @@ namespace Skate {
             return codepoint;
         }
 
-        std::basic_istream<char16_t> &operator()(std::basic_istream<char16_t> &is, unicode_codepoint &codepoint) {
-            char16_t c;
-
-            if (is >> c) {
-                codepoint = c;
-                if (utf16surrogate(c)) {
-                    if (is.get(c))
-                        codepoint = {codepoint.value(), c};
-                    else
-                        codepoint = UTF_ERROR;
-                }
-            } else
+        bool operator()(std::basic_streambuf<char16_t> &is, unicode_codepoint &codepoint) {
+            auto c = is.sbumpc();
+            if (c == std::char_traits<char16_t>::eof()) {
                 codepoint = UTF_ERROR;
+                return false;
+            }
 
-            return is;
+            codepoint = std::char_traits<char16_t>::to_char_type(c);
+            if (utf16surrogate(codepoint.value())) {
+                c = is.sbumpc();
+
+                if (c == std::char_traits<char16_t>::eof()) {
+                    codepoint = UTF_ERROR;
+                    return false;
+                }
+
+                codepoint = {codepoint.value(), std::char_traits<char16_t>::to_char_type(c)};
+            }
+
+            return true;
         }
     };
 
@@ -600,15 +603,16 @@ namespace Skate {
             return utf32[current++];
         }
 
-        std::basic_istream<char32_t> &operator()(std::basic_istream<char32_t> &is, unicode_codepoint &codepoint) {
-            char32_t c;
-
-            if (is >> c)
-                codepoint = c;
-            else
+        bool operator()(std::basic_streambuf<char32_t> &is, unicode_codepoint &codepoint) {
+            auto c = is.sbumpc();
+            if (c == std::char_traits<char32_t>::eof()) {
                 codepoint = UTF_ERROR;
+                return false;
+            }
 
-            return is;
+            codepoint = std::char_traits<char32_t>::to_char_type(c);
+
+            return true;
         }
     };
 
@@ -622,27 +626,36 @@ namespace Skate {
             return get_unicode<typename std::conditional<sizeof(wchar_t) == sizeof(char16_t), char16_t, char32_t>::type>{}(utf, len, current);
         }
 
-        std::basic_istream<wchar_t> &operator()(std::basic_istream<wchar_t> &is, unicode_codepoint &codepoint) {
-            wchar_t c;
-
-            if (is >> c) {
-                codepoint = c;
-                if (sizeof(wchar_t) == sizeof(char16_t) && utf16surrogate(c)) {
-                    if (is.get(c))
-                        codepoint = {codepoint.value(), c};
-                    else
-                        codepoint = UTF_ERROR;
-                }
-            } else
+        bool operator()(std::basic_streambuf<wchar_t> &is, unicode_codepoint &codepoint) {
+            auto c = is.sbumpc();
+            if (c == std::char_traits<wchar_t>::eof()) {
                 codepoint = UTF_ERROR;
+                return false;
+            }
 
-            return is;
+            codepoint = std::char_traits<wchar_t>::to_char_type(c);
+
+            if (sizeof(wchar_t) == sizeof(char16_t) && utf16surrogate(codepoint.value())) {
+                c = is.sbumpc();
+
+                if (c == std::char_traits<wchar_t>::eof()) {
+                    codepoint = UTF_ERROR;
+                    return false;
+                }
+
+                codepoint = {codepoint.value(), std::char_traits<wchar_t>::to_char_type(c)};
+            }
+
+            return true;
         }
     };
 
     template<typename StreamChar>
     std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, unicode_codepoint &cp) {
-        return get_unicode<StreamChar>{}(is, cp);
+        if (!is.rdbuf() || !get_unicode<StreamChar>{}(*is.rdbuf(), cp))
+            is.setstate(std::ios_base::failbit);
+
+        return is;
     }
 
     // Write Unicode point to string or iostream
@@ -655,18 +668,19 @@ namespace Skate {
         }
 
         template<typename CharType>
-        std::basic_ostream<CharType> &operator()(std::basic_ostream<CharType> &s, unicode_codepoint codepoint) {
+        bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             char utf8[UTF8_MAX_CHAR_BYTES];
             size_t remaining = sizeof(utf8);
 
             if (utf8append(utf8, codepoint.value(), &remaining) == nullptr)
-                s.setstate(s.rdstate() | std::ios_base::failbit);
-            else {
-                for (size_t i = 0; utf8[i]; ++i)
-                    s.put((unsigned char) utf8[i]);
+                return false;
+
+            for (size_t i = 0; utf8[i]; ++i) {
+                if (s.sputc((unsigned char) utf8[i]) == std::char_traits<CharType>::eof())
+                    return false;
             }
 
-            return s;
+            return true;
         }
     };
 
@@ -679,18 +693,19 @@ namespace Skate {
         }
 
         template<typename CharType>
-        std::basic_ostream<CharType> &operator()(std::basic_ostream<CharType> &s, unicode_codepoint codepoint) {
+        bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             char utf8[UTF8_MAX_CHAR_BYTES];
             size_t remaining = sizeof(utf8);
 
             if (utf8append(utf8, codepoint.value(), &remaining) == nullptr)
-                s.setstate(s.rdstate() | std::ios_base::failbit);
-            else {
-                for (size_t i = 0; utf8[i]; ++i)
-                    s << CharType((unsigned char) utf8[i]);
+                return false;
+
+            for (size_t i = 0; utf8[i]; ++i) {
+                if (s.sputc((unsigned char) utf8[i]) == std::char_traits<CharType>::eof())
+                    return false;
             }
 
-            return s;
+            return true;
         }
     };
 #endif
@@ -710,16 +725,14 @@ namespace Skate {
         }
 
         template<typename CharType>
-        std::basic_ostream<CharType> &operator()(std::basic_ostream<CharType> &s, unicode_codepoint codepoint) {
+        bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             unsigned int hi, lo;
 
             switch (utf16surrogates(codepoint.value(), hi, lo)) {
-                case 2: s << CharType(hi); // fallthrough
-                case 1: s << CharType(lo); break;
-                default: s.setstate(s.rdstate() | std::ios_base::failbit); break;
+                case 2: if (s.sputc(hi) == std::char_traits<CharType>::eof()) return false; // fallthrough
+                case 1: return s.sputc(lo) != std::char_traits<CharType>::eof();
+                default: return false;
             }
-
-            return s;
         }
     };
 
@@ -735,13 +748,11 @@ namespace Skate {
         }
 
         template<typename CharType>
-        std::basic_ostream<CharType> &operator()(std::basic_ostream<CharType> &s, unicode_codepoint codepoint) {
+        bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             if (!codepoint.valid())
-                s.setstate(s.rdstate() | std::ios_base::failbit);
-            else
-                s << CharType(codepoint.value());
+                return false;
 
-            return s;
+            return s.sputc(codepoint.value()) != std::char_traits<CharType>::eof();
         }
     };
 
@@ -755,7 +766,7 @@ namespace Skate {
         }
 
         template<typename CharType>
-        std::basic_ostream<CharType> &operator()(std::basic_ostream<CharType> &s, unicode_codepoint codepoint) {
+        std::basic_ostream<CharType> &operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             static_assert(sizeof(wchar_t) == sizeof(char16_t) ||
                           sizeof(wchar_t) == sizeof(char32_t), "wchar_t must be either 16 or 32-bits to use put_unicode");
 
@@ -765,7 +776,10 @@ namespace Skate {
 
     template<typename StreamChar>
     std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, unicode_codepoint cp) {
-        return put_unicode<StreamChar>{}(os, cp);
+        if (!os.rdbuf() || !put_unicode<StreamChar>{}(*os.rdbuf(), cp))
+            os.setstate(std::ios_base::failbit);
+
+        return os;
     }
 }
 

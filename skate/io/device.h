@@ -3,7 +3,7 @@
 
 #include "system/includes.h"
 
-namespace Skate {
+namespace skate {
     class IODevice {
     protected:
         IODevice() {}

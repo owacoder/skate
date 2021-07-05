@@ -8,7 +8,7 @@
 #if BSD_OS | MAC_OS
 # include <sys/event.h>
 
-namespace Skate {
+namespace skate {
     class KQueue : public SocketWatcher {
         std::vector<struct kevent> changes;
         SocketDescriptor queue;
@@ -39,7 +39,7 @@ namespace Skate {
 
     public:
         KQueue() : queue(::kqueue()) {
-            if (queue == Skate::Socket::invalid_socket)
+            if (queue == skate::Socket::invalid_socket)
                 throw std::runtime_error(system_error_string(errno).to_utf8());
         }
         virtual ~KQueue() { close(queue); }

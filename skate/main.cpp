@@ -1,5 +1,5 @@
 #include <iostream>
-#include <threadbuffer.h>
+#include "threadbuffer.h"
 #include <thread>
 #include <vector>
 
@@ -13,7 +13,7 @@ static std::mutex coutMutex;
 static int total;
 
 template<typename Message>
-void consumer(Skate::MessageHandler<Message> buffer) {
+void consumer(skate::MessageHandler<Message> buffer) {
     Message m;
 
     buffer.send({});
@@ -41,17 +41,20 @@ public:
     char &operator[](size_t idx) {return v[idx];}
 };
 
-std::ostream &operator<<(std::ostream &os, const Skate::SocketAddress &address) {
+std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) {
     return os << address.to_string();
 }
 
 //#include "containers/abstract_map.h"
+#if 0
 #include <QString>
 #include <QList>
 #include <QMap>
+#endif
 
 #include "containers/adapters/adapters.h"
 #include <map>
+#include "benchmark.h"
 
 struct Point {
     int x, y;
@@ -64,12 +67,15 @@ void skate_json(std::basic_istream<StreamChar> &is, Point &p) {
 }
 
 template<typename StreamChar>
-void skate_json(std::basic_ostream<StreamChar> &os, const Point &p) {
-    os << Skate::json(std::vector<int>{{p.x, p.y}});
+bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::json_write_options options) {
+    return skate::json(std::vector<int>{{p.x, p.y}}, options).write(os);
 }
 
 int main()
 {
+    std::ios_base::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
 #if 0
     dynamic_tree<std::string, false> t, copy;
     dynamic_tree<std::string, false>::iterator it = t.root();
@@ -91,7 +97,7 @@ int main()
 #endif
 
     std::vector<std::string> v = {"A\nnewline'\"", "1", "2", "3"};
-    std::unordered_map<QString, QStringList> map;
+    std::unordered_map<std::string, skate::json_value> map;
 
     // map["default\xf0\x9f\x8c\x8d"] = {};
     // map["test"] = {};
@@ -99,26 +105,59 @@ int main()
     //std::cout << typeid(decltype(map)).name() << std::endl;
 
 #if 1
-    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[],\"\":[\"default\", \"\"]}");
-    for (Skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
+    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[\"string\\ud83c\\udf0d\", 1000, null, true]}");
+    for (skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
         std::cout << "Codepoint: " << cp.character() << '\n';
     }
 
     std::cout << '\n';
 
+    skate::json_value js;
+    std::string js_text;
+
+    skate::benchmark([&js]() {
+        js.resize(200000);
+        for (size_t i = 0; i < js.size(); ++i) {
+            skate::json_value temp;
+
+            temp["1st"] = rand();
+            temp["2nd"] = rand() + 0.1;
+            temp["3rd"] = std::string(10, 'A');
+
+            js[i] = std::move(temp);
+        }
+    }, "JSON build");
+
+    const size_t count = 10;
+    for (size_t i = 0; i < count; ++i) {
+        skate::benchmark_throughput([&js_text, &js]() {
+            js_text = skate::to_json(js);
+            return js_text.size();
+        }, "JSON write " + std::to_string(i));
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        skate::benchmark_throughput([&js_text, &js]() {
+            js = skate::from_json<typename std::remove_reference<decltype(js)>::type>(js_text);
+            return js_text.size();
+        }, "JSON read " + std::to_string(i));
+    }
+
+    std::cout << js_text.size() << std::endl;
+
     jstream.clear();
     jstream.seekg(0);
-    if (jstream >> Skate::json(map))
-        std::cout << Skate::json(map) << '\n';
+    if (jstream >> skate::json(map))
+        std::cout << skate::json(map) << '\n';
     else
         std::cout << "An error occurred\n";
 
-    std::cout << Skate::json(Point());
+    std::cout << skate::json(Point(), { 2 });
 
     return 0;
 #endif
 
-    Skate::put_unicode<char>{}(std::cout, 127757);
+    //skate::put_unicode<char>{}(std::cout, 127757);
     //std::cout << Skate::impl::is_map<int>::value << std::endl;
     //std::cout << Skate::impl::is_map<typename std::remove_cv<decltype(map)>::type>::value << std::endl;
     //std::cout << Skate::impl::is_map<std::map<int, int>>::value << std::endl;
@@ -230,10 +269,10 @@ int main()
 #endif
 
     try {
-        Skate::StartupWrapper wrapper;
-        Skate::TCPSocket socket;
-        Skate::UDPSocket udp;
-        Skate::SocketServer<Skate::Poll> server;
+        skate::StartupWrapper wrapper;
+        skate::TCPSocket socket;
+        skate::UDPSocket udp;
+        skate::SocketServer<skate::Poll> server;
 
 #if 0
         udp.bind(Skate::SocketAddress::any(), 8080);
@@ -286,7 +325,7 @@ int main()
     }
 
     typedef std::string Message;
-    std::unique_ptr<Skate::MessageBroadcaster<Message>> msg(new Skate::MessageBroadcaster<Message>());
+    std::unique_ptr<skate::MessageBroadcaster<Message>> msg(new skate::MessageBroadcaster<Message>());
 
     std::thread thrd(consumer<Message>, msg->addBuffer());
     //std::thread thrd2(consumer<int>, 2, std::ref(tbuf));
@@ -295,8 +334,8 @@ int main()
     //msg->addAsyncCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!" << std::endl;}}, 4);
     auto ptr = msg->addCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!" << std::endl; return true;}}, 4);
     msg->addCallback([](Message &&m) {std::unique_lock<std::mutex> lock(coutMutex); std::cout << "Sync callback: " << m[0] << std::endl; return true;});
-    msg->send(std::string("abc"), Skate::QueueBlockUntilDone);
-    msg->send(std::string("def"), Skate::QueueBlockUntilDone);
+    msg->send(std::string("abc"), skate::QueueBlockUntilDone);
+    msg->send(std::string("def"), skate::QueueBlockUntilDone);
     msg->send(std::string("jkl"));
     msg->send(std::string("ghi"));
     //std::this_thread::sleep_for(std::chrono::milliseconds(4000));

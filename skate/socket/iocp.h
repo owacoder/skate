@@ -5,7 +5,7 @@
 #include "common.h"
 
 #if WINDOWS_OS
-namespace Skate {
+namespace skate {
     class IOCP : public SocketWatcher {
         HANDLE completion_port;
 

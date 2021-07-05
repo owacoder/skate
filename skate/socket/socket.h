@@ -28,7 +28,7 @@
 
 // See https://beej.us/guide/bgnet/html
 
-namespace Skate {
+namespace skate {
     class Socket;
 
     class SocketError : public std::runtime_error

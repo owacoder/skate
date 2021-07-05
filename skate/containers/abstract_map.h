@@ -143,7 +143,7 @@
     }
 // SKATE_IMPL_ABSTRACT_WRAPPER_DEFAULT_APPEND
 
-namespace Skate {
+namespace skate {
     // ------------------------------------------------
     // Base templates for main container types
     // ------------------------------------------------

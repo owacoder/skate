@@ -13,7 +13,7 @@
 #if POSIX_OS
 #include <sys/poll.h>
 
-namespace Skate {
+namespace skate {
     class Poll : public SocketWatcher {
         std::vector<pollfd> fds;
 
@@ -142,7 +142,7 @@ namespace Skate {
     };
 }
 #elif WINDOWS_OS // End of POSIX_OS
-namespace Skate {
+namespace skate {
     class Poll : public SocketWatcher {
         std::vector<struct pollfd> fds;
 

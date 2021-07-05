@@ -49,7 +49,7 @@
     constexpr bool empty() const { return size() == 0; }
 // SKATE_IMPL_ABSTRACT_WRAPPER_MFC_CONTAINER_SIZE
 
-namespace Skate {
+namespace skate {
     namespace impl {
         // CList push_back iterator, like std::back_insert_iterator, but for CList
         template<typename Container>

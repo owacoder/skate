@@ -17,7 +17,7 @@
 #if POSIX_OS
 # include <sys/select.h>
 
-namespace Skate {
+namespace skate {
     class Select : public SocketWatcher {
         SocketDescriptor max_read_descriptor;
         SocketDescriptor max_write_descriptor;
@@ -170,7 +170,7 @@ namespace Skate {
     };
 }
 #elif WINDOWS_OS // End of POSIX_OS
-namespace Skate {
+namespace skate {
     class Select : public SocketWatcher {
         fd_set master_read_set;
         fd_set master_write_set;

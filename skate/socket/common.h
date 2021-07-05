@@ -5,7 +5,7 @@
 
 #include <unordered_map>
 
-namespace Skate {
+namespace skate {
     using WatchFlags = uint8_t;
 
     static constexpr WatchFlags WatchRead    = 1 << 0;

@@ -1,12 +1,13 @@
 TEMPLATE = app
 CONFIG += console c++11
 CONFIG -= app_bundle
-CONFIG += qt
+CONFIG -= qt
 
 SOURCES += \
         main.cpp
 
 HEADERS += \
+    benchmark.h \
     containers/MFC/mfc_abstract_list.h \
     containers/POCO/poco_abstract_list.h \
     containers/Qt/qt_abstract_list.h \

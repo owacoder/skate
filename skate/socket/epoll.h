@@ -7,7 +7,7 @@
 #if LINUX_OS
 # include <sys/epoll.h>
 
-namespace Skate {
+namespace skate {
     class EPoll : public SocketWatcher {
         int queue;
 

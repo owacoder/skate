@@ -10,7 +10,7 @@
 # include <cstring>
 # include <csignal>
 
-namespace Skate {
+namespace skate {
     // Really no difference between FileDescriptor and SocketDescriptor on Unix/POSIX systems
     typedef int FileDescriptor;
     typedef int SocketDescriptor;
@@ -208,7 +208,7 @@ namespace Skate {
 // Define missing MSG_NOSIGNAL flag to nothing since Windows doesn't use it
 #define MSG_NOSIGNAL 0
 
-namespace Skate {
+namespace skate {
     typedef HANDLE FileDescriptor;
     typedef SOCKET SocketDescriptor;
 

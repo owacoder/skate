@@ -25,7 +25,7 @@
 #include <QVarLengthArray>
 #include <QSet>
 
-namespace Skate {
+namespace skate {
     // ------------------------------------------------
     // Specialization for QList<T>
     // ------------------------------------------------

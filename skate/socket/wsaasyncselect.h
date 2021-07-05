@@ -5,7 +5,7 @@
 #include "common.h"
 
 #if WINDOWS_OS
-namespace Skate {
+namespace skate {
     class WSAAsyncSelectWatcher : public SocketWatcher {
         const HWND hwnd;
         const UINT msg;

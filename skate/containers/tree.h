@@ -4,7 +4,7 @@
 #include <vector>
 #include <algorithm>
 
-namespace Skate {
+namespace skate {
     template<typename T, size_t children_per_node, bool stack_recursion = true>
     class tree {
         tree *children[children_per_node];              // Children, owned by this instance

@@ -201,7 +201,7 @@
     constexpr bool empty() const { return size() == 0; }
 // SKATE_IMPL_ABSTRACT_WRAPPER_RANGE_SIZE
 
-namespace Skate {
+namespace skate {
     namespace impl {
         // Helper to determine if member exists
         template<typename> struct exists {typedef int type;};
