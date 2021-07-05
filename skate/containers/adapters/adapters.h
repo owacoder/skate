@@ -873,20 +873,23 @@ namespace skate {
             } else {
                 // Ideally this would not use snprintf, but there's not really a great option in C++11
 
-                std::string temp(32, '\0');
+                char buf[1024];
+                auto chars = snprintf(buf, sizeof(buf),
+                                      std::is_same<long double, _>::value? "%.*Lg": "%.*g",
+                                      std::numeric_limits<_>::max_digits10 - 1, ref);
+                if (chars < 0)
+                    return false;
+                else if (size_t(chars) < sizeof(buf))
+                    return os.sputn(buf, chars) == chars;
 
-                while (true) {
-                    auto chars = snprintf(&temp[0], temp.size(),
-                                          std::is_same<long double, _>::value? "%.*Lg": "%.*g",
-                                          std::numeric_limits<_>::max_digits10 - 1, ref);
-                    if (chars < 0)
-                        return false;
+                std::string temp(chars + 1, '\0');
+                chars = snprintf(&temp[0], temp.size(),
+                                 std::is_same<long double, _>::value? "%.*Lg": "%.*g",
+                                 std::numeric_limits<_>::max_digits10 - 1, ref);
+                if (chars >= 0 && size_t(chars) < temp.size())
+                    return os.sputn(temp.c_str(), chars) == chars;
 
-                    if (size_t(chars) < temp.size())
-                        return os.sputn(temp.c_str(), chars) == chars;
-
-                    temp.resize(chars + 1);
-                }
+                return false;
             }
         }
 
@@ -1020,7 +1023,7 @@ namespace skate {
             d.p = new object(std::move(o));
             t = ObjectType;
         }
-        explicit basic_json_value(bool b) : t(BooleanType) { d.b = b; }
+        basic_json_value(bool b) : t(BooleanType) { d.b = b; }
         basic_json_value(String s) : t(NullType) {
             d.p = new String(std::move(s));
             t = StringType;

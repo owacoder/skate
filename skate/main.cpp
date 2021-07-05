@@ -121,8 +121,8 @@ int main()
             skate::json_value temp;
 
             temp["1st"] = rand();
-            temp["2nd"] = rand() + 0.1;
-            temp["3rd"] = std::string(10, 'A');
+            temp["2nd"] = true;//rand() * 0.00000000000001;
+            temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
 
             js[i] = std::move(temp);
         }
@@ -135,6 +135,8 @@ int main()
             return js_text.size();
         }, "JSON write " + std::to_string(i));
     }
+
+    std::cout << js_text.substr(0, 1000) << '\n';
 
     for (size_t i = 0; i < count; ++i) {
         skate::benchmark_throughput([&js_text, &js]() {
