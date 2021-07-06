@@ -14,7 +14,6 @@ HEADERS += \
     containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
     containers/abstract_map.h \
-    containers/adapters/adapters.h \
     containers/adapters/utf.h \
     containers/tree.h \
     io/buffer.h \
@@ -31,7 +30,10 @@ HEADERS += \
     socket/poll.h \
     socket/server.h \
     socket/kqueue.h \
-    socket/epoll.h
+    socket/epoll.h \
+    containers/adapters/json.h \
+    containers/adapters/core.h \
+    containers/adapters/xml.h
 
 linux {
     LIBS += -lpthread

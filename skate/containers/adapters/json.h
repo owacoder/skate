@@ -1,303 +1,26 @@
-#ifndef ADAPTERS_H
-#define ADAPTERS_H
+#ifndef SKATE_JSON_H
+#define SKATE_JSON_H
 
-#include <cmath>
-#include <type_traits>
-#include <limits>
-#include <iostream>
-#include <iomanip>
-#include <sstream>
-
-#include <vector>
-#include <map>
-
-#if __cplusplus >= 201703L
-# include <optional>
-# include <variant>
-#endif
-
-#include "utf.h"
+#include "core.h"
 
 namespace skate {
-    // Helpers to get start and end of C-style string
-    using std::begin;
-    using std::end;
-
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType begin(StrType c) { return c; }
-
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType end(StrType c) { while (*c) ++c; return c; }
-
-    template<typename T> struct type_exists : public std::true_type { typedef int type; };
-
-    template<typename T> struct base_type {
-        typedef typename std::remove_cv<typename std::remove_reference<T>::type>::type type;
-    };
-
-    // Determine if type is a string
-    template<typename T> struct is_string : public std::false_type {};
-    template<typename... ContainerParams>
-    struct is_string<std::basic_string<ContainerParams...>> : public std::true_type {};
-    template<>
-    struct is_string<char *> : public std::true_type {};
-    template<>
-    struct is_string<wchar_t *> : public std::true_type {};
-    template<>
-    struct is_string<char16_t *> : public std::true_type {};
-    template<>
-    struct is_string<char32_t *> : public std::true_type {};
-#if __cplusplus >= 201703L
-    template<typename... ContainerParams>
-    struct is_string<std::basic_string_view<ContainerParams...>> : public std::true_type {};
-#endif
-#if __cplusplus >= 202002L
-    template<>
-    struct is_string<char8_t *> : public std::true_type {};
-#endif
-
-    // If base type is pointer, strip const/volatile off pointed-to type
-    template<typename T>
-    struct is_string_base_helper : public is_string<T> {};
-    template<typename T>
-    struct is_string_base_helper<T *> : public is_string<typename std::remove_cv<T>::type *> {};
-
-    // Strip const/volatile off type
-    template<typename T>
-    struct is_string_base : public is_string_base_helper<typename base_type<T>::type> {};
-
-    // Determine if type is a map pair (has first/second members, or key()/value() functions)
-    template<typename MapPair>
-    struct is_map_pair_helper {
-        struct none {};
-
-        // Test for indirect first/second pair
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>()->first), decltype(std::declval<_>()->second)> ind_first_second(U *);
-        template<typename U> static none ind_first_second(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->first) ind_first(U *);
-        template<typename U> static none ind_first(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->second) ind_second(U *);
-        template<typename U> static none ind_second(...);
-
-        // Test for member first/second pair
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>().first), decltype(std::declval<_>().second)> mem_first_second(U *);
-        template<typename U> static none mem_first_second(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().first) mem_first(U *);
-        template<typename U> static none mem_first(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().second) mem_second(U *);
-        template<typename U> static none mem_second(...);
-
-        // Test for indirect key()/value() functions
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>()->key()), decltype(std::declval<_>()->value())> ind_key_value(U *);
-        template<typename U> static none ind_key_value(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->key()) ind_key(U *);
-        template<typename U> static none ind_key(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->value()) ind_value(U *);
-        template<typename U> static none ind_value(...);
-
-        // Test for member key()/value() functions
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>().key()), decltype(std::declval<_>().value())> mem_key_value(U *);
-        template<typename U> static none mem_key_value(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().key()) mem_key(U *);
-        template<typename U> static none mem_key(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().value()) mem_value(U *);
-        template<typename U> static none mem_value(...);
-
-        static constexpr int value = !std::is_same<none, decltype(ind_first_second<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(mem_first_second<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(ind_key_value<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(mem_key_value<MapPair>(nullptr))>::value;
-
-        typedef typename std::conditional<!std::is_same<none, decltype(ind_first<MapPair>(nullptr))>::value, decltype(ind_first<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_first<MapPair>(nullptr))>::value, decltype(mem_first<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(ind_key<MapPair>(nullptr))>::value, decltype(ind_key<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_key<MapPair>(nullptr))>::value, decltype(mem_key<MapPair>(nullptr)), void>::type>::type>::type>::type key_type;
-
-        typedef typename std::conditional<!std::is_same<none, decltype(ind_second<MapPair>(nullptr))>::value, decltype(ind_second<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_second<MapPair>(nullptr))>::value, decltype(mem_second<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(ind_value<MapPair>(nullptr))>::value, decltype(ind_value<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_value<MapPair>(nullptr))>::value, decltype(mem_value<MapPair>(nullptr)), void>::type>::type>::type>::type value_type;
-    };
-
-    // Determine if type is a map (iterator has first/second members, or key()/value() functions)
-    template<typename Map>
-    struct is_map_helper {
-        struct none {};
-
-        template<typename U, typename _ = Map> static typename std::enable_if<is_map_pair_helper<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
-    };
-
-    template<typename Map>
-    struct is_string_map_helper {
-        struct none {};
-
-        template<typename U, typename _ = Map> static typename std::enable_if<is_string_base<typename is_map_pair_helper<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
-    };
-
-    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::key_type> struct key_of;
-
-    template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>()->first)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->first) &operator()(const _ &m) const { return m->first; }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>().first)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().first) &operator()(const _ &m) const { return m.first; }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>()->key())> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->key()) &operator()(const _ &m) const { return m->key(); }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>().key())> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().key()) &operator()(const _ &m) const { return m.key(); }
-    };
-
-    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::value_type> struct value_of;
-
-    template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>()->second)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->second) &operator()(const _ &m) const { return m->second; }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>().second)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().second) &operator()(const _ &m) const { return m.second; }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>()->value())> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->value()) &operator()(const _ &m) const { return m->value(); }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>().value())> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().value()) &operator()(const _ &m) const { return m.value(); }
-    };
-
-    template<typename T> struct is_map : public std::false_type {};
-
-    // Strip const/volatile off type
-    template<typename T>
-    struct is_map_base : public std::integral_constant<bool, is_map<typename base_type<T>::type>::value ||
-                                                             is_map_helper<typename base_type<T>::type>::value> {};
-
-    template<typename T>
-    struct is_string_map_base : public std::integral_constant<bool, is_map_base<T>::value &&
-                                                                    is_string_map_helper<T>::value> {};
-
-    // Determine if type is unique_ptr
-    template<typename T> struct is_unique_ptr : public std::false_type {};
-    template<typename T, typename... ContainerParams> struct is_unique_ptr<std::unique_ptr<T, ContainerParams...>> : public std::true_type {};
-
-    template<typename T> struct is_unique_ptr_base : public is_unique_ptr<typename base_type<T>::type> {};
-
-    // Determine if type is shared_ptr
-    template<typename T> struct is_shared_ptr : public std::false_type {};
-    template<typename T> struct is_shared_ptr<std::shared_ptr<T>> : public std::true_type {};
-
-    template<typename T> struct is_shared_ptr_base : public is_shared_ptr<typename base_type<T>::type> {};
-
-    // Determine if type is weak_ptr
-    template<typename T> struct is_weak_ptr : public std::false_type {};
-    template<typename T> struct is_weak_ptr<std::weak_ptr<T>> : public std::true_type {};
-
-    template<typename T> struct is_weak_ptr_base : public is_weak_ptr<typename base_type<T>::type> {};
-
-#if __cplusplus >= 201703L
-    // Determine if type is an optional
-    template<typename T> struct is_optional : public std::false_type {};
-    template<typename T> struct is_optional<std::optional<T>> : public std::true_type {};
-
-    template<typename T> struct is_optional_base : public is_optional<typename base_type<T>::type> {};
-#endif
-
-#if __cplusplus >= 202002L
-    // Determine if type is a variant
-    template<typename T> struct is_variant : public std::false_type {};
-    template<typename... Args> struct is_variant<std::variant<Args...>> : public std::true_type {};
-
-    template<typename T> struct is_variant_base : public is_variant<typename base_type<T>::type> {};
-#endif
-
-    namespace impl {
-        template<typename CharType>
-        constexpr int toxdigit(CharType t) {
-            return (t >= '0' && t <= '9')? t - '0':
-                   (t >= 'A' && t <= 'F')? (t - 'A' + 10):
-                   (t >= 'a' && t <= 'f')? (t - 'a' + 10): -1;
-        }
-
-        template<typename CharType>
-        std::basic_istream<CharType> &expect_char(std::basic_istream<CharType> &is, CharType expected) {
-            CharType c;
-
-            if (is.get(c) && c != expected)
-                is.setstate(std::ios_base::failbit);
-
-            return is;
-        }
-
-        template<typename CharType>
-        constexpr bool isspace(CharType c) {
-            return c == ' ' || c == '\n' || c == '\r' || c == '\t';
-        }
-
-        template<typename CharType>
-        constexpr bool isdigit(CharType c) {
-            return c >= '0' && c <= '9';
-        }
-
-        template<typename StreamChar>
-        bool skipws(std::basic_streambuf<StreamChar> &is) {
-            while (true) {
-                const auto c = is.sgetc();
-
-                if (c == std::char_traits<StreamChar>::eof()) // Already at end
-                    return false;
-                else if (!impl::isspace(c)) // Not a space, good result
-                    return true;
-                else if (is.sbumpc() == std::char_traits<StreamChar>::eof()) // No next character
-                    return false;
-            }
-        }
-    }
-
-    // JSON
     template<typename Type>
-    class JsonReader;
+    class json_reader;
 
     template<typename Type>
-    class JsonWriter;
+    class json_writer;
 
     template<typename Type>
-    JsonReader<Type> json(Type &);
+    json_reader<Type> json(Type &);
 
     template<typename Type>
-    class JsonReader {
+    class json_reader {
         Type &ref;
 
-        template<typename> friend class JsonWriter;
+        template<typename> friend class json_writer;
 
     public:
-        constexpr JsonReader(Type &ref) : ref(ref) {}
+        constexpr json_reader(Type &ref) : ref(ref) {}
 
         // User object overload, skate_to_json(stream, object)
         template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::type = 0>
@@ -569,37 +292,11 @@ namespace skate {
         // Floating point overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
-            std::string temp;
-
             ref = 0;
             if (!impl::skipws(is))
                 return false;
 
-            auto c = is.sgetc();
-            if (!impl::isdigit(c) && c != '-')
-                return false;
-
-            temp.push_back(char(c));
-
-            while (true) {
-                const auto c = is.snextc();
-
-                if (c == std::char_traits<StreamChar>::eof() || !(impl::isdigit(c) || c == '-' || c == '.' || c == 'e' || c == 'E' || c == '+'))
-                    break;
-
-                temp.push_back(char(c));
-            }
-
-            char *end = nullptr;
-
-            if (sizeof(Type) == sizeof(float))
-                ref = strtof(temp.c_str(), &end);
-            else if (sizeof(Type) == sizeof(double))
-                ref = strtod(temp.c_str(), &end);
-            else
-                ref = strtold(temp.c_str(), &end);
-
-            return *end == 0;
+            return impl::read_float(is, ref);
         }
 
         // Smart pointer overload
@@ -645,20 +342,24 @@ namespace skate {
     };
 
     struct json_write_options {
-        json_write_options(size_t indent = 0, size_t current_indentation = 0)
+        constexpr json_write_options(size_t indent = 0, size_t current_indentation = 0) noexcept
             : current_indentation(current_indentation)
             , indent(indent)
         {}
+
+        json_write_options indented() const noexcept {
+            return { indent, current_indentation + indent };
+        }
 
         size_t current_indentation; // Current indentation depth in number of spaces
         size_t indent; // Indent per level in number of spaces (0 if no indent desired)
     };
 
     template<typename Type>
-    JsonWriter<Type> json(const Type &, json_write_options options = {});
+    json_writer<Type> json(const Type &, json_write_options options = {});
 
     template<typename Type>
-    class JsonWriter {
+    class json_writer {
         const Type &ref;
         const json_write_options options;
 
@@ -675,16 +376,16 @@ namespace skate {
         }
 
     public:
-        constexpr JsonWriter(const JsonReader<Type> &reader, json_write_options options = {})
+        constexpr json_writer(const json_reader<Type> &reader, json_write_options options = {})
             : ref(reader.ref)
             , options(options)
         {}
-        constexpr JsonWriter(const Type &ref, json_write_options options = {})
+        constexpr json_writer(const Type &ref, json_write_options options = {})
             : ref(ref)
             , options(options)
         {}
 
-        // User object overload, skate_to_json(stream, object)
+        // User object overload, skate_json(stream, object, options)
         template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Library user is responsible for creating valid JSON in the callback function
@@ -708,7 +409,7 @@ namespace skate {
                 if (options.indent && !do_indent(os, options.current_indentation + options.indent))
                     return false;
 
-                if (!json(el, {options.indent, options.current_indentation + options.indent}).write(os))
+                if (!json(el, options.indented()).write(os))
                     return false;
 
                 ++index;
@@ -740,14 +441,14 @@ namespace skate {
                 if (options.indent && !do_indent(os, options.current_indentation + options.indent))
                     return false;
 
-                if (!json(key_of<KeyValuePair>{}(el), {options.indent, options.current_indentation + options.indent}).write(os))
+                if (!json(key_of<KeyValuePair>{}(el), options.indented()).write(os))
                     return false;
 
                 if (os.sputc(':') == std::char_traits<StreamChar>::eof() ||
                     (options.indent && os.sputc(' ') == std::char_traits<StreamChar>::eof()))
                     return false;
 
-                if (!json(value_of<KeyValuePair>{}(el), {options.indent, options.current_indentation + options.indent}).write(os))
+                if (!json(value_of<KeyValuePair>{}(el), options.indented()).write(os))
                     return false;
 
                 ++index;
@@ -799,7 +500,7 @@ namespace skate {
                             const char alphabet[] = "0123456789abcdef";
                             unsigned int hi, lo;
 
-                            switch (utf16surrogates(codepoint.value(), hi, lo)) {
+                            switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                                 case 2:
                                     if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
                                         os.sputc('u') == std::char_traits<StreamChar>::eof() ||
@@ -867,30 +568,8 @@ namespace skate {
         // Floating point overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            // JSON doesn't support infinities or NAN, so just bomb out
-            if (std::isinf(ref) || std::isnan(ref)) {
-                return false;
-            } else {
-                // Ideally this would not use snprintf, but there's not really a great option in C++11
-
-                char buf[1024];
-                auto chars = snprintf(buf, sizeof(buf),
-                                      std::is_same<long double, _>::value? "%.*Lg": "%.*g",
-                                      std::numeric_limits<_>::max_digits10 - 1, ref);
-                if (chars < 0)
-                    return false;
-                else if (size_t(chars) < sizeof(buf))
-                    return os.sputn(buf, chars) == chars;
-
-                std::string temp(chars + 1, '\0');
-                chars = snprintf(&temp[0], temp.size(),
-                                 std::is_same<long double, _>::value? "%.*Lg": "%.*g",
-                                 std::numeric_limits<_>::max_digits10 - 1, ref);
-                if (chars >= 0 && size_t(chars) < temp.size())
-                    return os.sputn(temp.c_str(), chars) == chars;
-
-                return false;
-            }
+            // JSON doesn't support infinities or NAN
+            return impl::write_float(os, ref, false, false);
         }
 
         // Smart pointer overload
@@ -922,24 +601,24 @@ namespace skate {
     };
 
     template<typename Type>
-    JsonReader<Type> json(Type &value) { return JsonReader<Type>(value); }
+    json_reader<Type> json(Type &value) { return json_reader<Type>(value); }
 
     template<typename Type>
-    JsonWriter<Type> json(const Type &value, json_write_options options) { return JsonWriter<Type>(value, options); }
+    json_writer<Type> json(const Type &value, json_write_options options) { return json_writer<Type>(value, options); }
 
     template<typename StreamChar, typename Type>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, JsonReader<Type> value) {
+    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, json_reader<Type> value) {
         if (!is.rdbuf() || !value.read(*is.rdbuf()))
             is.setstate(std::ios_base::failbit);
         return is;
     }
 
     template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, JsonReader<Type> value) {
-        return os << JsonWriter<Type>(value);
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_reader<Type> value) {
+        return os << json_writer<Type>(value);
     }
     template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, JsonWriter<Type> value) {
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_writer<Type> value) {
         if (!os.rdbuf() || !value.write(*os.rdbuf()))
             os.setstate(std::ios_base::failbit);
         return os;
@@ -949,8 +628,8 @@ namespace skate {
     Type from_json(const std::string &s) {
         Type value;
 
-        struct readbuf : public std::streambuf {
-            readbuf(const char *buf, size_t size) {
+        struct one_pass_readbuf : public std::streambuf {
+            one_pass_readbuf(const char *buf, size_t size) {
                 setg(const_cast<char *>(buf),
                      const_cast<char *>(buf),
                      const_cast<char *>(buf + size));
@@ -964,9 +643,9 @@ namespace skate {
     }
 
     template<typename Type>
-    std::string to_json(const Type &value, size_t indent = 0, size_t current_indentation = 0) {
+    std::string to_json(const Type &value, json_write_options options = {}) {
         std::stringbuf buf;
-        if (!json(value, {indent, current_indentation}).write(buf))
+        if (!json(value, options).write(buf))
             return {};
 
         return buf.str();
@@ -1437,379 +1116,6 @@ namespace skate {
     std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_json_value<String> &j) {
         return os << json(j);
     }
-
-    // CSV
-    template<typename Type>
-    class CsvWriter;
-
-    template<typename Type>
-    CsvWriter<Type> csv(const Type &, unicode_codepoint separator = ',', unicode_codepoint quote = '"');
-
-    template<typename Type>
-    class CsvWriter {
-        const Type &ref;
-        const unicode_codepoint separator; // Supports Unicode characters as separator
-        const unicode_codepoint quote; // Supports Unicode characters as quote
-
-    public:
-        constexpr CsvWriter(const Type &ref, unicode_codepoint separator = ',', unicode_codepoint quote = '"')
-            : ref(ref)
-            , separator(separator)
-            , quote(quote) {}
-
-        // Array overload, writes one line of CSV
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            size_t index = 0;
-
-            for (const auto &el: ref) {
-                if (index)
-                    put_unicode<StreamChar>{}(os, separator);
-
-                os << csv(el, separator, quote);
-
-                ++index;
-            }
-
-            os << '\n';
-        }
-
-        // String overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            // Underlying char type of string
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type StringChar;
-
-            const size_t sz = std::distance(begin(ref), end(ref));
-
-            // Check for needing quotes first
-            bool needs_quotes = false;
-
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                if (codepoint == '\n' ||
-                    codepoint == quote ||
-                    codepoint == separator) {
-                    needs_quotes = true;
-                    break;
-                }
-            }
-
-            if (needs_quotes)
-                os << quote;
-
-            // Then write out the actual string, escaping quotes
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                if (codepoint == quote)
-                    os << codepoint;
-
-                os << codepoint;
-            }
-
-            if (needs_quotes)
-                os << quote;
-        }
-
-        // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &) const { }
-
-        // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << (ref? "true": "false");
-        }
-
-        // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::dec << ref;
-        }
-
-        // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::setprecision(std::numeric_limits<_>::max_digits10 - 1);
-
-            // This CSV implementation doesn't support infinities or NAN, so just bomb out
-            if (std::isinf(ref) || std::isnan(ref)) {
-                os.setstate(std::ios_base::failbit);
-            } else {
-                os << ref;
-            }
-        }
-    };
-
-    template<typename Type>
-    CsvWriter<Type> csv(const Type &value, unicode_codepoint separator, unicode_codepoint quote) { return CsvWriter<Type>(value, separator, quote); }
-
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const CsvWriter<Type> &value) {
-        value.write(os);
-        return os;
-    }
-
-    template<typename Type>
-    std::string to_csv(const Type &value) {
-        std::ostringstream os;
-        os << csv(value);
-        return os? os.str(): std::string{};
-    }
-
-    // XML
-    namespace impl {
-        inline bool xml_is_name_start_char(unicode_codepoint ch) {
-            return (ch >= 'A' && ch <= 'Z') ||
-                   (ch >= 'a' && ch <= 'z') ||
-                   (ch == ':' || ch == '_') ||
-                   (ch >= 0xc0 && ch <= 0x2ff && ch != 0xd7 && ch != 0xf7) ||
-                   (ch >= 0x370 && ch <= 0x1fff && ch != 0x37e) ||
-                   (ch == 0x200c || ch == 0x200d) ||
-                   (ch >= 0x2070 && ch <= 0x218f) ||
-                   (ch >= 0x2c00 && ch <= 0x2fef) ||
-                   (ch >= 0x3001 && ch <= 0xd7ff) ||
-                   (ch >= 0xf900 && ch <= 0xfdcf) ||
-                   (ch >= 0xfdf0 && ch <= 0xeffff && ch != 0xffff);
-        }
-
-        inline bool xml_is_name_char(unicode_codepoint ch) {
-            return (ch == '-' || ch == '.') ||
-                   (ch >= '0' && ch <= '9') ||
-                   (ch == 0xb7) ||
-                   (ch >= 0x300 && ch <= 0x36f) ||
-                   (ch == 0x203f || ch == 0x2040) ||
-                   xml_is_name_start_char(ch);
-        }
-    }
-
-    template<typename Type>
-    class XmlWriter;
-
-    template<typename Type>
-    XmlWriter<Type> xml(const Type &, size_t indent = 0, size_t current_indentation = 0);
-
-    template<typename Type>
-    class XmlWriter {
-        const Type &ref;
-        const size_t current_indentation; // Current indentation depth in number of spaces
-        const size_t indent; // Indent per level in number of spaces
-
-        template<typename Stream>
-        void do_indent(Stream &os, size_t sz) const {
-            os << '\n';
-            for (size_t i = 0; i < sz; ++i)
-                os << ' ';
-        }
-
-    public:
-        constexpr XmlWriter(const Type &ref, size_t indent = 0, size_t current_indentation = 0)
-            : ref(ref)
-            , current_indentation(current_indentation)
-            , indent(indent)
-        {}
-
-        // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            for (const auto &el: ref) {
-                os << xml(el, indent, current_indentation);
-            }
-        }
-
-        // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            typedef typename base_type<decltype(begin(ref))>::type KeyValuePair;
-
-            size_t index = 0;
-
-            for (auto el = begin(ref); el != end(ref); ++el) {
-                if (indent && index)
-                    do_indent(os, current_indentation);
-
-                // Write start tag
-                os << '<';
-                xml(key_of<KeyValuePair>{}(el), indent, current_indentation + indent).write(os, true);
-                os << '>';
-
-                // Write body, special case if indenting since empty tags should stay on the same line
-                if (indent) {
-                    std::basic_string<StreamChar> str;
-
-                    {
-                        std::basic_ostringstream<StreamChar> s;
-
-                        // Write body to temporary stream
-                        s << xml(value_of<KeyValuePair>{}(el), indent, current_indentation + indent);
-
-                        str = s.str();
-                    }
-
-                    if (str.size()) {
-                        do_indent(os, current_indentation + indent);
-                        os << str;
-                        do_indent(os, current_indentation);
-                    }
-                } else {
-                    os << xml(value_of<KeyValuePair>{}(el), indent, current_indentation + indent);
-                }
-
-                // Write end tag
-                os << "</";
-                xml(key_of<KeyValuePair>{}(el), indent, current_indentation + indent).write(os, true);
-                os << '>';
-
-                ++index;
-            }
-        }
-
-        // String overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os, bool is_tag = false) const {
-            // Underlying char type of string
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type StringChar;
-
-            const size_t sz = std::distance(begin(ref), end(ref));
-
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                // Check if it's a valid tag character
-                if (is_tag) {
-                    const bool valid_tag_char = i == 0? impl::xml_is_name_start_char(codepoint): impl::xml_is_name_char(codepoint);
-
-                    if (!valid_tag_char) {
-                        os.setstate(std::ios_base::failbit);
-                        return;
-                    }
-
-                    os << codepoint;
-                } else { // Content character
-                    switch (codepoint.value()) {
-                        case '&': os << "&amp;"; break;
-                        case '"': os << "&quot;"; break;
-                        case '\'': os << "&apos;"; break;
-                        case '<': os << "&lt;"; break;
-                        case '>': os << "&gt;"; break;
-                        default:
-                            os << codepoint;
-                            break;
-                    }
-                }
-            }
-        }
-
-        // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &) const { }
-
-        // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << (ref? "true": "false");
-        }
-
-        // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::dec << ref;
-        }
-
-        // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::setprecision(std::numeric_limits<_>::max_digits10 - 1);
-
-            // XML doesn't support infinities or NAN, so just bomb out
-            if (std::isinf(ref) || std::isnan(ref)) {
-                os.setstate(std::ios_base::failbit);
-            } else {
-                os << ref;
-            }
-        }
-    };
-
-    template<typename Type>
-    class XmlDocWriter {
-        const Type &ref;
-        const size_t current_indentation; // Current indentation depth in number of spaces
-        const size_t indent; // Indent per level in number of spaces
-
-    public:
-        constexpr XmlDocWriter(const Type &ref, size_t indent = 0, size_t current_indentation = 0)
-            : ref(ref)
-            , current_indentation(current_indentation)
-            , indent(indent)
-        {}
-
-        template<typename StreamChar>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << "<?xml version=\"1.0\"?>\n" << xml(ref, indent, current_indentation);
-        }
-    };
-
-    template<typename Type>
-    XmlWriter<Type> xml(const Type &value, size_t indent, size_t current_indentation) { return XmlWriter<Type>(value, indent, current_indentation); }
-
-    template<typename Type>
-    XmlDocWriter<Type> xml_doc(const Type &value, size_t indent = 0, size_t current_indentation = 0) { return XmlDocWriter<Type>(value, indent, current_indentation); }
-
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const XmlWriter<Type> &value) {
-        value.write(os);
-        return os;
-    }
-
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const XmlDocWriter<Type> &value) {
-        value.write(os);
-        return os;
-    }
-
-    template<typename Type>
-    std::string to_xml(const Type &value) {
-        std::ostringstream os;
-        os << xml(value);
-        return os? os.str(): std::string{};
-    }
-
-    template<typename Type>
-    std::string to_xml_doc(const Type &value) {
-        std::ostringstream os;
-        os << xml_doc(value);
-        return os? os.str(): std::string{};
-    }
 }
 
-// Qt helpers
-#ifdef QT_VERSION
-    namespace skate {
-        template<>
-        struct is_string<QByteArray> : public std::true_type {};
-
-        template<>
-        struct is_string<QString> : public std::true_type {};
-    }
-
-    template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
-        std::wstring wstr;
-        is >> skate::json(wstr);
-        str = QString::fromStdWString(wstr);
-        return is;
-    }
-
-    template<typename StreamChar>
-    std::basic_ostream<StreamChar> &skate_json(std::basic_ostream<StreamChar> &os, const QString &str) {
-        return os << skate::json(str.toStdWString());
-    }
-#endif
-
-#endif // ADAPTERS_H
+#endif // SKATE_JSON_H

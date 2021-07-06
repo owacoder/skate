@@ -14,6 +14,7 @@
 namespace skate {
 #else // C only
 #include <string.h>
+#include <limits.h>
 
 #define constexpr
 #endif
@@ -49,17 +50,17 @@ namespace skate {
      * @param low A reference to an int that contains the low surrogate (trailing code point) of the pair.
      * @return The number of UTF-16 codepoints required to encode @p codepoint.
      */
-    inline unsigned utf16surrogates(unsigned long codepoint, unsigned int &high, unsigned int &low) {
+    inline unsigned utf16surrogates(unsigned long codepoint, unsigned int *high, unsigned int *low) {
         if (utf16surrogate(codepoint) || codepoint > UTF_MAX) {
-            high = low = UTF_ERROR;
+            *high = *low = UTF_ERROR;
             return 0;
         } else if (codepoint < 0x10000) {
-            high = low = codepoint;
+            *high = *low = codepoint;
             return 1;
         } else {
             codepoint -= 0x10000;
-            high = 0xd800 | (codepoint >> 10);
-            low = 0xdc00 | (codepoint & 0x3ff);
+            *high = 0xd800 | (codepoint >> 10);
+            *low = 0xdc00 | (codepoint & 0x3ff);
             return 2;
         }
     }
@@ -643,7 +644,7 @@ namespace skate {
                     return false;
                 }
 
-                codepoint = {codepoint.value(), std::char_traits<wchar_t>::to_char_type(c)};
+                codepoint = {codepoint.value(), static_cast<unsigned int>(std::char_traits<wchar_t>::to_char_type(c))};
             }
 
             return true;
@@ -715,7 +716,7 @@ namespace skate {
         bool operator()(String &s, unicode_codepoint codepoint) {
             unsigned int hi, lo;
 
-            switch (utf16surrogates(codepoint.value(), hi, lo)) {
+            switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                 case 2: s.push_back(hi); // fallthrough
                 case 1: s.push_back(lo); break;
                 default: return false;
@@ -728,7 +729,7 @@ namespace skate {
         bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
             unsigned int hi, lo;
 
-            switch (utf16surrogates(codepoint.value(), hi, lo)) {
+            switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                 case 2: if (s.sputc(hi) == std::char_traits<CharType>::eof()) return false; // fallthrough
                 case 1: return s.sputc(lo) != std::char_traits<CharType>::eof();
                 default: return false;

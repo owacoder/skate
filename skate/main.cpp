@@ -52,7 +52,9 @@ std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) 
 #include <QMap>
 #endif
 
-#include "containers/adapters/adapters.h"
+#include "containers/adapters/core.h"
+#include "containers/adapters/json.h"
+#include "containers/adapters/xml.h"
 #include <map>
 #include "benchmark.h"
 
@@ -73,9 +75,6 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
 
 int main()
 {
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(nullptr);
-
 #if 0
     dynamic_tree<std::string, false> t, copy;
     dynamic_tree<std::string, false>::iterator it = t.root();
@@ -128,7 +127,7 @@ int main()
         }
     }, "JSON build");
 
-    const size_t count = 10;
+    const size_t count = 1;
     for (size_t i = 0; i < count; ++i) {
         skate::benchmark_throughput([&js_text, &js]() {
             js_text = skate::to_json(js);
@@ -155,8 +154,6 @@ int main()
         std::cout << "An error occurred\n";
 
     std::cout << skate::json(Point(), { 2 });
-
-    return 0;
 #endif
 
     //skate::put_unicode<char>{}(std::cout, 127757);
@@ -167,7 +164,12 @@ int main()
     //std::wcout << Skate::json(map) << std::endl;
     //std::cout << Skate::json(map, 2) << Skate::json(true) << std::endl;
     //std::cout << Skate::csv(v, '\t', 127757) << std::endl;
-    //std::cout << Skate::xml_doc(map, 1) << std::endl;
+    std::map<std::string, std::string> xmap;
+
+    xmap["st-1"] = "Test 1";
+    xmap["st-2"] = "Test 2: <> or \" will be escaped, along with '";
+
+    std::cout << skate::xml_doc(xmap, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
     return 0;
