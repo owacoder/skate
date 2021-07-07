@@ -1116,6 +1116,22 @@ namespace skate {
     std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_json_value<String> &j) {
         return os << json(j);
     }
+
+    // Qt helpers
+#ifdef QT_VERSION
+    template<typename StreamChar>
+    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
+        std::wstring wstr;
+        is >> skate::json(wstr);
+        str = QString::fromStdWString(wstr);
+        return is;
+    }
+
+    template<typename StreamChar>
+    std::basic_ostream<StreamChar> &skate_json(std::basic_ostream<StreamChar> &os, const QString &str) {
+        return os << skate::json(str.toStdWString());
+    }
+#endif
 }
 
 #endif // SKATE_JSON_H

@@ -384,6 +384,15 @@ namespace skate {
      */
 
 #ifdef __cplusplus
+    // Helpers to get start and end of C-style string
+    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
+    StrType begin(StrType c) { return c; }
+
+    const char *end(const char *c) { return c + strlen(c); }
+
+    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
+    StrType end(StrType c) { while (*c) ++c; return c; }
+
     // Unicode codepoint type
     class unicode_codepoint {
         uint32_t v;
@@ -714,7 +723,7 @@ namespace skate {
     template<> struct put_unicode<char16_t> {
         template<typename String>
         bool operator()(String &s, unicode_codepoint codepoint) {
-            unsigned int hi, lo;
+            unsigned int hi = 0, lo = 0;
 
             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                 case 2: s.push_back(hi); // fallthrough
@@ -727,7 +736,7 @@ namespace skate {
 
         template<typename CharType>
         bool operator()(std::basic_streambuf<CharType> &s, unicode_codepoint codepoint) {
-            unsigned int hi, lo;
+            unsigned int hi = 0, lo = 0;
 
             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                 case 2: if (s.sputc(hi) == std::char_traits<CharType>::eof()) return false; // fallthrough
@@ -781,6 +790,31 @@ namespace skate {
             os.setstate(std::ios_base::failbit);
 
         return os;
+    }
+
+    template<typename ToString, typename String>
+    ToString utf_convert(const String &s, bool *error = nullptr) {
+        typedef typename std::remove_cv<typename std::remove_reference<decltype(*std::declval<ToString>().begin())>::type>::type ToStringChar;
+        typedef typename std::remove_cv<typename std::remove_reference<decltype(*s.begin())>::type>::type FromStringChar;
+
+        if (error)
+            *error = false;
+
+        ToString result;
+        for (size_t i = 0; i < s.size(); ) {
+            const unicode_codepoint c = get_unicode<FromStringChar>{}(s, s.size(), i);
+
+            if (!c.valid() && error)
+                *error = true;
+
+            if (!put_unicode<ToStringChar>{}(result, c.character())) {
+                if (error)
+                    *error = true;
+                return {};
+            }
+        }
+
+        return result;
     }
 }
 

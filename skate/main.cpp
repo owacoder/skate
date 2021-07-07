@@ -73,6 +73,8 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
     return skate::json(std::vector<int>{{p.x, p.y}}, options).write(os);
 }
 
+#include <string_view>
+
 int main()
 {
 #if 0
@@ -171,6 +173,18 @@ int main()
 
     std::cout << skate::xml_doc(xmap, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
+
+    std::string narrow = skate::utf_convert<std::string>(std::wstring(L"Wide to narrow string") + wchar_t(0xd83c));
+    std::wstring wide = skate::utf_convert<std::wstring>(std::string_view("Narrow to wide string\xf0\x9f\x8c\x8d"));
+
+    for (const auto c : narrow) {
+        std::cout << std::hex << std::setfill('0') << std::setw(2) << int(c & 0xff) << ' ';
+    }
+    std::cout << '\n';
+
+    for (const auto wc : wide) {
+        std::cout << std::hex << std::setfill('0') << std::setw(4) << int(wc) << ' ';
+    }
 
     return 0;
 

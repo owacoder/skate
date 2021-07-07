@@ -1,5 +1,5 @@
-#ifndef ADAPTERS_H
-#define ADAPTERS_H
+#ifndef SKATE_ADAPTERS_H
+#define SKATE_ADAPTERS_H
 
 #include <cmath>
 #include <type_traits>
@@ -20,15 +20,8 @@
 #include "utf.h"
 
 namespace skate {
-    // Helpers to get start and end of C-style string
     using std::begin;
     using std::end;
-
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType begin(StrType c) { return c; }
-
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType end(StrType c) { while (*c) ++c; return c; }
 
     template<typename T> struct type_exists : public std::true_type { typedef int type; };
 
@@ -481,19 +474,6 @@ namespace skate {
         template<>
         struct is_string<QString> : public std::true_type {};
     }
-
-    template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
-        std::wstring wstr;
-        is >> skate::json(wstr);
-        str = QString::fromStdWString(wstr);
-        return is;
-    }
-
-    template<typename StreamChar>
-    std::basic_ostream<StreamChar> &skate_json(std::basic_ostream<StreamChar> &os, const QString &str) {
-        return os << skate::json(str.toStdWString());
-    }
 #endif
 
-#endif // ADAPTERS_H
+#endif // SKATE_ADAPTERS_H
