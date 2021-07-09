@@ -54,6 +54,7 @@ std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) 
 
 #include "containers/adapters/core.h"
 #include "containers/adapters/json.h"
+#include "containers/adapters/csv.h"
 #include "containers/adapters/xml.h"
 #include <map>
 #include "benchmark.h"
@@ -97,7 +98,7 @@ int main()
     std::cout << "Branches: " << t.branch_count() << std::endl;
 #endif
 
-    std::vector<std::string> v = {"A\nnewline'\"", "1", "2", "3"};
+    std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
     std::unordered_map<std::string, skate::json_value> map;
 
     // map["default\xf0\x9f\x8c\x8d"] = {};
@@ -124,12 +125,13 @@ int main()
             temp["1st"] = rand();
             temp["2nd"] = true;//rand() * 0.00000000000001;
             temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+            temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
 
             js[i] = std::move(temp);
         }
     }, "JSON build");
 
-    const size_t count = 1;
+    const size_t count = 0;
     for (size_t i = 0; i < count; ++i) {
         skate::benchmark_throughput([&js_text, &js]() {
             js_text = skate::to_json(js);
@@ -165,7 +167,7 @@ int main()
 
     //std::wcout << Skate::json(map) << std::endl;
     //std::cout << Skate::json(map, 2) << Skate::json(true) << std::endl;
-    //std::cout << Skate::csv(v, '\t', 127757) << std::endl;
+    //std::cout << skate::csv(v, {',', '"'}) << std::endl;
     std::map<std::string, std::string> xmap;
 
     xmap["st-1"] = "Test 1";
@@ -174,7 +176,7 @@ int main()
     std::cout << skate::xml_doc(xmap, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
-    std::string narrow = skate::utf_convert<std::string>(std::wstring(L"Wide to narrow string") + wchar_t(0xd83c));
+    std::string narrow = skate::utf_convert<std::string>(L"Wide to narrow string");
     std::wstring wide = skate::utf_convert<std::wstring>(std::string_view("Narrow to wide string\xf0\x9f\x8c\x8d"));
 
     for (const auto c : narrow) {
@@ -185,6 +187,39 @@ int main()
     for (const auto wc : wide) {
         std::cout << std::hex << std::setfill('0') << std::setw(4) << int(wc) << ' ';
     }
+    std::cout << '\n';
+
+    std::vector<std::map<std::string, std::string>> csv;
+
+    csv.push_back({{ "Header 1", "Sample 1" }, {"Fruit", "Orange"}});
+    csv.push_back({{ "Header 2", "Sample 2" }, {"Fruit", "Apple"}});
+    csv.push_back({{ "Header 2", "Sample 3" }, {"Fruit", "Banana"}});
+    csv.push_back({{ "Header 1", "Sample 4" }, {"Fruit", "Strawberry"}});
+    csv.push_back({{ "Header 3", "Sample 5" }, {"Fruit", "Blueberry"}});
+
+    std::map<std::string, std::string> cmap;
+
+    cmap["Header 1"] = "Sample 1";
+    cmap["Header 2"] = "Sample 2";
+    cmap[""] = "Test";
+
+    std::map<std::string, std::vector<std::string>> cvec;
+
+    cvec["Header 1"] = {"Row 1", "Row 2", "Row 3", "Row 4"};
+    cvec["Header 2"] = {"Item"};
+    cvec["Header 3"] = {"Orange", "Apple", "Banana", "Kiwi", "Mango"};
+
+    std::cout << skate::csv(csv) << '\n';
+    std::cout << skate::csv(cmap) << '\n';
+    std::cout << skate::csv(cvec) << '\n';
+
+    std::istringstream icsv("1\xf0\x9f\x8c\x8d -1\xf0\x9f\x8c\x8d 0.01\r\n\n333440\xf0\x9f\x8c\x8d -3\xf0\x9f\x8c\x8d 44000\r\n");
+    std::vector<std::vector<double>> csvline;
+
+    if (icsv >> skate::csv(csvline, skate::csv_options(127757)))
+        std::cout << "SUCCESS: " << skate::json(csvline) << '\n' << skate::csv(csvline) << '\n';
+    else
+        std::cout << "Failed\n";
 
     return 0;
 

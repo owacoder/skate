@@ -389,6 +389,7 @@ namespace skate {
     StrType begin(StrType c) { return c; }
 
     const char *end(const char *c) { return c + strlen(c); }
+    const wchar_t *end(const wchar_t *c) { return c + wcslen(c); }
 
     template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
     StrType end(StrType c) { while (*c) ++c; return c; }
@@ -527,6 +528,17 @@ namespace skate {
 
             return true;
         }
+
+        bool unget(std::basic_streambuf<char> &is, unicode_codepoint last_codepoint) {
+            if (!last_codepoint.valid())
+                return false;
+
+            for (size_t i = utf8size(last_codepoint.value()); i; --i)
+                if (is.sungetc() == std::char_traits<char>::eof())
+                    return false;
+
+            return true;
+        }
     };
 
     // char is allowed to alias to char8_t, see https://stackoverflow.com/questions/57402464/is-c20-char8-t-the-same-as-our-old-char
@@ -558,6 +570,17 @@ namespace skate {
                 while (count-- > 1)
                     is.sungetc();
             }
+
+            return true;
+        }
+
+        bool unget(std::basic_streambuf<char> &is, unicode_codepoint last_codepoint) {
+            if (!last_codepoint.valid())
+                return false;
+
+            for (size_t i = utf8size(last_codepoint.value()); i; --i)
+                if (is.sungetc() == std::char_traits<char>::eof())
+                    return false;
 
             return true;
         }
@@ -604,6 +627,18 @@ namespace skate {
 
             return true;
         }
+
+        bool unget(std::basic_streambuf<char16_t> &is, unicode_codepoint last_codepoint) {
+            if (!last_codepoint.valid())
+                return false;
+
+            unsigned int hi = 0, lo = 0;
+            for (size_t i = utf16surrogates(last_codepoint.value(), &hi, &lo); i; --i)
+                if (is.sungetc() == std::char_traits<char16_t>::eof())
+                    return false;
+
+            return true;
+        }
     };
 
     template<> struct get_unicode<char32_t> {
@@ -621,6 +656,16 @@ namespace skate {
             }
 
             codepoint = std::char_traits<char32_t>::to_char_type(c);
+
+            return true;
+        }
+
+        bool unget(std::basic_streambuf<char32_t> &is, unicode_codepoint last_codepoint) {
+            if (!last_codepoint.valid())
+                return false;
+
+            if (is.sungetc() == std::char_traits<char32_t>::eof())
+                return false;
 
             return true;
         }
@@ -654,6 +699,23 @@ namespace skate {
                 }
 
                 codepoint = {codepoint.value(), static_cast<unsigned int>(std::char_traits<wchar_t>::to_char_type(c))};
+            }
+
+            return true;
+        }
+
+        bool unget(std::basic_streambuf<wchar_t> &is, unicode_codepoint last_codepoint) {
+            if (!last_codepoint.valid())
+                return false;
+
+            if (sizeof(wchar_t) == sizeof(char16_t)) {
+                unsigned int hi = 0, lo = 0;
+                for (size_t i = utf16surrogates(last_codepoint.value(), &hi, &lo); i; --i)
+                    if (is.sungetc() == std::char_traits<wchar_t>::eof())
+                        return false;
+            } else {
+                if (is.sungetc() == std::char_traits<wchar_t>::eof())
+                    return false;
             }
 
             return true;
@@ -792,6 +854,7 @@ namespace skate {
         return os;
     }
 
+    // Conversion for a string type, that may not have a sequential ordering of characters (only indexing and size is required)
     template<typename ToString, typename String>
     ToString utf_convert(const String &s, bool *error = nullptr) {
         typedef typename std::remove_cv<typename std::remove_reference<decltype(*std::declval<ToString>().begin())>::type>::type ToStringChar;
@@ -815,6 +878,55 @@ namespace skate {
         }
 
         return result;
+    }
+
+    // Conversion for a sized C-style string
+    template<typename ToString, typename StringChar>
+    ToString utf_convert(const StringChar *s, size_t size, bool *error = nullptr) {
+        typedef typename std::remove_cv<typename std::remove_reference<decltype(*std::declval<ToString>().begin())>::type>::type ToStringChar;
+        typedef StringChar FromStringChar;
+
+        if (error)
+            *error = false;
+
+        ToString result;
+        for (size_t i = 0; i < size; ) {
+            const unicode_codepoint c = get_unicode<FromStringChar>{}(s, size, i);
+
+            if (!c.valid() && error)
+                *error = true;
+
+            if (!put_unicode<ToStringChar>{}(result, c.character())) {
+                if (error)
+                    *error = true;
+                return {};
+            }
+        }
+
+        return result;
+    }
+
+    // Conversion for a NUL-terminated string type
+    template<typename ToString, typename StringChar>
+    ToString utf_convert(const StringChar *s, bool *error = nullptr) {
+        size_t size = 0;
+        const StringChar *save = s;
+
+        while (*s++)
+            ++size;
+
+        return utf_convert<ToString>(save, size, error);
+    }
+
+    // Special case for NUL-terminated string type with built-in length function
+    template<typename ToString>
+    ToString utf_convert(const char *s, bool *error = nullptr) {
+        return utf_convert<ToString>(s, strlen(s), error);
+    }
+
+    template<typename ToString>
+    ToString utf_convert(const wchar_t *s, bool *error = nullptr) {
+        return utf_convert<ToString>(s, wcslen(s), error);
     }
 }
 

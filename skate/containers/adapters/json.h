@@ -30,11 +30,9 @@ namespace skate {
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type Element;
+            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type Element;
 
             ref.clear();
 
@@ -70,8 +68,9 @@ namespace skate {
         // Map overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(key_of<decltype(begin(std::declval<_>()))>{}(begin(std::declval<_>())))>::type>::type Key;
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(value_of<decltype(begin(std::declval<_>()))>{}(begin(std::declval<_>())))>::type>::type Value;
+            typedef typename base_type<decltype(begin(std::declval<_>()))>::type KeyValuePair;
+            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
+            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
 
             ref.clear();
 
@@ -123,7 +122,7 @@ namespace skate {
                                                                                              )>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             // Underlying char type of string
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type StringChar;
+            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type StringChar;
 
             unicode_codepoint codepoint;
 
@@ -240,53 +239,11 @@ namespace skate {
         // Integer overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
-            std::string temp;
-
             ref = 0;
             if (!impl::skipws(is))
                 return false;
 
-            auto c = is.sgetc();
-            if (!impl::isdigit(c) && c != '-')
-                return false;
-
-            temp.push_back(char(c));
-
-            while (true) {
-                const auto c = is.snextc();
-
-                if (c == std::char_traits<StreamChar>::eof() || !impl::isdigit(c))
-                    break;
-
-                temp.push_back(char(c));
-            }
-
-            char *end = nullptr;
-            if (temp[0] == '-') {
-                errno = 0;
-                const auto v = strtoll(temp.c_str(), &end, 10);
-                if (errno == ERANGE || v > std::numeric_limits<_>::max() || v < std::numeric_limits<_>::min())
-                    return false;
-
-                if (std::is_unsigned<_>::value && v < 0)
-                    return false;
-
-                ref = Type(v);
-            } else {
-                errno = 0;
-                const auto v = strtoull(temp.c_str(), &end, 10);
-                if (errno == ERANGE || v > std::numeric_limits<_>::max())
-                    return false;
-
-                ref = Type(v);
-            }
-
-            if (*end != 0) {
-                ref = 0;
-                return false;
-            }
-
-            return true;
+            return impl::read_int(is, ref);
         }
 
         // Floating point overload
@@ -393,9 +350,7 @@ namespace skate {
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             size_t index = 0;
 
@@ -557,12 +512,7 @@ namespace skate {
         // Integer overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            const std::string str = std::to_string(ref);
-            for (const auto c: str)
-                if (os.sputc(c) == std::char_traits<StreamChar>::eof())
-                    return false;
-
-            return true;
+            return impl::write_int(os, ref);
         }
 
         // Floating point overload
@@ -707,15 +657,11 @@ namespace skate {
             d.p = new String(std::move(s));
             t = StringType;
         }
-        template<typename Ch = decltype(*begin(std::declval<String>()))>
-        basic_json_value(const Ch *s) : t(NullType) {
+        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(StringType) {
             d.p = new String(s);
-            t = StringType;
         }
-        template<typename Ch = decltype(*begin(std::declval<String>()))>
-        basic_json_value(const Ch *s, size_t len) : t(NullType) {
+        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(StringType) {
             d.p = new String(s, len);
-            t = StringType;
         }
         template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
         basic_json_value(T v) : t(FloatType) {
@@ -736,6 +682,10 @@ namespace skate {
         basic_json_value(T v) : t(Int64Type) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
         basic_json_value(T v) : t(UInt64Type) { d.u = v; }
+        template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
+        basic_json_value(const T &v) : t(StringType) {
+            d.p = new String(std::move(utf_convert<String>(v)));
+        }
         ~basic_json_value() { clear(); }
 
         basic_json_value &operator=(const basic_json_value &other) {
@@ -805,6 +755,8 @@ namespace skate {
         int64_t get_int64(int64_t default_value = 0) const { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && d.n >= INT64_MIN && d.n <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
         uint64_t get_uint64(uint64_t default_value = 0) const { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && d.n <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
+        template<typename S>
+        S get_string(S default_value = {}) const { return is_string()? utf_convert<S>(unsafe_get_string()): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
@@ -840,6 +792,11 @@ namespace skate {
 
             return unsafe_get_object().value(key, default_value);
         }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        basic_json_value value(const S &key, basic_json_value default_value = {}) const {
+            return value(utf_convert<String>(key), default_value);
+        }
+
         const basic_json_value &operator[](const String &key) const {
             static const basic_json_value null;
 
@@ -854,6 +811,14 @@ namespace skate {
         }
         basic_json_value &operator[](const String &key) { return object_ref()[key]; }
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        const basic_json_value &operator[](const S &key) const {
+            return (*this)[utf_convert<String>(key)];
+        }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        basic_json_value &operator[](const S &key) {
+            return (*this)[std::move(utf_convert<String>(key))];
+        }
         // ---------------------------------------------------
 
         size_t size() const noexcept {
@@ -1010,13 +975,32 @@ namespace skate {
 
             return it->second;
         }
-        template<typename K>
-        basic_json_value<String> &operator[](K &&key) {
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
+            return value(utf_convert<String>(key), default_value);
+        }
+
+        basic_json_value<String> &operator[](const String &key) {
             const auto it = v.find(key);
             if (it != v.end())
                 return it->second;
 
-            return v.insert({std::forward<K>(key), typename object::mapped_type{}}).first->second;
+            return v.insert({key, typename object::mapped_type{}}).first->second;
+        }
+        basic_json_value<String> &operator[](String &&key) {
+            const auto it = v.find(key);
+            if (it != v.end())
+                return it->second;
+
+            return v.insert({std::move(key), typename object::mapped_type{}}).first->second;
+        }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        const basic_json_value<String> &operator[](const S &key) const {
+            return (*this)[utf_convert<String>(key)];
+        }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        basic_json_value<String> &operator[](const S &key) {
+            return (*this)[std::move(utf_convert<String>(key))];
         }
 
         void clear() noexcept { v.clear(); }

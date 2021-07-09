@@ -35,12 +35,20 @@ namespace skate {
     struct is_string<std::basic_string<ContainerParams...>> : public std::true_type {};
     template<>
     struct is_string<char *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<char [N]> : public std::true_type {};
     template<>
     struct is_string<wchar_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<wchar_t [N]> : public std::true_type {};
     template<>
     struct is_string<char16_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<char16_t [N]> : public std::true_type {};
     template<>
     struct is_string<char32_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<char32_t [N]> : public std::true_type {};
 #if __cplusplus >= 201703L
     template<typename... ContainerParams>
     struct is_string<std::basic_string_view<ContainerParams...>> : public std::true_type {};
@@ -113,6 +121,17 @@ namespace skate {
                 typename std::conditional<!std::is_same<none, decltype(mem_value<MapPair>(nullptr))>::value, decltype(mem_value<MapPair>(nullptr)), void>::type>::type>::type>::type value_type;
     };
 
+    // Determine if type is an array (has begin() overload)
+    template<typename Array>
+    struct is_array_helper {
+        struct none {};
+
+        template<typename U, typename _ = Array> static typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
+        template<typename U> static none test(...);
+
+        static constexpr int value = !std::is_same<none, decltype(test<Array>(nullptr))>::value;
+    };
+
     // Determine if type is a map (iterator has first/second members, or key()/value() functions)
     template<typename Map>
     struct is_map_helper {
@@ -151,13 +170,13 @@ namespace skate {
     template<typename MapPair>
     struct key_of<MapPair, decltype(std::declval<MapPair>()->key())> {
         template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->key()) &operator()(const _ &m) const { return m->key(); }
+        decltype(std::declval<MapPair>()->key()) operator()(const _ &m) const { return m->key(); }
     };
 
     template<typename MapPair>
     struct key_of<MapPair, decltype(std::declval<MapPair>().key())> {
         template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().key()) &operator()(const _ &m) const { return m.key(); }
+        decltype(std::declval<MapPair>().key()) operator()(const _ &m) const { return m.key(); }
     };
 
     template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::value_type> struct value_of;
@@ -177,13 +196,13 @@ namespace skate {
     template<typename MapPair>
     struct value_of<MapPair, decltype(std::declval<MapPair>()->value())> {
         template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->value()) &operator()(const _ &m) const { return m->value(); }
+        decltype(std::declval<MapPair>()->value()) operator()(const _ &m) const { return m->value(); }
     };
 
     template<typename MapPair>
     struct value_of<MapPair, decltype(std::declval<MapPair>().value())> {
         template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().value()) &operator()(const _ &m) const { return m.value(); }
+        decltype(std::declval<MapPair>().value()) operator()(const _ &m) const { return m.value(); }
     };
 
     template<typename T> struct is_map : public std::false_type {};
@@ -196,6 +215,15 @@ namespace skate {
     template<typename T>
     struct is_string_map_base : public std::integral_constant<bool, is_map_base<T>::value &&
                                                                     is_string_map_helper<T>::value> {};
+
+    template<typename T> struct is_array : public std::false_type {};
+
+    // Strip const/volatile off type
+    template<typename T>
+    struct is_array_base : public std::integral_constant<bool, (is_array<typename base_type<T>::type>::value ||
+                                                                is_array_helper<typename base_type<T>::type>::value) &&
+                                                                !is_map_base<T>::value &&
+                                                                !is_string_base<T>::value> {};
 
     // Determine if type is unique_ptr
     template<typename T> struct is_unique_ptr : public std::false_type {};
@@ -255,6 +283,11 @@ namespace skate {
         }
 
         template<typename CharType>
+        constexpr bool isspace_or_tab(CharType c) {
+            return c == ' ' || c == '\t';
+        }
+
+        template<typename CharType>
         constexpr bool isdigit(CharType c) {
             return c >= '0' && c <= '9';
         }
@@ -271,6 +304,67 @@ namespace skate {
                 else if (is.sbumpc() == std::char_traits<StreamChar>::eof()) // No next character
                     return false;
             }
+        }
+
+        template<typename StreamChar>
+        bool skip_spaces_and_tabs(std::basic_streambuf<StreamChar> &is) {
+            while (true) {
+                const auto c = is.sgetc();
+
+                if (c == std::char_traits<StreamChar>::eof()) // Already at end
+                    return false;
+                else if (!impl::isspace_or_tab(c)) // Not a space, good result
+                    return true;
+                else if (is.sbumpc() == std::char_traits<StreamChar>::eof()) // No next character
+                    return false;
+            }
+        }
+
+        // Requires that number start with digit or '-'. Leading '+' is not allowed
+        template<typename StreamChar, typename IntType>
+        bool read_int(std::basic_streambuf<StreamChar> &is, IntType &ref) {
+            auto c = is.sgetc();
+            if (!impl::isdigit(c) && c != '-')
+                return false;
+
+            std::string temp;
+            temp.push_back(char(c));
+
+            while (true) {
+                const auto c = is.snextc();
+
+                if (c == std::char_traits<StreamChar>::eof() || !impl::isdigit(c))
+                    break;
+
+                temp.push_back(char(c));
+            }
+
+            char *end = nullptr;
+            if (temp[0] == '-') {
+                errno = 0;
+                const auto v = strtoll(temp.c_str(), &end, 10);
+                if (errno == ERANGE || v > std::numeric_limits<IntType>::max() || v < std::numeric_limits<IntType>::min())
+                    return false;
+
+                if (std::is_unsigned<IntType>::value && v < 0)
+                    return false;
+
+                ref = IntType(v);
+            } else {
+                errno = 0;
+                const auto v = strtoull(temp.c_str(), &end, 10);
+                if (errno == ERANGE || v > std::numeric_limits<IntType>::max())
+                    return false;
+
+                ref = IntType(v);
+            }
+
+            if (*end != 0) {
+                ref = 0;
+                return false;
+            }
+
+            return true;
         }
 
         // Requires that number start with digit or '-'. Leading '+' is not allowed
@@ -309,6 +403,16 @@ namespace skate {
             return *end == 0;
         }
 
+        template<typename StreamChar, typename IntType>
+        bool write_int(std::basic_streambuf<StreamChar> &os, IntType v) {
+            const std::string str = std::to_string(v);
+            for (const auto c: str)
+                if (os.sputc(c) == std::char_traits<StreamChar>::eof())
+                    return false;
+
+            return true;
+        }
+
         template<typename StreamChar, typename FloatType>
         bool write_float(std::basic_streambuf<StreamChar> &os, FloatType v, bool allow_inf = false, bool allow_nan = false) {
             static_assert(std::is_same<FloatType, float>::value ||
@@ -339,129 +443,6 @@ namespace skate {
 
             return false;
         }
-    }
-
-    // CSV
-    template<typename Type>
-    class CsvWriter;
-
-    template<typename Type>
-    CsvWriter<Type> csv(const Type &, unicode_codepoint separator = ',', unicode_codepoint quote = '"');
-
-    template<typename Type>
-    class CsvWriter {
-        const Type &ref;
-        const unicode_codepoint separator; // Supports Unicode characters as separator
-        const unicode_codepoint quote; // Supports Unicode characters as quote
-
-    public:
-        constexpr CsvWriter(const Type &ref, unicode_codepoint separator = ',', unicode_codepoint quote = '"')
-            : ref(ref)
-            , separator(separator)
-            , quote(quote) {}
-
-        // Array overload, writes one line of CSV
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            size_t index = 0;
-
-            for (const auto &el: ref) {
-                if (index)
-                    put_unicode<StreamChar>{}(os, separator);
-
-                os << csv(el, separator, quote);
-
-                ++index;
-            }
-
-            os << '\n';
-        }
-
-        // String overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            // Underlying char type of string
-            typedef typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type StringChar;
-
-            const size_t sz = std::distance(begin(ref), end(ref));
-
-            // Check for needing quotes first
-            bool needs_quotes = false;
-
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                if (codepoint == '\n' ||
-                    codepoint == quote ||
-                    codepoint == separator) {
-                    needs_quotes = true;
-                    break;
-                }
-            }
-
-            if (needs_quotes)
-                os << quote;
-
-            // Then write out the actual string, escaping quotes
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                if (codepoint == quote)
-                    os << codepoint;
-
-                os << codepoint;
-            }
-
-            if (needs_quotes)
-                os << quote;
-        }
-
-        // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &) const { }
-
-        // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << (ref? "true": "false");
-        }
-
-        // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::dec << ref;
-        }
-
-        // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        void write(std::basic_ostream<StreamChar> &os) const {
-            os << std::setprecision(std::numeric_limits<_>::max_digits10 - 1);
-
-            // This CSV implementation doesn't support infinities or NAN, so just bomb out
-            if (std::isinf(ref) || std::isnan(ref)) {
-                os.setstate(std::ios_base::failbit);
-            } else {
-                os << ref;
-            }
-        }
-    };
-
-    template<typename Type>
-    CsvWriter<Type> csv(const Type &value, unicode_codepoint separator, unicode_codepoint quote) { return CsvWriter<Type>(value, separator, quote); }
-
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const CsvWriter<Type> &value) {
-        value.write(os);
-        return os;
-    }
-
-    template<typename Type>
-    std::string to_csv(const Type &value) {
-        std::ostringstream os;
-        os << csv(value);
-        return os? os.str(): std::string{};
     }
 }
 

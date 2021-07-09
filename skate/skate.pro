@@ -14,6 +14,7 @@ HEADERS += \
     containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
     containers/abstract_map.h \
+    containers/adapters/csv.h \
     containers/adapters/utf.h \
     containers/tree.h \
     io/buffer.h \

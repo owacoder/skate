@@ -4,7 +4,6 @@
 #include "core.h"
 
 namespace skate {
-// XML
     namespace impl {
         inline bool xml_is_name_start_char(unicode_codepoint ch) {
             return (ch >= 'A' && ch <= 'Z') ||
@@ -73,7 +72,7 @@ namespace skate {
             , options(options)
         {}
 
-        // User object overload, skate_json(stream, object, options)
+        // User object overload, skate_xml(stream, object, options)
         template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_xml(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<xml_write_options>()))>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Library user is responsible for creating valid XML in the callback function
@@ -81,9 +80,7 @@ namespace skate {
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_ostream<StreamChar> &os) const {
             for (const auto &el: ref) {
                 if (!xml(el, options).write(os))
@@ -244,12 +241,7 @@ namespace skate {
         // Integer overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            const std::string str = std::to_string(ref);
-            for (const auto c: str)
-                if (os.sputc(c) == std::char_traits<StreamChar>::eof())
-                    return false;
-
-            return true;
+            return impl::write_int(os, ref);
         }
 
         // Floating point overload
