@@ -1,0 +1,6 @@
+TODO:
+
+Read tuple types in both JSON and CSV
+CSV reader for boolean values
+CSV reader for object of arrays
+CSV reader for array of objects

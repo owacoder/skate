@@ -9,7 +9,7 @@ namespace skate {
     // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
     // with the following exceptions:
     //   - leading or trailing spaces on a quoted field are trimmed when reading
-    //   - input lines are not required to be delimited with CRLF, they can be delimited with just LF if desired (lone CR and LFCR are not supported)
+    //   - input lines are not required to be delimited with CRLF, they can be delimited with just LF, just CR, or LFCR if desired
     //     output lines are always written as CRLF pairs, so reading from/writing to a binary file is preferred
     template<typename Type>
     class csv_reader;
@@ -18,15 +18,17 @@ namespace skate {
     class csv_writer;
 
     struct csv_options {
-        constexpr csv_options(unicode_codepoint separator = ',', unicode_codepoint quote = '"', bool numeric_bool = true) noexcept
+        constexpr csv_options(unicode_codepoint separator = ',', unicode_codepoint quote = '"', bool crlf_line_endings = true, bool numeric_bool = true) noexcept
             : separator(separator)
             , quote(quote)
+            , crlf_line_endings(crlf_line_endings)
             , numeric_bool(numeric_bool)
         {}
 
         unicode_codepoint separator; // Supports Unicode characters as separator
-        unicode_codepoint quote; // Supports Unicode characters as separator
-        bool numeric_bool; // Whether booleans are numeric "1/0" or alphabetical "true/false"
+        unicode_codepoint quote;     // Supports Unicode characters as separator
+        bool crlf_line_endings;      // Whether to write line endings as CRLF (1) or just LF (0)
+        bool numeric_bool;           // Whether booleans are numeric "1/0" or alphabetical "true/false"
     };
 
     template<typename Type>
@@ -58,10 +60,10 @@ namespace skate {
         // No header is explicitly assumed, it's just written to the first inner array
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  is_array_base<decltype(*begin(std::declval<_>()))>::value &&
-                                                                                 !is_map_base<typename base_type<decltype(*begin(*begin(std::declval<_>())))>::type>::value &&
-                                                                                 !is_array_base<typename base_type<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
+                                                                                 !is_map_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value &&
+                                                                                 !is_array_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
             ref.clear();
 
@@ -79,21 +81,133 @@ namespace skate {
 
         // TODO: Object of arrays overload
 
-        // TODO: Array of objects overload
+        // Array of objects overload, reads multiple lines of CSV with header line containing all keys
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(*begin(std::declval<_>())))>::type,
+                                                         typename std::enable_if<is_array_base<_>::value && // Base type must be array
+                                                                                 is_map_base<decltype(*begin(std::declval<_>()))>::value && // Elements must be maps
+                                                                                 !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
+                                                                                 !is_array_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&
+                                                                                 !is_map_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be scalar
+                                                                                 !is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value, int>::type = 0>
+        bool read(std::basic_streambuf<StreamChar> &is) {
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type ArrayType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
 
-        // TODO: Object of atomic values overload
+            std::vector<KeyType> keys;
 
-        // Array of atomic values overload, reads one line of CSV
+            ref.clear();
+
+            // Read all keys on first line
+            if (!csv(keys, options).read(is))
+                return false;
+
+            // If no values, then return immediately
+            switch (is.sgetc()) {
+                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case std::char_traits<StreamChar>::eof(): return true;
+                default: break;
+            }
+
+            // Read values on data line and insert as value of specified key
+            unicode_codepoint c;
+            size_t index = 0;
+            do {
+                ValueType el;
+
+                if (!csv(el, options).read(is))
+                    return false;
+
+                if (index < keys.size())
+                    ref[std::move(keys[index++])] = std::move(el);
+
+                if (!get_unicode<StreamChar>{}(is, c))
+                    return false;
+                else if (c == '\r') {
+                    if (is.sgetc() == '\n')
+                        return is.sbumpc() == '\n';
+
+                    return true;
+                } else if (c == '\n') {
+                    if (is.sgetc() == '\r')
+                        return is.sbumpc() == '\r';
+
+                    return true;
+                }
+            } while (c == options.separator);
+
+            return false;
+        }
+
+        // Object of trivial values overload, reads header line and a single data line of CSV
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
+                                                         typename std::enable_if<is_map_base<_>::value &&
+                                                                                 !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
+                                                                                 !is_array_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&
+                                                                                 !is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be scalar
+                                                                                 !is_map_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value, int>::type = 0>
+        bool read(std::basic_streambuf<StreamChar> &is) {
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
+
+            std::vector<KeyType> keys;
+
+            ref.clear();
+
+            // Read all keys on first line
+            if (!csv(keys, options).read(is))
+                return false;
+
+            // If no values, then return immediately
+            switch (is.sgetc()) {
+                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case std::char_traits<StreamChar>::eof(): return true;
+                default: break;
+            }
+
+            // Read values on data line and insert as value of specified key
+            unicode_codepoint c;
+            size_t index = 0;
+            do {
+                ValueType el;
+
+                if (!csv(el, options).read(is))
+                    return false;
+
+                if (index < keys.size())
+                    ref[std::move(keys[index++])] = std::move(el);
+
+                if (!get_unicode<StreamChar>{}(is, c))
+                    return false;
+                else if (c == '\r') {
+                    if (is.sgetc() == '\n')
+                        return is.sbumpc() == '\n';
+
+                    return true;
+                } else if (c == '\n') {
+                    if (is.sgetc() == '\r')
+                        return is.sbumpc() == '\r';
+
+                    return true;
+                }
+            } while (c == options.separator);
+
+            return false;
+        }
+
+        // Array of trivial values overload, reads one line of CSV
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  !is_array_base<decltype(*begin(std::declval<_>()))>::value &&
                                                                                  !is_map_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
             ref.clear();
             switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && is.sbumpc() == '\n';
-                case '\n': return is.sbumpc() == '\n';
+                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
                 case std::char_traits<StreamChar>::eof(): return true;
                 default: break;
             }
@@ -107,9 +221,16 @@ namespace skate {
 
                 ref.push_back(std::move(el));
 
-                if (!get_unicode<StreamChar>{}(is, c) || c == '\r' || c == '\n') {
-                    if (c == '\r')
+                if (!get_unicode<StreamChar>{}(is, c))
+                    return false;
+                else if (c == '\r') {
+                    if (is.sgetc() == '\n')
                         return is.sbumpc() == '\n';
+
+                    return true;
+                } else if (c == '\n') {
+                    if (is.sgetc() == '\r')
+                        return is.sbumpc() == '\r';
 
                     return true;
                 }
@@ -122,7 +243,7 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             // Underlying char type of string
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type StringChar;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
 
             ref.clear();
 
@@ -200,6 +321,35 @@ namespace skate {
     template<typename Type>
     csv_writer<Type> csv(const Type &, csv_options options = {});
 
+    namespace impl {
+        namespace csv {
+            // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+            template<typename StreamChar>
+            class write_tuple {
+                std::basic_streambuf<StreamChar> &os;
+                bool &error;
+                size_t &index;
+                const csv_options &options;
+
+            public:
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const csv_options &options) noexcept
+                    : os(stream)
+                    , error(error)
+                    , index(index)
+                    , options(options)
+                {}
+
+                template<typename Param>
+                void operator()(const Param &p) {
+                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof()))
+                        return;
+
+                    error = !skate::csv(p, options).write(os);
+                }
+            };
+        }
+    }
+
     template<typename Type>
     class csv_writer {
         const Type &ref;
@@ -227,8 +377,8 @@ namespace skate {
         // No header is explicitly written, although this can be included in the first inner array
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  is_array_base<decltype(*begin(std::declval<_>()))>::value &&
-                                                                                 !is_map_base<typename base_type<decltype(*begin(*begin(std::declval<_>())))>::type>::value &&
-                                                                                 !is_array_base<typename base_type<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
+                                                                                 !is_map_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value &&
+                                                                                 !is_array_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             for (const auto &el: ref) {
                 if (!csv(el, options).write(os))
@@ -241,7 +391,7 @@ namespace skate {
         // Array of objects overload, writes multiple lines of CSV with header line containing all keys
         // The set of all object keys is gathered, then data is written for all columns names, inserting default-constructed elements as row items where no data exists for a column
         // Requires that objects have a find() method that returns end() if key not found
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename base_type<decltype(begin(*begin(std::declval<_>())))>::type,
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(*begin(std::declval<_>())))>::type,
                                                          typename std::enable_if<is_array_base<_>::value && // Base type must be array
                                                                                  is_map_base<decltype(*begin(std::declval<_>()))>::value && // Elements must be maps
                                                                                  !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
@@ -249,8 +399,8 @@ namespace skate {
                                                                                  !is_map_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be scalar
                                                                                  !is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
-            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
 
             std::unordered_set<KeyType> header_set;
             std::vector<KeyType> headers;
@@ -291,7 +441,7 @@ namespace skate {
                     ++index;
                 }
 
-                if (os.sputc('\r') == std::char_traits<StreamChar>::eof() ||
+                if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
                     os.sputc('\n') == std::char_traits<StreamChar>::eof())
                     return false;
             }
@@ -302,18 +452,18 @@ namespace skate {
         // Object of arrays overload, writes multiple lines of CSV with header line containing all keys
         // Map contains column names mapped to column values. Since column data can be jagged, default-constructed elements are written for row items that don't have column data specified
         // Requires that object has a find() method that returns end() if key not found
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename base_type<decltype(begin(std::declval<_>()))>::type,
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
                                                          typename std::enable_if<is_map_base<_>::value && // Type must be map
                                                                                  !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
                                                                                  !is_array_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&
                                                                                  is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be array
-                                                                                 !is_map_base<typename base_type<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value && // Elements of value arrays must be scalars
-                                                                                 !is_array_base<typename base_type<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value, int>::type = 0>
+                                                                                 !is_map_base<typename std::decay<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value && // Elements of value arrays must be scalars
+                                                                                 !is_array_base<typename std::decay<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
-            typedef typename base_type<decltype(*begin(std::declval<ValueType>()))>::type ElementType;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<decltype(*begin(std::declval<ValueType>()))>::type ElementType;
 
-            std::vector<typename base_type<decltype(begin(std::declval<ValueType>()))>::type> iterators, end_iterators;
+            std::vector<typename std::decay<decltype(begin(std::declval<ValueType>()))>::type> iterators, end_iterators;
 
             // First write all keys as headers
             size_t index = 0;
@@ -333,7 +483,7 @@ namespace skate {
                 ++index;
             }
 
-            if (os.sputc('\r') == std::char_traits<StreamChar>::eof() ||
+            if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
                 os.sputc('\n') == std::char_traits<StreamChar>::eof())
                 return false;
 
@@ -357,7 +507,7 @@ namespace skate {
                     }
                 }
 
-                if (os.sputc('\r') == std::char_traits<StreamChar>::eof() ||
+                if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
                     os.sputc('\n') == std::char_traits<StreamChar>::eof())
                     return false;
             }
@@ -365,7 +515,7 @@ namespace skate {
             return true;
         }
 
-        // Array of atomic values overload, writes one line of CSV
+        // Array of trivial values overload, writes one line of CSV
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  !is_array_base<decltype(*begin(std::declval<_>()))>::value &&
                                                                                  !is_map_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
@@ -382,12 +532,35 @@ namespace skate {
                 ++index;
             }
 
-            return os.sputc('\r') != std::char_traits<StreamChar>::eof() && os.sputc('\n') != std::char_traits<StreamChar>::eof();
+            if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
+                os.sputc('\n') == std::char_traits<StreamChar>::eof())
+                return false;
+
+            return true;
         }
 
-        // Object of atomic values overload, writes header line and a single data line of CSV
+        // Tuple/pair of trivial values overload
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
+                                                                                 !is_array_base<_>::value, int>::type = 0>
+        bool write(std::basic_streambuf<StreamChar> &os) const {
+
+
+            bool error = false;
+            size_t index = 0;
+
+            impl::apply(impl::csv::write_tuple<StreamChar>(os, error, index, options), ref);
+
+            if (error ||
+                (options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
+                os.sputc('\n') == std::char_traits<StreamChar>::eof())
+                return false;
+
+            return true;
+        }
+
+        // Object of trivial values overload, writes header line and a single data line of CSV
         // Requires that object has a find() method that returns end() if key not found
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename base_type<decltype(begin(std::declval<_>()))>::type,
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
                                                          typename std::enable_if<is_map_base<_>::value &&
                                                                                  !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
                                                                                  !is_array_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&
@@ -406,7 +579,7 @@ namespace skate {
                 ++index;
             }
 
-            if (os.sputc('\r') == std::char_traits<StreamChar>::eof() ||
+            if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
                 os.sputc('\n') == std::char_traits<StreamChar>::eof())
                 return false;
 
@@ -422,14 +595,18 @@ namespace skate {
                 ++index;
             }
 
-            return os.sputc('\r') != std::char_traits<StreamChar>::eof() && os.sputc('\n') != std::char_traits<StreamChar>::eof();
+            if ((options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||
+                os.sputc('\n') == std::char_traits<StreamChar>::eof())
+                return false;
+
+            return true;
         }
 
         // String overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Underlying char type of string
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type StringChar;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
 
             const size_t sz = std::distance(begin(ref), end(ref));
 

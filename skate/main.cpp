@@ -131,7 +131,7 @@ int main()
         }
     }, "JSON build");
 
-    const size_t count = 0;
+    const size_t count = 1;
     for (size_t i = 0; i < count; ++i) {
         skate::benchmark_throughput([&js_text, &js]() {
             js_text = skate::to_json(js);
@@ -213,13 +213,19 @@ int main()
     std::cout << skate::csv(cmap) << '\n';
     std::cout << skate::csv(cvec) << '\n';
 
-    std::istringstream icsv("1\xf0\x9f\x8c\x8d -1\xf0\x9f\x8c\x8d 0.01\r\n\n333440\xf0\x9f\x8c\x8d -3\xf0\x9f\x8c\x8d 44000\r\n");
-    std::vector<std::vector<double>> csvline;
+    std::istringstream icsv("1,-1,0.01\r333440,-3,44000,0,0\r");
+    std::map<std::string, double> csvline;
 
-    if (icsv >> skate::csv(csvline, skate::csv_options(127757)))
-        std::cout << "SUCCESS: " << skate::json(csvline) << '\n' << skate::csv(csvline) << '\n';
+    skate::csv_options opts(',', '"', false);
+    if (icsv >> skate::csv(csvline, opts))
+        std::cout << "SUCCESS: " << skate::json(csvline) << '\n' << skate::csv(csvline, opts) << '\n';
     else
         std::cout << "Failed\n";
+
+    std::array<std::string, 10> array;
+
+    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
+    std::cout << skate::json(array);
 
     return 0;
 

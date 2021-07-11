@@ -93,7 +93,7 @@ namespace skate {
         // Map overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename base_type<decltype(begin(ref))>::type KeyValuePair;
+            typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
             size_t index = 0;
 

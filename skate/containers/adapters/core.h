@@ -9,6 +9,7 @@
 #include <sstream>
 #include <memory>
 
+#include <tuple>
 #include <vector>
 #include <map>
 
@@ -24,10 +25,6 @@ namespace skate {
     using std::end;
 
     template<typename T> struct type_exists : public std::true_type { typedef int type; };
-
-    template<typename T> struct base_type {
-        typedef typename std::remove_cv<typename std::remove_reference<T>::type>::type type;
-    };
 
     // Determine if type is a string
     template<typename T> struct is_string : public std::false_type {};
@@ -66,7 +63,7 @@ namespace skate {
 
     // Strip const/volatile off type
     template<typename T>
-    struct is_string_base : public is_string_base_helper<typename base_type<T>::type> {};
+    struct is_string_base : public is_string_base_helper<typename std::decay<T>::type> {};
 
     // Determine if type is a map pair (has first/second members, or key()/value() functions)
     template<typename MapPair>
@@ -207,10 +204,10 @@ namespace skate {
 
     template<typename T> struct is_map : public std::false_type {};
 
-    // Strip const/volatile off type
+    // Strip const/volatile off type and determine if it's a map
     template<typename T>
-    struct is_map_base : public std::integral_constant<bool, is_map<typename base_type<T>::type>::value ||
-                                                             is_map_helper<typename base_type<T>::type>::value> {};
+    struct is_map_base : public std::integral_constant<bool, is_map<typename std::decay<T>::type>::value ||
+                                                             is_map_helper<typename std::decay<T>::type>::value> {};
 
     template<typename T>
     struct is_string_map_base : public std::integral_constant<bool, is_map_base<T>::value &&
@@ -218,37 +215,71 @@ namespace skate {
 
     template<typename T> struct is_array : public std::false_type {};
 
-    // Strip const/volatile off type
+    // Strip const/volatile off type and determine if it's an array
     template<typename T>
-    struct is_array_base : public std::integral_constant<bool, (is_array<typename base_type<T>::type>::value ||
-                                                                is_array_helper<typename base_type<T>::type>::value) &&
+    struct is_array_base : public std::integral_constant<bool, (is_array<typename std::decay<T>::type>::value ||
+                                                                is_array_helper<typename std::decay<T>::type>::value) &&
                                                                 !is_map_base<T>::value &&
                                                                 !is_string_base<T>::value> {};
+
+    // Determine if type is tuple
+    template<typename T> struct is_tuple : public std::false_type {};
+    template<typename Tuple>
+    struct is_tuple_helper {
+        struct none {};
+
+        template<typename U, typename _ = Tuple> static typename std::enable_if<std::tuple_size<_>::value >= 0, int>::type test(U *);
+        template<typename U> static none test(...);
+
+        static constexpr int value = !std::is_same<none, decltype(test<Tuple>(nullptr))>::value;
+    };
+
+    template<typename T>
+    struct is_tuple_base : public std::integral_constant<bool, is_tuple<typename std::decay<T>::type>::value ||
+                                                               is_tuple_helper<typename std::decay<T>::type>::value> {};
+
+    // Determine if type is tuple with trivial elements
+    template<typename T, typename... Types>
+    struct is_trivial_tuple_helper : public std::integral_constant<bool, !is_map_base<T>::value &&
+                                                                         !is_array_base<T>::value &&
+                                                                         !is_tuple_base<T>::value &&
+                                                                         is_trivial_tuple_helper<Types...>::value> {};
+
+    template<typename T>
+    struct is_trivial_tuple_helper<T> : public std::integral_constant<bool, !is_map_base<T>::value &&
+                                                                            !is_array_base<T>::value &&
+                                                                            !is_tuple_base<T>::value> {};
+
+    template<typename T>
+    struct is_trivial_tuple_base : public std::false_type {};
+    template<template<typename...> class Tuple, typename... Types>
+    struct is_trivial_tuple_base<Tuple<Types...>> : public std::integral_constant<bool, is_tuple_base<Tuple<Types...>>::value &&
+                                                                                        is_trivial_tuple_helper<Types...>::value> {};
 
     // Determine if type is unique_ptr
     template<typename T> struct is_unique_ptr : public std::false_type {};
     template<typename T, typename... ContainerParams> struct is_unique_ptr<std::unique_ptr<T, ContainerParams...>> : public std::true_type {};
 
-    template<typename T> struct is_unique_ptr_base : public is_unique_ptr<typename base_type<T>::type> {};
+    template<typename T> struct is_unique_ptr_base : public is_unique_ptr<typename std::decay<T>::type> {};
 
     // Determine if type is shared_ptr
     template<typename T> struct is_shared_ptr : public std::false_type {};
     template<typename T> struct is_shared_ptr<std::shared_ptr<T>> : public std::true_type {};
 
-    template<typename T> struct is_shared_ptr_base : public is_shared_ptr<typename base_type<T>::type> {};
+    template<typename T> struct is_shared_ptr_base : public is_shared_ptr<typename std::decay<T>::type> {};
 
     // Determine if type is weak_ptr
     template<typename T> struct is_weak_ptr : public std::false_type {};
     template<typename T> struct is_weak_ptr<std::weak_ptr<T>> : public std::true_type {};
 
-    template<typename T> struct is_weak_ptr_base : public is_weak_ptr<typename base_type<T>::type> {};
+    template<typename T> struct is_weak_ptr_base : public is_weak_ptr<typename std::decay<T>::type> {};
 
 #if __cplusplus >= 201703L
     // Determine if type is an optional
     template<typename T> struct is_optional : public std::false_type {};
     template<typename T> struct is_optional<std::optional<T>> : public std::true_type {};
 
-    template<typename T> struct is_optional_base : public is_optional<typename base_type<T>::type> {};
+    template<typename T> struct is_optional_base : public is_optional<typename std::decay<T>::type> {};
 #endif
 
 #if __cplusplus >= 202002L
@@ -256,7 +287,7 @@ namespace skate {
     template<typename T> struct is_variant : public std::false_type {};
     template<typename... Args> struct is_variant<std::variant<Args...>> : public std::true_type {};
 
-    template<typename T> struct is_variant_base : public is_variant<typename base_type<T>::type> {};
+    template<typename T> struct is_variant_base : public is_variant<typename std::decay<T>::type> {};
 #endif
 
     namespace impl {
@@ -442,6 +473,28 @@ namespace skate {
                 return os.sputn(temp.c_str(), chars) == chars;
 
             return false;
+        }
+
+        // Allows using apply() on a tuple object
+        template<typename F, size_t size_of_tuple>
+        class tuple_apply : private tuple_apply<F, size_of_tuple - 1> {
+        public:
+            template<typename Tuple>
+            constexpr tuple_apply(Tuple &&t, F f) : tuple_apply<F, size_of_tuple - 1>(std::forward<Tuple>(t), f) {
+                f(std::get<size_of_tuple - 1>(std::forward<Tuple>(t)));
+            }
+        };
+
+        template<typename F>
+        class tuple_apply<F, 0> {
+        public:
+            template<typename Tuple>
+            constexpr tuple_apply(Tuple &&, F) noexcept {}
+        };
+
+        template<typename F, typename Tuple>
+        void apply(F f, Tuple &&tuple) {
+            tuple_apply<F, std::tuple_size<typename std::decay<Tuple>::type>::value>(std::forward<Tuple>(tuple), f);
         }
     }
 }

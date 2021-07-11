@@ -32,7 +32,7 @@ namespace skate {
         // Array overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
             ref.clear();
 
@@ -68,9 +68,9 @@ namespace skate {
         // Map overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename base_type<decltype(begin(std::declval<_>()))>::type KeyValuePair;
-            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
-            typedef typename base_type<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
+            typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
 
             ref.clear();
 
@@ -118,11 +118,11 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value &&
                                                                                  type_exists<decltype(
                                                                                              // Only if put_unicode is available
-                                                                                             std::declval<put_unicode<typename base_type<decltype(*begin(std::declval<_>()))>::type>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
+                                                                                             std::declval<put_unicode<typename std::decay<decltype(*begin(std::declval<_>()))>::type>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
                                                                                              )>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             // Underlying char type of string
-            typedef typename base_type<decltype(*begin(std::declval<_>()))>::type StringChar;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
 
             unicode_codepoint codepoint;
 
@@ -315,6 +315,35 @@ namespace skate {
     template<typename Type>
     json_writer<Type> json(const Type &, json_write_options options = {});
 
+    namespace impl {
+        namespace json {
+            // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+            template<typename StreamChar>
+            class write_tuple {
+                std::basic_streambuf<StreamChar> &os;
+                bool &error;
+                size_t &index;
+                const json_write_options &options;
+
+            public:
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const json_write_options &options) noexcept
+                    : os(stream)
+                    , error(error)
+                    , index(index)
+                    , options(options)
+                {}
+
+                template<typename Param>
+                void operator()(const Param &p) {
+                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof()))
+                        return;
+
+                    error = !skate::json(p, options).write(os);
+                }
+            };
+        }
+    }
+
     template<typename Type>
     class json_writer {
         const Type &ref;
@@ -373,16 +402,30 @@ namespace skate {
             if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if array is non-empty
                 return false;
 
-            if (os.sputc(']') == std::char_traits<StreamChar>::eof())
+            return os.sputc(']') != std::char_traits<StreamChar>::eof();
+        }
+
+        // Tuple/pair overload
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
+                                                                                 !is_array_base<_>::value, int>::type = 0>
+        bool write(std::basic_streambuf<StreamChar> &os) const {
+
+
+            bool error = false;
+            size_t index = 0;
+
+            if (os.sputc('[') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            return true;
+            impl::apply(impl::json::write_tuple<StreamChar>(os, error, index, options), ref);
+
+            return !error && os.sputc(']') != std::char_traits<StreamChar>::eof();
         }
 
         // Map overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename base_type<decltype(begin(ref))>::type KeyValuePair;
+            typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
             size_t index = 0;
 
@@ -412,10 +455,7 @@ namespace skate {
             if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if object is non-empty
                 return false;
 
-            if (os.sputc('}') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            return true;
+            return os.sputc('}') != std::char_traits<StreamChar>::eof();
         }
 
         // String overload
@@ -430,10 +470,11 @@ namespace skate {
             if (os.sputc('"') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            for (size_t i = 0; i < sz; ++i) {
-                const auto ch = ref[i];
+            for (size_t i = 0; i < sz;) {
+                // Read Unicode in from string
+                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
 
-                switch (ch) {
+                switch (codepoint.value()) {
                     case '"':  if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('"') == std::char_traits<StreamChar>::eof()) return false; break;
                     case '\\': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('\\') == std::char_traits<StreamChar>::eof()) return false; break;
                     case '\b': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('b') == std::char_traits<StreamChar>::eof()) return false; break;
@@ -444,13 +485,10 @@ namespace skate {
                     default: {
                         // Is character a control character? If so, write it out as a Unicode constant
                         // All other ASCII characters just get passed through
-                        if (ch >= 32 && ch < 0x80) {
-                            if (os.sputc(ch) == std::char_traits<StreamChar>::eof())
+                        if (codepoint >= 32 && codepoint < 0x80) {
+                            if (os.sputc(codepoint.value()) == std::char_traits<StreamChar>::eof())
                                 return false;
                         } else {
-                            // Read Unicode in from string
-                            const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
                             // Then add as a \u codepoint (or two, if surrogates are needed)
                             const char alphabet[] = "0123456789abcdef";
                             unsigned int hi, lo;
@@ -484,10 +522,7 @@ namespace skate {
                 }
             }
 
-            if (os.sputc('"') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            return true;
+            return os.sputc('"') != std::char_traits<StreamChar>::eof();
         }
 
         // Null overload

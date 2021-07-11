@@ -37,11 +37,11 @@ namespace skate {
     // Benchmarks a predicate purely for how long it took
     template<typename Predicate>
     void benchmark(std::ostream &out, Predicate p, const std::string &name = "Benchmark", BenchmarkUnit unit = BenchmarkMilliseconds) {
-        using std::chrono::high_resolution_clock;
+        using std::chrono::steady_clock;
 
-        const auto start = high_resolution_clock::now();
+        const auto start = steady_clock::now();
         p();
-        const auto end = high_resolution_clock::now();
+        const auto end = steady_clock::now();
 
         out << name << " took "; impl::output_time(out, end - start, unit) << std::endl;
     }
@@ -55,11 +55,11 @@ namespace skate {
     // Benchmarks a predicate for how long it took to read/write a certain number of bytes
     template<typename Predicate>
     void benchmark_throughput(std::ostream &out, Predicate p, const std::string &name = "Benchmark", BenchmarkUnit unit = BenchmarkMilliseconds) {
-        using std::chrono::high_resolution_clock;
+        using std::chrono::steady_clock;
 
-        const auto start = high_resolution_clock::now();
+        const auto start = steady_clock::now();
         const auto throughput = p();
-        const auto end = high_resolution_clock::now();
+        const auto end = steady_clock::now();
 
         out << name << " took "; impl::output_time(out, end - start, unit) << ", for a total throughput of " << (double(throughput) / std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) << " MB/s" << std::endl;
     }

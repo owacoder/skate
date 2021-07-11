@@ -43,3 +43,6 @@ linux {
 win32 {
     LIBS += -lWs2_32
 }
+
+DISTFILES += \
+    todo.txt
