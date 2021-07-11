@@ -79,7 +79,77 @@ namespace skate {
             return true;
         }
 
-        // TODO: Object of arrays overload
+        // Object of arrays overload, reads multiple lines of CSV with header line containing all keys
+        // Map contains column names mapped to column values.
+        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
+                                                         typename std::enable_if<is_map_base<_>::value && // Type must be map
+                                                                                 !is_map_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&   // Key type must be scalar
+                                                                                 !is_array_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value &&
+                                                                                 is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be array
+                                                                                 !is_map_base<typename std::decay<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value && // Elements of value arrays must be scalars
+                                                                                 !is_array_base<typename std::decay<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type>::value, int>::type = 0>
+        bool read(std::basic_streambuf<StreamChar> &is) {
+            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
+            typedef typename std::decay<decltype(*begin(std::declval<typename is_map_pair_helper<KeyValuePair>::value_type>()))>::type ValueType;
+
+            std::vector<KeyType> keys;
+
+            ref.clear();
+
+            // Read all keys on first line
+            if (!csv(keys, options).read(is))
+                return false;
+
+            while (true) {
+                // If no values on line, then insert all blanks and continue immediately
+                bool empty = false;
+                switch (is.sgetc()) {
+                    case '\r': empty = true; if (is.sbumpc() != '\r' || (is.sgetc() == '\n' && is.sbumpc() != '\n')) return false; break;
+                    case '\n': empty = true; if (is.sbumpc() != '\n' || (is.sgetc() == '\r' && is.sbumpc() != '\r')) return false; break;
+                    case std::char_traits<StreamChar>::eof(): return true;
+                    default: break;
+                }
+
+                // Read values on data line and insert as value of specified key
+                unicode_codepoint c;
+                size_t index = 0;
+                if (!empty) {
+                    while (true) {
+                        ValueType el;
+
+                        if (!csv(el, options).read(is))
+                            return false;
+
+                        if (index < keys.size())
+                            ref[keys[index++]].push_back(std::move(el));
+
+                        if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
+                            break;
+                        else if (!get_unicode<StreamChar>{}(is, c))
+                            return false;
+                        else if (c == '\r') {
+                            if (is.sgetc() == '\n' && is.sbumpc() != '\n')
+                                return false;
+
+                            break;
+                        } else if (c == '\n') {
+                            if (is.sgetc() == '\r' && is.sbumpc() != '\r')
+                                return false;
+
+                            break;
+                        } else if (c != options.separator) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Fill blank elements as needed
+                while (index < keys.size())
+                    ref[keys[index++]].push_back(ValueType{});
+            }
+
+            return false;
+        }
 
         // Array of objects overload, reads multiple lines of CSV with header line containing all keys
         template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(*begin(std::declval<_>())))>::type,
@@ -90,7 +160,7 @@ namespace skate {
                                                                                  !is_map_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value && // Value type must be scalar
                                                                                  !is_array_base<typename is_map_pair_helper<KeyValuePair>::value_type>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type ArrayType;
+            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type ObjectType;
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type KeyType;
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type ValueType;
 
@@ -102,40 +172,53 @@ namespace skate {
             if (!csv(keys, options).read(is))
                 return false;
 
-            // If no values, then return immediately
-            switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
-                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
-                case std::char_traits<StreamChar>::eof(): return true;
-                default: break;
-            }
+            while (true) {
+                ObjectType object;
 
-            // Read values on data line and insert as value of specified key
-            unicode_codepoint c;
-            size_t index = 0;
-            do {
-                ValueType el;
-
-                if (!csv(el, options).read(is))
-                    return false;
-
-                if (index < keys.size())
-                    ref[std::move(keys[index++])] = std::move(el);
-
-                if (!get_unicode<StreamChar>{}(is, c))
-                    return false;
-                else if (c == '\r') {
-                    if (is.sgetc() == '\n')
-                        return is.sbumpc() == '\n';
-
-                    return true;
-                } else if (c == '\n') {
-                    if (is.sgetc() == '\r')
-                        return is.sbumpc() == '\r';
-
-                    return true;
+                // If no values, then continue immediately
+                bool empty = false;
+                switch (is.sgetc()) {
+                    case '\r': empty = true; if (is.sbumpc() != '\r' || (is.sgetc() == '\n' && is.sbumpc() != '\n')) return false; break;
+                    case '\n': empty = true; if (is.sbumpc() != '\n' || (is.sgetc() == '\r' && is.sbumpc() != '\r')) return false; break;
+                    case std::char_traits<StreamChar>::eof(): return true;
+                    default: break;
                 }
-            } while (c == options.separator);
+
+                // Read values on data line and insert as value of specified key
+                unicode_codepoint c;
+                size_t index = 0;
+                if (!empty) {
+                    while (true) {
+                        ValueType el;
+
+                        if (!csv(el, options).read(is))
+                            return false;
+
+                        if (index < keys.size())
+                            object[keys[index++]] = std::move(el);
+
+                        if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
+                            break;
+                        else if (!get_unicode<StreamChar>{}(is, c))
+                            return false;
+                        else if (c == '\r') {
+                            if (is.sgetc() == '\n' && is.sbumpc() != '\n')
+                                return false;
+
+                            break;
+                        } else if (c == '\n') {
+                            if (is.sgetc() == '\r' && is.sbumpc() != '\r')
+                                return false;
+
+                            break;
+                        } else if (c != options.separator) {
+                            return false;
+                        }
+                    }
+                }
+
+                ref.push_back(std::move(object));
+            }
 
             return false;
         }
@@ -161,8 +244,8 @@ namespace skate {
 
             // If no values, then return immediately
             switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
-                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n' && is.sbumpc() != std::char_traits<StreamChar>::eof());
+                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r' && is.sbumpc() != std::char_traits<StreamChar>::eof());
                 case std::char_traits<StreamChar>::eof(): return true;
                 default: break;
             }
@@ -179,8 +262,10 @@ namespace skate {
                 if (index < keys.size())
                     ref[std::move(keys[index++])] = std::move(el);
 
-                if (!get_unicode<StreamChar>{}(is, c))
-                    return false;
+                if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
+                    return true;
+                else if (!get_unicode<StreamChar>{}(is, c))
+                    return true;
                 else if (c == '\r') {
                     if (is.sgetc() == '\n')
                         return is.sbumpc() == '\n';
@@ -206,8 +291,8 @@ namespace skate {
 
             ref.clear();
             switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
-                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r'? is.sbumpc() != std::char_traits<StreamChar>::eof(): true);
+                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n' && is.sbumpc() != std::char_traits<StreamChar>::eof());
+                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r' && is.sbumpc() != std::char_traits<StreamChar>::eof());
                 case std::char_traits<StreamChar>::eof(): return true;
                 default: break;
             }
@@ -221,7 +306,9 @@ namespace skate {
 
                 ref.push_back(std::move(el));
 
-                if (!get_unicode<StreamChar>{}(is, c))
+                if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
+                    return true;
+                else if (!get_unicode<StreamChar>{}(is, c))
                     return false;
                 else if (c == '\r') {
                     if (is.sgetc() == '\n')

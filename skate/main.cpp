@@ -57,6 +57,7 @@ std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) 
 #include "containers/adapters/csv.h"
 #include "containers/adapters/xml.h"
 #include <map>
+#include <array>
 #include "benchmark.h"
 
 struct Point {
@@ -213,8 +214,8 @@ int main()
     std::cout << skate::csv(cmap) << '\n';
     std::cout << skate::csv(cvec) << '\n';
 
-    std::istringstream icsv("1,-1,0.01\r333440,-3,44000,0,0\r");
-    std::map<std::string, double> csvline;
+    std::istringstream icsv("Header 1,Header 2,Header 3\r333440,-3,44000\r\n\n\r0, -1, -2\n1,2,3");
+    std::vector<std::vector<std::string>> csvline;
 
     skate::csv_options opts(',', '"', false);
     if (icsv >> skate::csv(csvline, opts))
