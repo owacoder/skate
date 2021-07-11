@@ -373,12 +373,26 @@ namespace skate {
         }
 
         // Array of arrays overload, writes multiple lines of CSV
-        // The outer array contains rows, inner arrays contain individual column values
+        // The outer array contains rows, inner arrays contain individual column values for a specific row
         // No header is explicitly written, although this can be included in the first inner array
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  is_array_base<decltype(*begin(std::declval<_>()))>::value &&
                                                                                  !is_map_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value &&
                                                                                  !is_array_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
+        bool write(std::basic_streambuf<StreamChar> &os) const {
+            for (const auto &el: ref) {
+                if (!csv(el, options).write(os))
+                    return false;
+            }
+
+            return true;
+        }
+
+        // Array of trivial tuples overload, writes multiple lines of CSV
+        // The outer array contains rows of tuples, tuples contain individual column values for a specific row
+        // No header is explicitly written, although this can be included in the first inner array
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
+                                                                                 is_trivial_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             for (const auto &el: ref) {
                 if (!csv(el, options).write(os))
@@ -539,7 +553,7 @@ namespace skate {
             return true;
         }
 
-        // Tuple/pair of trivial values overload
+        // Tuple/pair of trivial values overload, writes one line of CSV
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
