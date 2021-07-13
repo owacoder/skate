@@ -462,15 +462,25 @@ namespace skate {
                                   std::numeric_limits<FloatType>::max_digits10 - 1, v);
             if (chars < 0)
                 return false;
-            else if (size_t(chars) < sizeof(buf))
-                return os.sputn(buf, chars) == chars;
+            else if (size_t(chars) < sizeof(buf)) {
+                for (size_t i = 0; i < size_t(chars); ++i)
+                    if (os.sputc((unsigned char) buf[i]) == std::char_traits<StreamChar>::eof())
+                        return false;
+
+                return true;
+            }
 
             std::string temp(chars + 1, '\0');
             chars = snprintf(&temp[0], temp.size(),
                              std::is_same<long double, FloatType>::value? "%.*Lg": "%.*g",
                              std::numeric_limits<FloatType>::max_digits10 - 1, v);
-            if (chars >= 0 && size_t(chars) < temp.size())
-                return os.sputn(temp.c_str(), chars) == chars;
+            if (chars >= 0 && size_t(chars) < temp.size()) {
+                for (size_t i = 0; i < size_t(chars); ++i)
+                    if (os.sputc((unsigned char) temp[i]) == std::char_traits<StreamChar>::eof())
+                        return false;
+
+                return true;
+            }
 
             return false;
         }

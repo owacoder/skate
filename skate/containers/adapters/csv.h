@@ -10,7 +10,6 @@ namespace skate {
     // with the following exceptions:
     //   - leading or trailing spaces on a quoted field are trimmed when reading
     //   - input lines are not required to be delimited with CRLF, they can be delimited with just LF, just CR, or LFCR if desired
-    //     output lines are always written as CRLF pairs, so reading from/writing to a binary file is preferred
     template<typename Type>
     class csv_reader;
 
