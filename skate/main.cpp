@@ -52,10 +52,10 @@ std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) 
 #include <QMap>
 #endif
 
-#include "containers/adapters/core.h"
-#include "containers/adapters/json.h"
-#include "containers/adapters/csv.h"
-#include "containers/adapters/xml.h"
+#include "io/adapters/core.h"
+#include "io/adapters/json.h"
+#include "io/adapters/csv.h"
+#include "io/adapters/xml.h"
 #include <map>
 #include <array>
 #include "benchmark.h"
@@ -75,10 +75,48 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
     return skate::json(std::vector<int>{{p.x, p.y}}, options).write(os);
 }
 
-#include <string_view>
+template<typename T>
+void io_buffer_consumer(skate::io_threadsafe_buffer_ptr<T> buffer, size_t id) {
+    skate::io_threadsafe_buffer_consumer_guard<T> guard(*buffer);
+
+    T data;
+    while (buffer->read(data)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::lock_guard lock(coutMutex);
+        std::cout << "Got data: " << id << ": " << skate::json(data) << '\n';
+    }
+
+    std::lock_guard lock(coutMutex);
+    std::cout << "Consumer hanging up\n";
+}
+
+template<typename T>
+void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
+    skate::io_threadsafe_buffer_producer_guard<T> guard(*buffer);
+
+    for (size_t i = 0; i < 8; ++i) {
+        buffer->write(std::to_string(i));
+        //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
+    std::lock_guard lock(coutMutex);
+    std::cout << "Producer hanging up\n";
+}
 
 int main()
 {
+    auto buffer = skate::make_threadsafe_buffer<std::string>(1);
+
+    std::thread thrd1(io_buffer_consumer<std::string>, buffer, 1);
+    std::thread thrd2(io_buffer_consumer<std::string>, buffer, 2);
+    std::thread thrd0(io_buffer_producer<std::string>, buffer);
+
+    thrd0.join();
+    thrd1.join();
+    thrd2.join();
+
+    return 0;
+
 #if 0
     dynamic_tree<std::string, false> t, copy;
     dynamic_tree<std::string, false>::iterator it = t.root();

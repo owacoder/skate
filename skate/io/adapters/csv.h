@@ -801,10 +801,30 @@ namespace skate {
     }
 
     template<typename Type>
+    Type from_csv(const std::string &s, csv_options options = {}) {
+        Type value;
+
+        struct one_pass_readbuf : public std::streambuf {
+            one_pass_readbuf(const char *buf, size_t size) {
+                setg(const_cast<char *>(buf),
+                     const_cast<char *>(buf),
+                     const_cast<char *>(buf + size));
+            }
+        } buf{s.c_str(), s.size()};
+
+        if (!csv(value, options).read(buf))
+            return {};
+
+        return value;
+    }
+
+    template<typename Type>
     std::string to_csv(const Type &value, csv_options options = {}) {
-        std::ostringstream os;
-        os << csv(value, options);
-        return os? os.str(): std::string{};
+        std::stringbuf buf;
+        if (!csv(value, options).write(buf))
+            return {};
+
+        return buf.str();
     }
 }
 

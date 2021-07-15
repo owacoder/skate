@@ -14,14 +14,13 @@ HEADERS += \
     containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
     containers/abstract_map.h \
-    containers/adapters/csv.h \
-    containers/adapters/utf.h \
+    io/adapters/csv.h \
+    io/utf.h \
     containers/tree.h \
     io/buffer.h \
     socket/iocp.h \
     socket/wsaasyncselect.h \
     threadbuffer.h \
-    io/device.h \
     system/includes.h \
     system/environment.h \
     socket/common.h \
@@ -32,9 +31,9 @@ HEADERS += \
     socket/server.h \
     socket/kqueue.h \
     socket/epoll.h \
-    containers/adapters/json.h \
-    containers/adapters/core.h \
-    containers/adapters/xml.h
+    io/adapters/json.h \
+    io/adapters/core.h \
+    io/adapters/xml.h
 
 linux {
     LIBS += -lpthread

@@ -1,25 +1,28 @@
 #ifndef SKATE_IO_BUFFER_H
 #define SKATE_IO_BUFFER_H
 
+#include <vector>
 #include <algorithm>
+#include <mutex>
+#include <condition_variable>
 
 namespace skate {
-    template<typename T> class InputOutputBuffer;
+    template<typename T> class io_buffer;
 
     namespace impl {
         template<typename T, typename Container>
-        class InputOutputBufferReadHelper {
+        class io_buffer_read_helper {
             Container &c;
 
         public:
-            InputOutputBufferReadHelper(Container &c) : c(c) {}
+            io_buffer_read_helper(Container &c) : c(c) {}
 
-            void read_from_buffer_into(InputOutputBuffer<T> &buffer, size_t max) {
+            void read_from_buffer_into(io_buffer<T> &buffer, size_t max) {
                 buffer.read(max, [&](const T *data, size_t count) {
                     std::copy(data, data + count, std::back_inserter(c));
                 });
             }
-            void read_all_from_buffer_into(InputOutputBuffer<T> &buffer) {
+            void read_all_from_buffer_into(io_buffer<T> &buffer) {
                 buffer.read_all([&](const T *data, size_t count) {
                     std::copy(data, data + count, std::back_inserter(c));
                 });
@@ -28,17 +31,17 @@ namespace skate {
     }
 
     template<typename T>
-    class InputOutputBuffer
+    class io_buffer
     {
     public:
-        InputOutputBuffer(size_t buffer_limit = 0)
+        io_buffer(size_t buffer_limit = 0)
             : buffer_limit(buffer_limit)
             , buffer_first_element(0)
             , buffer_size(0)
         {
             data.reserve(buffer_limit);
         }
-        virtual ~InputOutputBuffer() {}
+        virtual ~io_buffer() {}
 
         // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
         bool write(const T &v) { return write(&v, &v + 1); }
@@ -80,9 +83,12 @@ namespace skate {
             return true;
         }
 
-        // Only well-defined if empty() is false
+        // Returns a default-constructed element if empty()
         T read() {
-            const T value = data[buffer_first_element++];
+            if (buffer_size == 0)
+                return {};
+
+            T value = data[buffer_first_element++];
 
             if (--buffer_size == 0)
                 buffer_first_element = 0;
@@ -90,6 +96,22 @@ namespace skate {
                 buffer_first_element %= capacity();
 
             return value;
+        }
+
+        // Reads a single element if possible
+        // Returns false if empty()
+        bool read(T &element) {
+            if (buffer_size == 0)
+                return false;
+
+            element = data[buffer_first_element++];
+
+            if (--buffer_size == 0)
+                buffer_first_element = 0;
+            else
+                buffer_first_element %= capacity();
+
+            return true;
         }
 
         // Data, up to max elements, is written to predicate as `void (const T *data, size_t len)`
@@ -138,9 +160,11 @@ namespace skate {
             buffer_first_element = buffer_size = 0;
         }
 
+        // Data, up to max elements, is added to the specified container with push_back()
         template<typename Container>
-        void read_into(size_t max, Container &c) { impl::InputOutputBufferReadHelper<T, Container>(c).read_from_buffer_into(*this, max); }
+        void read_into(size_t max, Container &c) { impl::io_buffer_read_helper<T, Container>(c).read_from_buffer_into(*this, max); }
 
+        // Data, up to max elements, is added to a new container of the specified container type with push_back() and returned
         template<typename Container>
         Container read(size_t max) {
             Container c;
@@ -148,9 +172,11 @@ namespace skate {
             return c;
         }
 
+        // All available data is added to the specified container with push_back()
         template<typename Container>
-        void read_all_into(Container &c) { impl::InputOutputBufferReadHelper<T, Container>(c).read_all_from_buffer_into(*this); }
+        void read_all_into(Container &c) { impl::io_buffer_read_helper<T, Container>(c).read_all_from_buffer_into(*this); }
 
+        // All available data is added to a new container of the specified container type with push_back() and returned
         template<typename Container>
         Container read_all() {
             Container c;
@@ -158,23 +184,316 @@ namespace skate {
             return c;
         }
 
+        // All data in the buffer is cleared and memory is released where possible
         void clear() {
             buffer_first_element = buffer_size = 0;
-            data = {};
-            data.reserve(buffer_limit);
+
+            if (buffer_limit > 0)
+                data.reserve(buffer_limit);
+            else
+                data = {};
         }
 
-        bool empty() const { return size() == 0; }
-        size_t max_size() const { return buffer_limit? buffer_limit: data.max_size(); }
-        size_t free_space() const { return max_size() - size(); }
-        size_t capacity() const { return data.size(); }
-        size_t size() const { return buffer_size; }
+        bool empty() const noexcept { return size() == 0; }
+        size_t max_size() const noexcept { return buffer_limit? buffer_limit: data.max_size(); }
+        size_t free_space() const noexcept { return max_size() - size(); }
+        size_t capacity() const noexcept { return data.size(); }
+        size_t size() const noexcept { return buffer_size; }
 
     protected:
         std::vector<T> data;                        // Size of vector is capacity
         const size_t buffer_limit;                  // Limit to how many elements can be in buffer. If 0, unlimited
         size_t buffer_first_element;                // Position of first element in buffer
         size_t buffer_size;                         // Number of elements in buffer
+    };
+
+    // Provides a one-way buffer from one thread to another
+    template<typename T>
+    class io_threadsafe_buffer : private io_buffer<T> {
+        typedef io_buffer<T> base;
+
+        bool consumer_registered, producer_registered;
+        size_t consumer_count, producer_count;
+        std::mutex mtx;
+        std::condition_variable producer_wait, consumer_wait;
+
+        bool no_consumers() const { return consumer_registered && consumer_count == 0; }
+        bool no_producers() const { return producer_registered && producer_count == 0; }
+
+    public:
+        io_threadsafe_buffer(size_t buffer_limit = 0)
+            : base(buffer_limit)
+            , consumer_registered(false)
+            , producer_registered(false)
+            , consumer_count(0)
+            , producer_count(0)
+        {}
+        virtual ~io_threadsafe_buffer() {}
+
+        void register_consumer() {
+            std::lock_guard lock(mtx);
+            consumer_registered = true;
+            ++consumer_count;
+        }
+        void unregister_consumer() {
+            std::lock_guard lock(mtx);
+            if (consumer_count) {
+                if (--consumer_count == 0)
+                    producer_wait.notify_all(); // Let producers know that last consumer hung up
+            }
+        }
+        void register_producer() {
+            std::lock_guard lock(mtx);
+            producer_registered = true;
+            ++producer_count;
+        }
+        void unregister_producer() {
+            std::lock_guard lock(mtx);
+            if (producer_count) {
+                if (--producer_count == 0)
+                    consumer_wait.notify_all(); // Let consumers know that last producer hung up
+            }
+        }
+
+        // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
+        // If wait is true, the function blocks until the data was successfully added to the buffer, thus the return value is usually always true
+        // If wait is true, nothing could be written, and all consumers have unregistered, returns false
+        bool write(const T &v, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            bool success;
+            while (!(success = base::write(v)) && wait) {
+                if (no_consumers())
+                    return false;
+
+                producer_wait.wait(lock);
+            }
+
+            consumer_wait.notify_one();
+
+            return success;
+        }
+
+        // Writes a sequence of values to the buffer from the provided container, returns true if they were all added, false if none were added
+        // If wait is true, the function blocks until the data was successfully added to the buffer, thus the return value is usually always true
+        // If wait is true, nothing could be written, and all consumers have unregistered, returns false
+        // Also returns false if waiting and the sequence could never be written atomically
+        template<typename Container>
+        bool write_from(const Container &c, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            bool success;
+            while (!(success = base::write_from(c)) && wait) {
+                if (no_consumers() || base::max_size() < std::distance(std::begin(c), std::end(c)))
+                    return false;
+
+                producer_wait.wait(lock);
+            }
+
+            consumer_wait.notify_all();
+
+            return success;
+        }
+
+        // Writes a sequence of values to the buffer, returns true if they were all added, false if none were added
+        // This function either succeeds in posting all the values or doesn't write any
+        // If wait is true, the function blocks until the data was successfully added to the buffer, thus the return value is usually always true
+        // If wait is true, nothing could be written, and all consumers have unregistered, returns false
+        // Also returns false if waiting and the sequence could never be written atomically
+        template<typename It>
+        bool write(It begin, It end, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            bool success;
+            while (!(success = base::write(begin, end)) && wait) {
+                if (no_consumers() || base::max_size() < std::distance(begin, end))
+                    return false;
+
+                producer_wait.wait(lock);
+            }
+
+            consumer_wait.notify_all();
+
+            return success;
+        }
+
+        // Returns a default-constructed element if empty() and wait is false
+        // If wait is true, the function blocks until data is available to be read, thus making the return value usually always valid data
+        // If wait is true, nothing could be read, and all producers have unregistered, returns a default-constructed element
+        T read(bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            T temp = base::read();
+
+            producer_wait.notify_all();
+
+            return temp;
+        }
+
+        // Reads a single element if possible
+        // Returns false if empty()
+        // If wait is true, the function blocks until data is available to be read, thus always calling the predicate with at least some data
+        // If wait is true, nothing could be read, and all producers have unregistered, returns false
+        bool read(T &element, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            const bool success = base::read(element);
+
+            producer_wait.notify_all();
+
+            return success;
+        }
+
+        // Data, up to max elements, is written to predicate as `void (const T *data, size_t len)`
+        // Predicate may be invoked multiple times until all requested data is read
+        // If wait is true, the function blocks until data is available to be read, thus usually always calling the predicate with at least some data
+        // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
+        template<typename Predicate>
+        void read(size_t max, Predicate p, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            base::read(max, p);
+
+            producer_wait.notify_all();
+        }
+
+        // All data is written to predicate as `void (const T *data, size_t len)`
+        // Predicate may be invoked multiple times until all data is read
+        // The wait parameter makes the function wait until data is available to be read, thus usually always calling the predicate with at least some data
+        // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
+        template<typename Predicate>
+        void read_all(Predicate p, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            base::read_all(p);
+
+            producer_wait.notify_all();
+        }
+
+        // Data, up to max elements, is added to the specified container with push_back()
+        // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
+        // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
+        template<typename Container>
+        void read_into(size_t max, Container &c, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            base::read_into(max, c);
+
+            producer_wait.notify_all();
+        }
+
+        // Data, up to max elements, is added to a new container of the specified container type with push_back() and returned
+        // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
+        // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
+        template<typename Container>
+        Container read(size_t max, bool wait = true) {
+            Container c;
+            read_into(max, c, wait);
+            return c;
+        }
+
+        // All available data is added to the specified container with push_back()
+        // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
+        // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
+        template<typename Container>
+        void read_all_into(Container &c, bool wait = true) {
+            std::unique_lock lock(mtx);
+
+            while (wait && base::empty() && !no_producers())
+                consumer_wait.wait(lock);
+
+            base::read_all_into(c);
+
+            producer_wait.notify_all();
+        }
+
+        // All available data is added to a new container of the specified container type with push_back() and returned
+        // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
+        // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
+        template<typename Container>
+        Container read_all(bool wait = true) {
+            Container c;
+            read_all_into(c, wait);
+            return c;
+        }
+
+        void clear() {
+            std::lock_guard lock(mtx);
+            base::clear();
+            producer_wait.notify_all();
+        }
+
+        bool empty() const {
+            std::lock_guard lock(mtx);
+            return base::empty();
+        }
+        size_t max_size() const {
+            std::lock_guard lock(mtx);
+            return base::max_size();
+        }
+        size_t free_space() const {
+            std::lock_guard lock(mtx);
+            return base::free_space();
+        }
+        size_t capacity() const {
+            std::lock_guard lock(mtx);
+            return base::capacity();
+        }
+        size_t size() const {
+            std::lock_guard lock(mtx);
+            return base::size();
+        }
+    };
+
+    template<typename T>
+    using io_threadsafe_buffer_ptr = std::shared_ptr<io_threadsafe_buffer<T>>;
+
+    template<typename T>
+    io_threadsafe_buffer_ptr<T> make_threadsafe_buffer(size_t buffer_limit = 0) {
+        return std::make_shared<io_threadsafe_buffer<T>>(buffer_limit);
+    }
+
+    template<typename T>
+    class io_threadsafe_buffer_consumer_guard {
+        io_threadsafe_buffer<T> &buffer;
+
+    public:
+        io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> &buffer) : buffer(buffer) {
+            buffer.register_consumer();
+        }
+
+        ~io_threadsafe_buffer_consumer_guard() {
+            buffer.unregister_consumer();
+        }
+    };
+
+    template<typename T>
+    class io_threadsafe_buffer_producer_guard {
+        io_threadsafe_buffer<T> &buffer;
+
+    public:
+        io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> &buffer) : buffer(buffer) {
+            buffer.register_producer();
+        }
+
+        ~io_threadsafe_buffer_producer_guard() {
+            buffer.unregister_producer();
+        }
     };
 }
 

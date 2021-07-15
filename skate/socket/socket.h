@@ -387,7 +387,7 @@ namespace skate {
         }
 
         // A simple, user-configurable storage location for TCP (or similar stream socket) read data
-        InputOutputBuffer<char> &read_buffer() { return rbuffer; }
+        io_buffer<char> &read_buffer() { return rbuffer; }
 
         // A simple, user-configurable storage location for UDP/TCP (or really any socket type) write data
         // Data is written in
@@ -500,7 +500,7 @@ namespace skate {
                 std::copy(data, data + len, std::back_inserter(c));
             });
         }
-        void read(size_t max, InputOutputBuffer<char> &buffer) {
+        void read(size_t max, io_buffer<char> &buffer) {
             read(max, [&buffer](const char *data, size_t len) {
                 buffer.write(data, data + len);
             });
@@ -525,7 +525,7 @@ namespace skate {
         }
         template<typename Container>
         Container read_all() { Container result; read_all_into(result); return result; }
-        void read_all(InputOutputBuffer<char> &buffer) {
+        void read_all(io_buffer<char> &buffer) {
             read_all([&buffer](const char *data, size_t len) {
                 buffer.write(data, data + len);
             });
@@ -833,8 +833,8 @@ namespace skate {
         State status;
         bool nonblocking;
 
-        std::deque<InputOutputBuffer<char>> wbuffer;
-        InputOutputBuffer<char> rbuffer;
+        std::deque<io_buffer<char>> wbuffer;
+        io_buffer<char> rbuffer;
     };
 
     class UDPSocket : public Socket {

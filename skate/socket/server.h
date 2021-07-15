@@ -173,7 +173,7 @@ namespace skate {
     public:
         SocketServer() : listener(nullptr) {}
         template<typename... Args>
-        explicit SocketServer(Args&&... args) : system_watcher(std::forward<Args>(args)...) {}
+        explicit SocketServer(Args&&... args) : system_watcher(std::forward<Args>(args)...), listener(nullptr) {}
 
         SystemWatcher &watcher() {return system_watcher;}
 

@@ -18,7 +18,7 @@
 # include <variant>
 #endif
 
-#include "utf.h"
+#include "../utf.h"
 
 namespace skate {
     using std::begin;
