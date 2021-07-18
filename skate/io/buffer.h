@@ -18,18 +18,19 @@ namespace skate {
             io_buffer_read_helper(Container &c) : c(c) {}
 
             void read_from_buffer_into(io_buffer<T> &buffer, size_t max) {
-                buffer.read(max, [&](const T *data, size_t count) {
-                    std::copy(data, data + count, std::back_inserter(c));
+                buffer.read(max, [&](T *data, size_t count) {
+                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), std::back_inserter(c));
                 });
             }
             void read_all_from_buffer_into(io_buffer<T> &buffer) {
-                buffer.read_all([&](const T *data, size_t count) {
-                    std::copy(data, data + count, std::back_inserter(c));
+                buffer.read_all([&](T *data, size_t count) {
+                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), std::back_inserter(c));
                 });
             }
         };
     }
 
+    // Provides a one-way possibly-expanding circular buffer implementation
     template<typename T>
     class io_buffer
     {
@@ -39,16 +40,63 @@ namespace skate {
             , buffer_first_element(0)
             , buffer_size(0)
         {
-            data.reserve(buffer_limit);
+            clear();
         }
         virtual ~io_buffer() {}
 
         // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
-        bool write(const T &v) { return write(&v, &v + 1); }
+        template<typename U>
+        bool write(U &&v) {
+            if (free_space() == 0)
+                return false;
+
+            if (capacity() == size()) {             // Need to grow buffer
+                if (buffer_first_element == 0) {    // Already aligned to start of vector
+                    data.push_back(std::forward<U>(v));
+                } else {                            // Not aligned to start of vector, so insert in the middle
+                    data.insert(data.begin() + buffer_first_element, std::forward<U>(v));
+
+                    ++buffer_first_element;
+                }
+            } else {                                // More space in vector, no need to reallocate
+                data[(buffer_first_element + buffer_size) % capacity()] = std::forward<U>(v);
+            }
+
+            ++buffer_size;
+
+            return true;
+        }
 
         // Writes a sequence of values to the buffer from the provided container, returns true if they were all added, false if none were added
+        // This function either succeeds in posting all the values or doesn't write any
         template<typename Container>
-        bool write_from(const Container &c) { return write(std::begin(c), std::end(c)); }
+        bool write_from(Container &&c) {
+            if (c.size() == 0)
+                return true;
+            else if (free_space() < c.size())
+                return false;
+
+            if (capacity() - size() < c.size()) {   // Grow buffer and insert elements
+                if (buffer_first_element == 0) {    // Already aligned to start of vector
+                    data.resize(size());            // Shrink before inserting as a memory saving measure
+                    data.insert(data.end(), std::make_move_iterator(c.begin()), std::make_move_iterator(c.end()));
+                } else {                            // Not aligned to start of vector, so insert in the middle
+                    data.insert(data.begin() + buffer_first_element, std::make_move_iterator(c.begin()), std::make_move_iterator(c.end()));
+
+                    buffer_first_element += c.size();
+                }
+
+                buffer_size += c.size();
+            } else {                                // More space in vector, no need to reallocate
+                for (auto &item: c) {
+                    data[(buffer_first_element + buffer_size) % capacity()] = std::move(item);
+
+                    ++buffer_size;
+                }
+            }
+
+            return true;
+        }
 
         // Writes a sequence of values to the buffer, returns true if they were all added, false if none were added
         // This function either succeeds in posting all the values or doesn't write any
@@ -88,7 +136,7 @@ namespace skate {
             if (buffer_size == 0)
                 return {};
 
-            T value = data[buffer_first_element++];
+            T value = std::move(data[buffer_first_element++]);
 
             if (--buffer_size == 0)
                 buffer_first_element = 0;
@@ -104,7 +152,7 @@ namespace skate {
             if (buffer_size == 0)
                 return false;
 
-            element = data[buffer_first_element++];
+            element = std::move(data[buffer_first_element++]);
 
             if (--buffer_size == 0)
                 buffer_first_element = 0;
@@ -114,7 +162,8 @@ namespace skate {
             return true;
         }
 
-        // Data, up to max elements, is written to predicate as `void (const T *data, size_t len)`
+        // Data, up to max elements, is written to predicate as `void (T *data, size_t len)`
+        // The data can be moved from the provided parameters
         // Predicate may be invoked multiple times until all requested data is read
         template<typename Predicate>
         void read(size_t max, Predicate p) {
@@ -125,7 +174,7 @@ namespace skate {
             else if (capacity() - buffer_first_element >= max) { // Requested portion is entirely contiguous
                 p(data.data() + buffer_first_element, max);
 
-                buffer_first_element += max;
+                buffer_first_element = (buffer_first_element + max) % capacity();
                 buffer_size -= max;
             } else { // Partially contiguous
                 const size_t contiguous = capacity() - buffer_first_element;
@@ -143,6 +192,7 @@ namespace skate {
         }
 
         // All data is written to predicate as `void (const T *data, size_t len)`
+        // The data can be moved from the provided parameters
         // Predicate may be invoked multiple times until all data is read
         template<typename Predicate>
         void read_all(Predicate p) {
@@ -207,7 +257,7 @@ namespace skate {
         size_t buffer_size;                         // Number of elements in buffer
     };
 
-    // Provides a one-way buffer from one thread to another
+    // Provides a one-way buffer from producer threads to consumer threads
     template<typename T>
     class io_threadsafe_buffer : private io_buffer<T> {
         typedef io_buffer<T> base;
@@ -217,8 +267,8 @@ namespace skate {
         std::mutex mtx;
         std::condition_variable producer_wait, consumer_wait;
 
-        bool no_consumers() const { return consumer_registered && consumer_count == 0; }
-        bool no_producers() const { return producer_registered && producer_count == 0; }
+        bool consumers_available() const { return consumer_count || !consumer_registered; }
+        bool producers_available() const { return producer_count || !producer_registered; }
 
     public:
         io_threadsafe_buffer(size_t buffer_limit = 0)
@@ -258,12 +308,13 @@ namespace skate {
         // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
         // If wait is true, the function blocks until the data was successfully added to the buffer, thus the return value is usually always true
         // If wait is true, nothing could be written, and all consumers have unregistered, returns false
-        bool write(const T &v, bool wait = true) {
+        template<typename U>
+        bool write(U &&v, bool wait = true) {
             std::unique_lock lock(mtx);
 
             bool success;
-            while (!(success = base::write(v)) && wait) {
-                if (no_consumers())
+            while (!(success = base::write(std::forward<U>(v))) && wait) {
+                if (!consumers_available())
                     return false;
 
                 producer_wait.wait(lock);
@@ -279,12 +330,12 @@ namespace skate {
         // If wait is true, nothing could be written, and all consumers have unregistered, returns false
         // Also returns false if waiting and the sequence could never be written atomically
         template<typename Container>
-        bool write_from(const Container &c, bool wait = true) {
+        bool write_from(Container &&c, bool wait = true) {
             std::unique_lock lock(mtx);
 
             bool success;
-            while (!(success = base::write_from(c)) && wait) {
-                if (no_consumers() || base::max_size() < std::distance(std::begin(c), std::end(c)))
+            while (!(success = base::write_from(std::forward<Container>(c))) && wait) {
+                if (!consumers_available() || base::max_size() < c.size())
                     return false;
 
                 producer_wait.wait(lock);
@@ -306,7 +357,7 @@ namespace skate {
 
             bool success;
             while (!(success = base::write(begin, end)) && wait) {
-                if (no_consumers() || base::max_size() < std::distance(begin, end))
+                if (!consumers_available() || base::max_size() < std::distance(begin, end))
                     return false;
 
                 producer_wait.wait(lock);
@@ -323,7 +374,7 @@ namespace skate {
         T read(bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             T temp = base::read();
@@ -340,7 +391,7 @@ namespace skate {
         bool read(T &element, bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             const bool success = base::read(element);
@@ -358,7 +409,7 @@ namespace skate {
         void read(size_t max, Predicate p, bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             base::read(max, p);
@@ -374,7 +425,7 @@ namespace skate {
         void read_all(Predicate p, bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             base::read_all(p);
@@ -389,7 +440,7 @@ namespace skate {
         void read_into(size_t max, Container &c, bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             base::read_into(max, c);
@@ -414,7 +465,7 @@ namespace skate {
         void read_all_into(Container &c, bool wait = true) {
             std::unique_lock lock(mtx);
 
-            while (wait && base::empty() && !no_producers())
+            while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
             base::read_all_into(c);
@@ -464,7 +515,7 @@ namespace skate {
     using io_threadsafe_buffer_ptr = std::shared_ptr<io_threadsafe_buffer<T>>;
 
     template<typename T>
-    io_threadsafe_buffer_ptr<T> make_threadsafe_buffer(size_t buffer_limit = 0) {
+    io_threadsafe_buffer_ptr<T> make_threadsafe_io_buffer(size_t buffer_limit = 0) {
         return std::make_shared<io_threadsafe_buffer<T>>(buffer_limit);
     }
 

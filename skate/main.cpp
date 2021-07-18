@@ -77,7 +77,7 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
 
 template<typename T>
 void io_buffer_consumer(skate::io_threadsafe_buffer_ptr<T> buffer, size_t id) {
-    skate::io_threadsafe_buffer_consumer_guard<T> guard(*buffer);
+    skate::io_threadsafe_buffer_consumer_guard guard(*buffer);
 
     T data;
     while (buffer->read(data)) {
@@ -92,7 +92,7 @@ void io_buffer_consumer(skate::io_threadsafe_buffer_ptr<T> buffer, size_t id) {
 
 template<typename T>
 void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
-    skate::io_threadsafe_buffer_producer_guard<T> guard(*buffer);
+    skate::io_threadsafe_buffer_producer_guard guard(*buffer);
 
     for (size_t i = 0; i < 8; ++i) {
         buffer->write(std::to_string(i));
@@ -105,7 +105,7 @@ void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
 
 int main()
 {
-    auto buffer = skate::make_threadsafe_buffer<std::string>(1);
+    auto buffer = skate::make_threadsafe_io_buffer<std::string>(3);
 
     std::thread thrd1(io_buffer_consumer<std::string>, buffer, 1);
     std::thread thrd2(io_buffer_consumer<std::string>, buffer, 2);
