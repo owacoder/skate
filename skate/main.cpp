@@ -37,6 +37,8 @@ public:
 
     MoveOnlyString &operator=(MoveOnlyString &&other) = default;
 
+    operator std::string() const { return v; }
+
     const char &operator[](size_t idx) const {return v[idx];}
     char &operator[](size_t idx) {return v[idx];}
 };
@@ -105,6 +107,17 @@ void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
 
 int main()
 {
+    skate::io_buffer<MoveOnlyString> b(3);
+
+    b.write(MoveOnlyString("1"));
+    b.write(MoveOnlyString("2"));
+    b.write(MoveOnlyString("3"));
+    std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
+    b.write(MoveOnlyString("4"));
+    std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
+
+    return 0;
+
     auto buffer = skate::make_threadsafe_io_buffer<std::string>(3);
 
     std::thread thrd1(io_buffer_consumer<std::string>, buffer, 1);

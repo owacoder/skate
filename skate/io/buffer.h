@@ -171,27 +171,27 @@ namespace skate {
 
             if (max == 0)
                 return;
-            else if (capacity() - buffer_first_element >= max) { // Requested portion is entirely contiguous
+            else if (capacity() - buffer_first_element >= max) {                // Requested portion is entirely contiguous
                 p(data.data() + buffer_first_element, max);
 
                 buffer_first_element = (buffer_first_element + max) % capacity();
-                buffer_size -= max;
-            } else { // Partially contiguous
-                const size_t contiguous = capacity() - buffer_first_element;
+            } else {                                                            // Requested portion is partially contiguous
+                const size_t contiguous = capacity() - buffer_first_element;    // Number of elements before end of circular buffer
+                const size_t contiguous_remainder = max - contiguous;           // Number of wrap-around elements at physical beginning of circular buffer
 
                 p(data.data() + buffer_first_element, contiguous);
-                p(data.data(), max - contiguous);
+                p(data.data(), contiguous_remainder);
 
                 if (max == size())
-                    buffer_first_element = buffer_size = 0;
-                else {
-                    buffer_first_element = max - contiguous;
-                    buffer_size -= max;
-                }
+                    buffer_first_element = 0;
+                else
+                    buffer_first_element = contiguous_remainder;
             }
+
+            buffer_size -= max;
         }
 
-        // All data is written to predicate as `void (const T *data, size_t len)`
+        // All data is written to predicate as `void (T *data, size_t len)`
         // The data can be moved from the provided parameters
         // Predicate may be invoked multiple times until all data is read
         template<typename Predicate>
@@ -240,8 +240,10 @@ namespace skate {
 
             if (buffer_limit > 0)
                 data.reserve(buffer_limit);
-            else
-                data = {};
+            else {
+                data.clear();
+                data.shrink_to_fit();
+            }
         }
 
         bool empty() const noexcept { return size() == 0; }
