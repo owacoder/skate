@@ -105,19 +105,42 @@ void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
     std::cout << "Producer hanging up\n";
 }
 
+template<typename T>
+constexpr int log10ceil(T num) {
+    return num < 10? 1: 1 + log10ceil(num / 10);
+}
+
 int main()
 {
+    std::stringbuf sbuf;
+
+    const double test = -INFINITY;
+    skate::impl::write_float(sbuf, test, true, true);
+
+    std::cout << sbuf.str() << '\n';
+    std::cout << std::setprecision(std::numeric_limits<decltype(test)>::max_digits10) << test << std::endl;
+
+    return 0;
+
+    typedef float FloatType;
+
+    char buf[512];
+    sprintf(buf, "%.*g", std::numeric_limits<FloatType>::max_digits10, 1e8);
+    printf("%u: %s\n", (unsigned) strlen(buf), buf);
+    printf("e: %u\n", std::numeric_limits<FloatType>::max_digits10 + 4 + log10ceil(std::numeric_limits<FloatType>::max_exponent10));
+    printf("f: %u\n", 2 + std::numeric_limits<FloatType>::max_exponent10 + std::numeric_limits<FloatType>::max_digits10);
+
     skate::io_buffer<MoveOnlyString> b(3);
 
     b.write(MoveOnlyString("1"));
     b.write(MoveOnlyString("2"));
     b.write(MoveOnlyString("3"));
-    std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
+    b.write(MoveOnlyString("4"));
+    std::cout << skate::json(b.read<std::vector<std::string>>(4)) << std::endl;
     b.write(MoveOnlyString("4"));
     std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
 
-    return 0;
-
+#if 0
     auto buffer = skate::make_threadsafe_io_buffer<std::string>(3);
 
     std::thread thrd1(io_buffer_consumer<std::string>, buffer, 1);
@@ -127,8 +150,7 @@ int main()
     thrd0.join();
     thrd1.join();
     thrd2.join();
-
-    return 0;
+#endif
 
 #if 0
     dynamic_tree<std::string, false> t, copy;
@@ -175,7 +197,7 @@ int main()
             skate::json_value temp;
 
             temp["1st"] = rand();
-            temp["2nd"] = true;//rand() * 0.00000000000001;
+            temp["2nd"] = rand() * 0.00000000000001;
             temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
             temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
 

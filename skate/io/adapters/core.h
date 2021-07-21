@@ -16,6 +16,11 @@
 #if __cplusplus >= 201703L
 # include <optional>
 # include <variant>
+# include <charconv>
+#endif
+
+#if __cplusplus >= 202002L
+# include <format>
 #endif
 
 #include "../utf.h"
@@ -436,53 +441,96 @@ namespace skate {
 
         template<typename StreamChar, typename IntType>
         bool write_int(std::basic_streambuf<StreamChar> &os, IntType v) {
-            const std::string str = std::to_string(v);
-            for (const auto c: str)
-                if (os.sputc(c) == std::char_traits<StreamChar>::eof())
+#if __cplusplus >= 201703L
+            std::array<char, std::numeric_limits<IntType>::digits10 + std::is_signed<IntType>::value> buf;
+
+            const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+            if (result.ec != std::errc())
+                return false;
+            const auto end = result.ptr;
+#else
+            const std::string buf = std::to_string(v);
+            const auto end = buf.data() + buf.size();
+#endif
+
+            for (auto begin = buf.data(); begin != end; ++begin)
+                if (os.sputc(*begin) == std::char_traits<StreamChar>::eof())
                     return false;
 
             return true;
         }
 
+        namespace impl {
+            template<typename T>
+            constexpr int log10ceil(T num) {
+                return num < 10? 1: 1 + log10ceil(num / 10);
+            }
+        }
+
         template<typename StreamChar, typename FloatType>
-        bool write_float(std::basic_streambuf<StreamChar> &os, FloatType v, bool allow_inf = false, bool allow_nan = false) {
+        bool write_float(std::basic_streambuf<StreamChar> &os, FloatType v, bool allow_inf = true, bool allow_nan = true) {
             static_assert(std::is_same<FloatType, float>::value ||
                           std::is_same<FloatType, double>::value ||
                           std::is_same<FloatType, long double>::value, "floating point type must be float, double, or long double");
 
-            if ((!allow_inf && std::isinf(v)) ||
-                (!allow_nan && std::isnan(v)))
+            if (std::isinf(v)) {
+                if (!allow_inf)
+                    return false;
+
+                // Add negative sign as needed
+                if (std::signbit(v) && os.sputc('-') == std::char_traits<StreamChar>::eof())
+                    return false;
+
+                const char buf[] = "Infinity";
+                for (const auto c: buf)
+                    if (os.sputc(c) == std::char_traits<StreamChar>::eof())
+                        return false;
+
+                return true;
+            } else if (std::isnan(v)) {
+                if (!allow_nan)
+                    return false;
+
+                const char buf[] = "NaN";
+                for (const auto c: buf)
+                    if (os.sputc(c) == std::char_traits<StreamChar>::eof())
+                        return false;
+
+                return true;
+            }
+
+            // See https://stackoverflow.com/questions/68472720/stdto-chars-minimal-floating-point-buffer-size/68475665#68475665
+            // The buffer is guaranteed to be a minimally sized buffer for the output string
+            std::array<char, 4 +
+                             std::numeric_limits<FloatType>::max_digits10 +
+                             std::max(2, impl::log10ceil(std::numeric_limits<FloatType>::max_exponent10)) +
+                             1 // Add for NUL terminator
+                      > buf;
+
+#if __cplusplus >= 201703L
+            const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v, std::chars_format::general, std::numeric_limits<FloatType>::max_digits10);
+            if (result.ec != std::errc())
                 return false;
 
-            // Ideally this would not use snprintf, but there's not really a great (fast) option in C++11
+            for (auto begin = buf.data(); begin != result.ptr; ++begin)
+                if (os.sputc(*begin) == std::char_traits<StreamChar>::eof())
+                    return false;
 
-            char buf[512];
-            auto chars = snprintf(buf, sizeof(buf),
+            return true;
+#else
+            // Ideally this would not use snprintf, but there's not really a great (fast) option in C++11
+            auto chars = snprintf(buf.data(), buf.size(),
                                   std::is_same<long double, FloatType>::value? "%.*Lg": "%.*g",
-                                  std::numeric_limits<FloatType>::max_digits10 - 1, v);
+                                  std::numeric_limits<FloatType>::max_digits10, v);
             if (chars < 0)
                 return false;
-            else if (size_t(chars) < sizeof(buf)) {
-                for (size_t i = 0; i < size_t(chars); ++i)
-                    if (os.sputc((unsigned char) buf[i]) == std::char_traits<StreamChar>::eof())
-                        return false;
 
-                return true;
-            }
+            for (size_t i = 0; i < size_t(chars); ++i)
+                if (os.sputc((unsigned char) buf[i]) == std::char_traits<StreamChar>::eof())
+                    return false;
 
-            std::string temp(chars + 1, '\0');
-            chars = snprintf(&temp[0], temp.size(),
-                             std::is_same<long double, FloatType>::value? "%.*Lg": "%.*g",
-                             std::numeric_limits<FloatType>::max_digits10 - 1, v);
-            if (chars >= 0 && size_t(chars) < temp.size()) {
-                for (size_t i = 0; i < size_t(chars); ++i)
-                    if (os.sputc((unsigned char) temp[i]) == std::char_traits<StreamChar>::eof())
-                        return false;
-
-                return true;
-            }
-
-            return false;
+            return true;
+#endif
         }
 
         // Allows using apply() on a tuple object

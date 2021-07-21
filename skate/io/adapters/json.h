@@ -253,7 +253,7 @@ namespace skate {
             if (!impl::skipws(is))
                 return false;
 
-            return impl::read_float(is, ref);
+            return impl::read_float(is, ref, false, false);
         }
 
         // Smart pointer overload
