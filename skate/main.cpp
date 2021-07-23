@@ -296,7 +296,7 @@ int main()
 
     std::array<std::string, 10> array;
 
-    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
+    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_scalar_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
     std::cout << skate::json(array);
 
     return 0;
