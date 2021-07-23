@@ -33,6 +33,38 @@ namespace skate {
     template<typename Type>
     csv_reader<Type> csv(Type &, csv_options options = {});
 
+    namespace impl {
+        namespace csv {
+            // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
+            template<typename StreamChar>
+            class read_tuple {
+                std::basic_streambuf<StreamChar> &is;
+                bool &error;
+                size_t &index;
+                const csv_options &options;
+
+            public:
+                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const csv_options &options) noexcept
+                    : is(stream)
+                    , error(error)
+                    , index(index)
+                    , options(options)
+                {}
+
+                template<typename Param>
+                void operator()(Param &p) {
+                    unicode_codepoint c;
+                    if (error || (index++ && (!get_unicode<StreamChar>{}(is, c) || c != options.separator))) {
+                        error = true;
+                        return;
+                    }
+
+                    error = !skate::csv(p, options).read(is);
+                }
+            };
+        }
+    }
+
     template<typename Type>
     class csv_reader {
         Type &ref;
@@ -103,8 +135,8 @@ namespace skate {
                 // If no values on line, then insert all blanks and continue immediately
                 bool empty = false;
                 switch (is.sgetc()) {
-                    case '\r': empty = true; if (is.sbumpc() != '\r' || (is.sgetc() == '\n' && is.sbumpc() != '\n')) return false; break;
-                    case '\n': empty = true; if (is.sbumpc() != '\n' || (is.sgetc() == '\r' && is.sbumpc() != '\r')) return false; break;
+                    case '\r': empty = true; if (is.snextc() == '\n' && is.sbumpc() != '\n') return false; break;
+                    case '\n': empty = true; if (is.snextc() == '\r' && is.sbumpc() != '\r') return false; break;
                     case std::char_traits<StreamChar>::eof(): return true;
                     default: break;
                 }
@@ -177,8 +209,8 @@ namespace skate {
                 // If no values, then continue immediately
                 bool empty = false;
                 switch (is.sgetc()) {
-                    case '\r': empty = true; if (is.sbumpc() != '\r' || (is.sgetc() == '\n' && is.sbumpc() != '\n')) return false; break;
-                    case '\n': empty = true; if (is.sbumpc() != '\n' || (is.sgetc() == '\r' && is.sbumpc() != '\r')) return false; break;
+                    case '\r': empty = true; if (is.snextc() == '\n' && is.sbumpc() != '\n') return false; break;
+                    case '\n': empty = true; if (is.snextc() == '\r' && is.sbumpc() != '\r') return false; break;
                     case std::char_traits<StreamChar>::eof(): return true;
                     default: break;
                 }
@@ -243,8 +275,8 @@ namespace skate {
 
             // If no values, then return immediately
             switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n' && is.sbumpc() != std::char_traits<StreamChar>::eof());
-                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r' && is.sbumpc() != std::char_traits<StreamChar>::eof());
+                case '\r': return is.snextc() != '\n' || is.sbumpc() == '\n';
+                case '\n': return is.snextc() != '\r' || is.sbumpc() == '\r';
                 case std::char_traits<StreamChar>::eof(): return true;
                 default: break;
             }
@@ -290,8 +322,8 @@ namespace skate {
 
             ref.clear();
             switch (is.sgetc()) {
-                case '\r': return is.sbumpc() == '\r' && (is.sgetc() == '\n' && is.sbumpc() != std::char_traits<StreamChar>::eof());
-                case '\n': return is.sbumpc() == '\n' && (is.sgetc() == '\r' && is.sbumpc() != std::char_traits<StreamChar>::eof());
+                case '\r': return is.snextc() != '\n' || is.sbumpc() == '\n';
+                case '\n': return is.snextc() != '\r' || is.sbumpc() == '\r';
                 case std::char_traits<StreamChar>::eof(): return true;
                 default: break;
             }
@@ -321,6 +353,29 @@ namespace skate {
                     return true;
                 }
             } while (c == options.separator);
+
+            return false;
+        }
+
+        // Tuple/pair of trivial values overload, reads one line of CSV
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
+                                                                                 !is_array_base<_>::value, int>::type = 0>
+        bool read(std::basic_streambuf<StreamChar> &is) {
+            bool error = false;
+            size_t index = 0;
+
+            impl::apply(impl::csv::read_tuple<StreamChar>(is, error, index, options), ref);
+
+            if (error)
+                return false;
+
+            // Eat trailing line ending, fail if not the end of the line
+            switch (is.sgetc()) {
+                case '\r': return is.snextc() != '\n' || is.sbumpc() == '\n';
+                case '\n': return is.snextc() != '\r' || is.sbumpc() == '\r';
+                case std::char_traits<StreamChar>::eof(): return true;
+                default: break;
+            }
 
             return false;
         }
@@ -427,8 +482,10 @@ namespace skate {
 
                 template<typename Param>
                 void operator()(const Param &p) {
-                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof()))
+                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
+                        error = true;
                         return;
+                    }
 
                     error = !skate::csv(p, options).write(os);
                 }
@@ -643,8 +700,6 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-
-
             bool error = false;
             size_t index = 0;
 

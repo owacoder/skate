@@ -112,16 +112,6 @@ constexpr int log10ceil(T num) {
 
 int main()
 {
-    std::stringbuf sbuf;
-
-    const double test = -INFINITY;
-    skate::impl::write_float(sbuf, test, true, true);
-
-    std::cout << sbuf.str() << '\n';
-    std::cout << std::setprecision(std::numeric_limits<decltype(test)>::max_digits10) << test << std::endl;
-
-    return 0;
-
     typedef float FloatType;
 
     char buf[512];
@@ -191,21 +181,23 @@ int main()
     skate::json_value js;
     std::string js_text;
 
-    skate::benchmark([&js]() {
-        js.resize(200000);
-        for (size_t i = 0; i < js.size(); ++i) {
-            skate::json_value temp;
+    const size_t count = 0;
+    if (count) {
+        skate::benchmark([&js]() {
+            js.resize(200000);
+            for (size_t i = 0; i < js.size(); ++i) {
+                skate::json_value temp;
 
-            temp["1st"] = rand();
-            temp["2nd"] = rand() * 0.00000000000001;
-            temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
-            temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
+                temp["1st"] = rand();
+                temp["2nd"] = rand() * 0.00000000000001;
+                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
 
-            js[i] = std::move(temp);
-        }
-    }, "JSON build");
+                js[i] = std::move(temp);
+            }
+        }, "JSON build");
+    }
 
-    const size_t count = 1;
     for (size_t i = 0; i < count; ++i) {
         skate::benchmark_throughput([&js_text, &js]() {
             js_text = skate::to_json(js);
@@ -287,10 +279,18 @@ int main()
     std::cout << skate::csv(cmap) << '\n';
     std::cout << skate::csv(cvec) << '\n';
 
-    std::istringstream icsv("Header 1,Header 2,Header 3\r333440,-3,44000\r\n\n\r0, -1, -2\n1,2,3");
+    std::istringstream icsv("Header 1,-123456789,0.002\r333440,-3,44000\r\n\n\r0, -1, -2\n1,2,3");
     std::vector<std::vector<std::string>> csvline;
+    std::tuple<std::string, int, double> tuple;
+
+    std::istringstream ijson("[\"string\",-1,]");
+    if (ijson >> skate::json(tuple))
+        std::cout << "SUCCESS: " << skate::json(tuple) << '\n';
+    else
+        std::cout << "Failed\n";
 
     skate::csv_options opts(',', '"', false);
+
     if (icsv >> skate::csv(csvline, opts))
         std::cout << "SUCCESS: " << skate::json(csvline) << '\n' << skate::csv(csvline, opts) << '\n';
     else

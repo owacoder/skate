@@ -13,6 +13,35 @@ namespace skate {
     template<typename Type>
     json_reader<Type> json(Type &);
 
+    namespace impl {
+        namespace json {
+            // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
+            template<typename StreamChar>
+            class read_tuple {
+                std::basic_streambuf<StreamChar> &is;
+                bool &error;
+                size_t &index;
+
+            public:
+                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index) noexcept
+                    : is(stream)
+                    , error(error)
+                    , index(index)
+                {}
+
+                template<typename Param>
+                void operator()(Param &p) {
+                    if (error || (index++ && (!skate::impl::skipws(is) || is.sbumpc() != ','))) {
+                        error = true;
+                        return;
+                    }
+
+                    error = !skate::json(p).read(is);
+                }
+            };
+        }
+    }
+
     template<typename Type>
     class json_reader {
         Type &ref;
@@ -63,6 +92,21 @@ namespace skate {
             // Invalid if here, as function should have returned inside loop with valid array
             ref.clear();
             return false;
+        }
+
+        // Tuple/pair overload
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
+                                                                                 !is_array_base<_>::value, int>::type = 0>
+        bool read(std::basic_streambuf<StreamChar> &is) {
+            bool error = false;
+            size_t index = 0;
+
+            if (!impl::skipws(is) || is.sbumpc() != '[')
+                return false;
+
+            impl::apply(impl::json::read_tuple<StreamChar>(is, error, index), ref);
+
+            return !error && impl::skipws(is) && is.sbumpc() == ']';
         }
 
         // Map overload
@@ -335,8 +379,10 @@ namespace skate {
 
                 template<typename Param>
                 void operator()(const Param &p) {
-                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof()))
+                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
+                        error = true;
                         return;
+                    }
 
                     error = !skate::json(p, options).write(os);
                 }
@@ -409,8 +455,6 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-
-
             bool error = false;
             size_t index = 0;
 
