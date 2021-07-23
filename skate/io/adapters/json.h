@@ -59,7 +59,8 @@ namespace skate {
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
+                                                                                 !is_tuple_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 

@@ -279,22 +279,20 @@ int main()
     std::cout << skate::csv(cmap) << '\n';
     std::cout << skate::csv(cvec) << '\n';
 
-    std::istringstream icsv("Header 1,-123456789,0.002\r333440,-3,44000\r\n\n\r0, -1, -2\n1,2,3");
-    std::vector<std::vector<std::string>> csvline;
-    std::tuple<std::string, int, double> tuple;
+    std::istringstream icsv("Header 1,-123456789,0.002\n333440,-3,44000\n\r0, -1, -2\n1,2,3\n");
+    std::vector<std::string> csvline;
+    std::vector<std::tuple<std::string, int, double>> tuple;
 
-    std::istringstream ijson("[\"string\",-1,]");
-    if (ijson >> skate::json(tuple))
+    skate::csv_options opts(',', '"', false);
+
+    std::istringstream ijson("[\"string\",-1,1]");
+    if (icsv >> skate::csv(tuple, opts))
         std::cout << "SUCCESS: " << skate::json(tuple) << '\n';
     else
         std::cout << "Failed\n";
 
-    skate::csv_options opts(',', '"', false);
-
-    if (icsv >> skate::csv(csvline, opts))
-        std::cout << "SUCCESS: " << skate::json(csvline) << '\n' << skate::csv(csvline, opts) << '\n';
-    else
-        std::cout << "Failed\n";
+    if (icsv >> skate::csv(tuple, opts))
+        std::cout << "SUCCESS: " << skate::json(tuple) << '\n' << skate::csv(tuple, opts) << '\n';
 
     std::array<std::string, 10> array;
 
@@ -462,7 +460,7 @@ int main()
 
     std::thread thrd(consumer<Message>, msg->addBuffer());
     //std::thread thrd2(consumer<int>, 2, std::ref(tbuf));
-    
+
     msg->addFileOutput("F:/Scratch/test.txt");
     //msg->addAsyncCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!" << std::endl;}}, 4);
     auto ptr = msg->addCallback([](const Message &m) {std::this_thread::sleep_for(std::chrono::milliseconds(1500)); {std::unique_lock<std::mutex> lock(coutMutex); std::cout << m[0] << "!" << std::endl; return true;}}, 4);
@@ -476,15 +474,15 @@ int main()
     //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     msg->close();
     msg = nullptr;
-    
+
     {
         std::unique_lock<std::mutex> lock(coutMutex);
         std::cout << "ALL MESSAGES SENT" << std::endl;
     }
-    
+
     thrd.join();
     //thrd2.join();
-    
+
     std::cout << "Hello World! " << total << std::endl;
     return 0;
 }
