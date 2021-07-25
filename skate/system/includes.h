@@ -2,8 +2,17 @@
 #define SKATE_SYSTEM_INCLUDES_H
 
 #include "environment.h"
+#include "utf.h"
+
+namespace skate {
+    using std::begin;
+    using std::end;
+
+    template<typename T> struct type_exists : public std::true_type { typedef int type; };
+}
 
 #include <stdexcept>
+#include <system_error>
 
 #if POSIX_OS
 # include <unistd.h>
@@ -22,114 +31,6 @@ namespace skate {
     public:
         StartupWrapper() {
             ::signal(SIGPIPE, SIG_IGN);
-        }
-    };
-
-
-    class ApiString {
-    public:
-        enum DestroyType {
-            ApiNoFree,
-            ApiDeleteArray,
-            ApiFree
-        };
-
-        ApiString() : str(const_cast<char *>("")), len(0), type(ApiNoFree) {}
-        ApiString(const char *data, size_t datalen) : str(nullptr), len(datalen), type(ApiNoFree) {
-            char *copy = new char[len + 1];
-            memcpy(copy, data, len * sizeof(*copy));
-
-            copy[len] = 0; // NUL-terminate manually
-
-            str = copy;
-            type = ApiDeleteArray;
-        }
-        ApiString(const char *data) : ApiString(data, strlen(data)) {}
-        ApiString(char *data, DestroyType type) : str(data), len(strlen(data)), type(type) {}
-        ApiString(const std::string &data) : ApiString(data.data(), data.length()) {}
-        ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
-            char *copy = new char[len + 1];
-            memcpy(copy, other.data(), len * sizeof(*copy));
-
-            copy[len] = 0; // NUL-terminate manually
-
-            str = copy;
-            type = ApiDeleteArray;
-        }
-        ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
-            other.str = nullptr;
-            other.len = 0;
-            other.type = ApiNoFree;
-        }
-        ~ApiString() {destroy();}
-
-        ApiString &operator=(const ApiString &other) {
-            if (&other == this)
-                return *this;
-
-            destroy();
-
-            const size_t sz = other.size();
-            char *copy = new char[sz + 1];
-            memcpy(copy, other.data(), sz * sizeof(*copy));
-
-            copy[sz] = 0; // NUL-terminate manually
-
-            str = copy;
-            len = sz;
-            type = ApiDeleteArray;
-
-            return *this;
-        }
-        ApiString &operator=(ApiString &&other) {
-            if (&other == this)
-                return *this;
-
-            destroy();
-
-            str = other.str; other.str = nullptr;
-            len = other.len; other.len = 0;
-            type = other.type; other.type = ApiNoFree;
-
-            return *this;
-        }
-
-        static ApiString from_utf8(const std::string &utf8) {return ApiString(utf8.c_str());}
-        static ApiString from_utf8(const char *utf8) {return ApiString(utf8);}
-
-        std::string to_utf8() const {
-            return str;
-        }
-        operator std::string() const {
-            return to_utf8();
-        }
-
-        const char *data() const {return str;}
-        operator const char *() const {
-            return str;
-        }
-
-        size_t size() const {return len;}
-        size_t length() const {return len;}
-
-        bool operator==(const ApiString &other) const {
-            return len == other.len && memcmp(str, other.str, len * sizeof(*str)) == 0;
-        }
-        bool operator!=(const ApiString &other) const {
-            return !operator==(other);
-        }
-
-    public:
-        char *str;
-        size_t len; // Length of str, not including NUL-terminator
-        DestroyType type;
-
-        void destroy() {
-            switch (type) {
-                default: break;
-                case ApiDeleteArray: delete[] str; break;
-                case ApiFree: free(str); break;
-            }
         }
     };
 
@@ -180,6 +81,10 @@ namespace skate {
             buf = new_buf;
         }
     }
+    inline std::string system_error_string_utf8(int system_error) { return system_error_string(system_error); }
+
+    inline std::string system_error_string() { return system_error_string(errno); }
+    inline std::string system_error_string_utf8() { return system_error_string(); }
 }
 #elif WINDOWS_OS
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0600
@@ -243,163 +148,8 @@ namespace skate {
         WSAStartupWrapper wsaStartup;
     };
 
-    // A simple sized, always NUL-terminated API string class that is just used for converting to and from system strings.
-    // Allows various forms of destroying the contained string, including Windows-specific GlobalFree and LocalFree
-    // Can be converted to and from std::strings formatted in UTF-8.
-    class ApiString {
-    public:
-        enum DestroyType {
-            ApiNoFree,
-            ApiLocalFree,
-            ApiGlobalFree,
-            ApiDeleteArray,
-            ApiFree
-        };
-
-        ApiString() : str(const_cast<LPWSTR>(L"")), len(0), type(ApiNoFree) {}
-        ApiString(LPCWSTR data, size_t len) : str(nullptr), len(len), type(ApiNoFree) {
-            LPWSTR copy = new WCHAR[len + 1];
-            memcpy(copy, data, len * sizeof(*copy));
-
-            copy[len] = 0; // NUL-terminate manually
-
-            str = copy;
-            type = ApiDeleteArray;
-        }
-        ApiString(LPCWSTR data) : ApiString(data, wcslen(data)) {}
-        ApiString(LPWSTR data, DestroyType type) : str(data), len(wcslen(data)), type(type) {}
-        ApiString(const char *utf8, size_t utf8len) : str(nullptr), len(0), type(ApiNoFree) {
-            const char *error = "Cannot create ApiString from UTF-8";
-
-            if (utf8len > INT_MAX)
-                throw std::runtime_error(error);
-
-            const int chars = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, static_cast<int>(utf8len), NULL, 0);
-            if (!chars)
-                throw std::runtime_error(error);
-
-            LPWSTR result = new WCHAR[chars + 1];
-
-            if (!MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED | MB_ERR_INVALID_CHARS, utf8, static_cast<int>(utf8len), result, chars)) {
-                delete[] result;
-                throw std::runtime_error(error);
-            }
-
-            result[chars] = 0; // NUL-terminate manually
-
-            str = result;
-            len = chars;
-            type = ApiDeleteArray;
-        }
-        ApiString(const char *utf8) : ApiString(utf8, strlen(utf8)) {}
-        ApiString(const std::string &utf8) : ApiString(utf8.data(), utf8.size()) {}
-        ApiString(const ApiString &other) : str(nullptr), len(other.size()), type(ApiNoFree) {
-            LPWSTR copy = new WCHAR[len + 1];
-            memcpy(copy, other.data(), len * sizeof(*copy));
-
-            copy[len] = 0; // NUL-terminate manually
-
-            str = copy;
-            type = ApiDeleteArray;
-        }
-        ApiString(ApiString &&other) : str(other.str), len(other.len), type(other.type) {
-            other.str = nullptr;
-            other.len = 0;
-            other.type = ApiNoFree;
-        }
-        ~ApiString() {destroy();}
-
-        ApiString &operator=(const ApiString &other) {
-            if (&other == this)
-                return *this;
-
-            destroy();
-
-            const size_t sz = other.size();
-            LPWSTR copy = new WCHAR[sz + 1];
-            memcpy(copy, other.data(), sz * sizeof(*copy));
-
-            copy[sz] = 0; // NUL-terminate manually
-
-            str = copy;
-            len = sz;
-            type = ApiDeleteArray;
-
-            return *this;
-        }
-        ApiString &operator=(ApiString &&other) {
-            if (&other == this)
-                return *this;
-
-            destroy();
-
-            str = other.str; other.str = nullptr;
-            len = other.len; other.len = 0;
-            type = other.type; other.type = ApiNoFree;
-
-            return *this;
-        }
-
-        static ApiString from_utf8(const std::string &utf8) {return ApiString(utf8);}
-        static ApiString from_utf8(const char *utf8) {return ApiString(utf8);}
-        static ApiString from_utf8(const char *utf8, size_t utf8len) {return ApiString(utf8, utf8len);}
-
-        std::string to_utf8() const {
-            const char *error = "Cannot convert ApiString to UTF-8";
-
-            if (len > INT_MAX)
-                throw std::runtime_error(error);
-
-            const int bytes = WideCharToMultiByte(CP_UTF8, 0, str, static_cast<int>(len), NULL, 0, NULL, NULL);
-            if (!bytes)
-                throw std::runtime_error(error);
-
-            std::string result(bytes, '\0');
-
-            if (!WideCharToMultiByte(CP_UTF8, 0, str, static_cast<int>(len), &result[0], bytes, NULL, NULL))
-                throw std::runtime_error(error);
-
-            result.resize(bytes - 1);
-
-            return result;
-        }
-        operator std::string() const {
-            return to_utf8();
-        }
-
-        LPCWSTR data() const {return str;}
-        operator LPCWSTR() const {
-            return str;
-        }
-
-        size_t size() const {return len;}
-        size_t length() const {return len;}
-
-        bool operator==(const ApiString &other) const {
-            return len == other.len && memcmp(str, other.str, len * sizeof(*str)) == 0;
-        }
-        bool operator!=(const ApiString &other) const {
-            return !operator==(other);
-        }
-
-    public:
-        LPWSTR str;
-        size_t len;
-        DestroyType type;
-
-        void destroy() {
-            switch (type) {
-                default: break;
-                case ApiLocalFree: LocalFree(str); break;
-                case ApiGlobalFree: GlobalFree(str); break;
-                case ApiDeleteArray: delete[] str; break;
-                case ApiFree: free(str); break;
-            }
-        }
-    };
-
-    inline ApiString system_error_string(DWORD system_error) {
-        LPWSTR str = NULL;
+    inline std::wstring system_error_string(DWORD system_error) {
+        LPWSTR str = nullptr;
 
         if (FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, system_error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), reinterpret_cast<LPWSTR>(&str), 0, NULL)) {
             // For some reason, every message gets a \r\n appended to the end
@@ -407,11 +157,23 @@ namespace skate {
             if (len >= 2 && str[len-2] == '\r' && str[len-1] == '\n')
                 str[len-2] = 0;
 
-            return ApiString(str, ApiString::ApiLocalFree);
+            try {
+                std::wstring result = str;
+                LocalFree(str); str = nullptr;
+                return result;
+            } catch (...) {
+                if (str)
+                    LocalFree(str);
+                throw;
+            }
         }
 
         return {};
     }
+    inline std::string system_error_string_utf8(DWORD system_error) { return to_utf8(system_error_string(system_error)); }
+
+    inline std::wstring system_error_string() { return system_error_string(GetLastError()); }
+    inline std::string system_error_string_utf8() { return system_error_string_utf8(GetLastError()); }
 
     class EventList;
 
@@ -430,17 +192,17 @@ namespace skate {
                                           }))
         {
             if (!event)
-                throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8());
         }
 
         bool is_null() const {return event.get() == nullptr;}
         void signal() {
             if (event && !::SetEvent(event.get()))
-                throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8());
         }
         void reset() {
             if (event && !::ResetEvent(event.get()))
-                throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8());
         }
         void set_state(bool signalled) {
             if (signalled)
@@ -452,7 +214,7 @@ namespace skate {
         // Waits for event to be signalled. An exception is thrown if an error occurs.
         void wait() {
             if (::WaitForSingleObject(event.get(), INFINITE) == WAIT_FAILED)
-                throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8());
         }
         // Waits for event to be signalled. If true, event was signalled. If false, timeout occurred. An exception is thrown if an error occurs.
         bool wait(std::chrono::milliseconds timeout) {
@@ -463,7 +225,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                    throw std::runtime_error(system_error_string_utf8());
                 case WAIT_OBJECT_0:
                     return true;
                 default:
@@ -530,7 +292,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                    throw std::runtime_error(system_error_string_utf8());
                 default:
                     if (result - WAIT_OBJECT_0 < MAXIMUM_WAIT_OBJECTS)
                         return events[result - WAIT_OBJECT_0];
@@ -551,7 +313,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string(GetLastError()).to_utf8());
+                    throw std::runtime_error(system_error_string_utf8());
                 case WAIT_TIMEOUT:
                     return {nullptr};
                 default:

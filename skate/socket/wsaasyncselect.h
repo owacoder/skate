@@ -46,7 +46,7 @@ namespace skate {
 
         void watch(SocketDescriptor socket, WatchFlags watch_type) {
             if (!try_watch(socket, watch_type))
-                throw std::runtime_error(system_error_string(WSAGetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8(WSAGetLastError()));
         }
 
         bool try_watch(SocketDescriptor socket, WatchFlags watch_type) {
@@ -59,7 +59,7 @@ namespace skate {
 
         void unwatch(SocketDescriptor socket) {
             if (::WSAAsyncSelect(socket, hwnd, 0, 0) != 0 && WSAGetLastError() != WSAEINVAL && WSAGetLastError() != WSAENOTSOCK) // Clearing the events desired will cancel watching
-                throw std::runtime_error(system_error_string(WSAGetLastError()).to_utf8());
+                throw std::runtime_error(system_error_string_utf8(WSAGetLastError()));
         }
         void unwatch_dead_descriptor(SocketDescriptor) {
             /* Do nothing as kernel removes descriptor from WSAAsyncSelect() set when closesocket() is called */

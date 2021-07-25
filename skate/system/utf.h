@@ -857,8 +857,8 @@ namespace skate {
     // Conversion for a string type, that may not have a sequential ordering of characters (only indexing and size is required)
     template<typename ToString, typename String>
     ToString utf_convert(const String &s, bool *error = nullptr) {
-        typedef typename std::remove_cv<typename std::remove_reference<decltype(*std::declval<ToString>().begin())>::type>::type ToStringChar;
-        typedef typename std::remove_cv<typename std::remove_reference<decltype(*s.begin())>::type>::type FromStringChar;
+        typedef typename std::decay<decltype(*std::declval<ToString>().begin())>::type ToStringChar;
+        typedef typename std::decay<decltype(*s.begin())>::type FromStringChar;
 
         if (error)
             *error = false;
@@ -883,7 +883,7 @@ namespace skate {
     // Conversion for a sized C-style string
     template<typename ToString, typename StringChar>
     ToString utf_convert(const StringChar *s, size_t size, bool *error = nullptr) {
-        typedef typename std::remove_cv<typename std::remove_reference<decltype(*std::declval<ToString>().begin())>::type>::type ToStringChar;
+        typedef typename std::decay<decltype(*std::declval<ToString>().begin())>::type ToStringChar;
         typedef StringChar FromStringChar;
 
         if (error)
@@ -927,6 +927,28 @@ namespace skate {
     template<typename ToString>
     ToString utf_convert(const wchar_t *s, bool *error = nullptr) {
         return utf_convert<ToString>(s, wcslen(s), error);
+    }
+
+    // Convert to narrow string as UTF-8
+    template<typename String>
+    std::string to_utf8(const String &s, bool *error = nullptr) {
+        return utf_convert<std::string>(s, error);
+    }
+
+    template<typename StringChar>
+    std::string to_utf8(const StringChar *s, bool *error = nullptr) {
+        return utf_convert<std::string>(s, error);
+    }
+
+    // Convert to native wide string as UTF-16 or UTF-32
+    template<typename String>
+    std::wstring to_wide(const String &s, bool *error = nullptr) {
+        return utf_convert<std::wstring>(s, error);
+    }
+
+    template<typename StringChar>
+    std::wstring to_wide(const StringChar *s, bool *error = nullptr) {
+        return utf_convert<std::wstring>(s, error);
     }
 }
 

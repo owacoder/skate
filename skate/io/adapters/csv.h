@@ -115,7 +115,7 @@ namespace skate {
         // No header is explicitly assumed, it's just written to the first inner array
         // Reads the entire CSV document
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                                                 is_scalar_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
+                                                                                 is_trivial_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
@@ -383,7 +383,7 @@ namespace skate {
 
         // Tuple/pair of trivial values overload, reads one line of CSV
         // Requires a trailing newline or at least some input on the line to succeed
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_scalar_tuple_base<_>::value &&
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             bool error = false;
@@ -562,7 +562,7 @@ namespace skate {
         // The outer array contains rows, inner arrays contain individual column values for a specific row
         // No header is explicitly written, although this can be included in the first inner array
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                                                 is_scalar_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
+                                                                                 is_trivial_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             for (const auto &el: ref) {
                 if (!csv(el, options).write(os))
@@ -721,7 +721,7 @@ namespace skate {
         }
 
         // Tuple/pair of trivial values overload, writes one line of CSV
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_scalar_tuple_base<_>::value &&
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_trivial_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             bool error = false;

@@ -58,6 +58,7 @@ std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) 
 #include "io/adapters/json.h"
 #include "io/adapters/csv.h"
 #include "io/adapters/xml.h"
+#include "system/time.h"
 #include <map>
 #include <array>
 #include "benchmark.h"
@@ -78,14 +79,16 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
 }
 
 template<typename T>
-void io_buffer_consumer(skate::io_threadsafe_buffer_ptr<T> buffer, size_t id) {
-    skate::io_threadsafe_buffer_consumer_guard guard(*buffer);
+void io_buffer_consumer(skate::io_threadsafe_pipe<T> pipe, size_t id) {
+    skate::io_threadsafe_pipe_guard guard(pipe);
 
     T data;
-    while (buffer->read(data)) {
+    while (pipe.read(data)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         std::lock_guard lock(coutMutex);
         std::cout << "Got data: " << id << ": " << skate::json(data) << '\n';
+
+        pipe.write("Feedback from " + std::to_string(id) + ": Got " + skate::to_json(data));
     }
 
     std::lock_guard lock(coutMutex);
@@ -93,12 +96,25 @@ void io_buffer_consumer(skate::io_threadsafe_buffer_ptr<T> buffer, size_t id) {
 }
 
 template<typename T>
-void io_buffer_producer(skate::io_threadsafe_buffer_ptr<T> buffer) {
-    skate::io_threadsafe_buffer_producer_guard guard(*buffer);
+void io_buffer_producer(skate::io_threadsafe_pipe<T> pipe) {
+    skate::io_threadsafe_pipe_guard<T> guard(pipe);
 
     for (size_t i = 0; i < 8; ++i) {
-        buffer->write(std::to_string(i));
-        //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        pipe.write(std::to_string(i));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        std::string feedback;
+        while (pipe.read(feedback, false)) {
+            std::lock_guard lock(coutMutex);
+            std::cout << feedback << '\n';
+        }
+    }
+    guard.close_write();
+
+    std::string feedback;
+    while (pipe.read(feedback)) {
+        std::lock_guard lock(coutMutex);
+        std::cout << feedback << '\n';
     }
 
     std::lock_guard lock(coutMutex);
@@ -130,16 +146,18 @@ int main()
     b.write(MoveOnlyString("4"));
     std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
 
-#if 0
-    auto buffer = skate::make_threadsafe_io_buffer<std::string>(3);
+#if 1
+    auto buffer = skate::make_threadsafe_pipe<std::string>(3);
 
-    std::thread thrd1(io_buffer_consumer<std::string>, buffer, 1);
-    std::thread thrd2(io_buffer_consumer<std::string>, buffer, 2);
-    std::thread thrd0(io_buffer_producer<std::string>, buffer);
+    std::thread thrd1(io_buffer_consumer<std::string>, buffer.first, 1);
+    std::thread thrd2(io_buffer_consumer<std::string>, buffer.first, 2);
+    std::thread thrd0(io_buffer_producer<std::string>, buffer.second);
 
     thrd0.join();
     thrd1.join();
     thrd2.join();
+
+    return 0;
 #endif
 
 #if 0
@@ -296,8 +314,14 @@ int main()
 
     std::array<std::string, 10> array;
 
-    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_scalar_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
+    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
     std::cout << skate::json(array);
+
+    time_t now = time(NULL);
+    tm t;
+    skate::gmtime_r(now, t);
+    std::cout << '\n' << skate::ctime(now) << '\n';
+    std::cout << '\n' << skate::asctime(t) << '\n';
 
     return 0;
 

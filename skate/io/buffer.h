@@ -262,12 +262,15 @@ namespace skate {
     // Provides a one-way buffer from producer threads to consumer threads
     template<typename T>
     class io_threadsafe_buffer : private io_buffer<T> {
+        template<typename>
+        friend class io_threadsafe_pipe;
+
         typedef io_buffer<T> base;
 
-        bool consumer_registered, producer_registered;
-        size_t consumer_count, producer_count;
-        std::mutex mtx;
+        mutable std::mutex mtx;
         std::condition_variable producer_wait, consumer_wait;
+        size_t consumer_count, producer_count;
+        bool consumer_registered, producer_registered;
 
         bool consumers_available() const { return consumer_count || !consumer_registered; }
         bool producers_available() const { return producer_count || !producer_registered; }
@@ -275,10 +278,10 @@ namespace skate {
     public:
         io_threadsafe_buffer(size_t buffer_limit = 0)
             : base(buffer_limit)
-            , consumer_registered(false)
-            , producer_registered(false)
             , consumer_count(0)
             , producer_count(0)
+            , consumer_registered(false)
+            , producer_registered(false)
         {}
         virtual ~io_threadsafe_buffer() {}
 
@@ -491,6 +494,12 @@ namespace skate {
             producer_wait.notify_all();
         }
 
+        // Returns true if no more data will be able to be read from this buffer (i.e. if empty and all producers have disconnected)
+        bool at_end() const {
+            std::lock_guard lock(mtx);
+            return base::empty() && !producers_available();
+        }
+
         bool empty() const {
             std::lock_guard lock(mtx);
             return base::empty();
@@ -523,31 +532,176 @@ namespace skate {
 
     template<typename T>
     class io_threadsafe_buffer_consumer_guard {
-        io_threadsafe_buffer<T> &buffer;
+        template<typename>
+        friend class io_threadsafe_pipe_guard;
+
+        io_threadsafe_buffer<T> *buffer;
+
+        io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> *buffer) : buffer(buffer) {
+            if (buffer)
+                buffer->register_consumer();
+        }
 
     public:
-        io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> &buffer) : buffer(buffer) {
+        io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
             buffer.register_consumer();
         }
 
+        bool closed() const noexcept { return !buffer; }
+
+        void close() {
+            if (buffer) {
+                buffer->unregister_consumer();
+                buffer = nullptr;
+            }
+        }
+
         ~io_threadsafe_buffer_consumer_guard() {
-            buffer.unregister_consumer();
+            if (buffer)
+                buffer->unregister_consumer();
         }
     };
 
     template<typename T>
     class io_threadsafe_buffer_producer_guard {
-        io_threadsafe_buffer<T> &buffer;
+        template<typename>
+        friend class io_threadsafe_pipe_guard;
+
+        io_threadsafe_buffer<T> *buffer;
+
+        io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> *buffer) : buffer(buffer) {
+            if (buffer)
+                buffer->register_producer();
+        }
 
     public:
-        io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> &buffer) : buffer(buffer) {
+        io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
             buffer.register_producer();
         }
 
+        bool closed() const noexcept { return !buffer; }
+
+        void close() {
+            if (buffer) {
+                buffer->unregister_producer();
+                buffer = nullptr;
+            }
+        }
+
         ~io_threadsafe_buffer_producer_guard() {
-            buffer.unregister_producer();
+            if (buffer)
+                buffer->unregister_producer();
         }
     };
+
+    // A two-way buffer
+    template<typename T>
+    class io_threadsafe_pipe {
+        template<typename>
+        friend class io_threadsafe_pipe_guard;
+
+        std::array<io_threadsafe_buffer_ptr<T>, 2> a;               // Always writes to pipe 0 and reads from pipe 1
+
+        io_threadsafe_pipe(io_threadsafe_buffer_ptr<T> l, io_threadsafe_buffer_ptr<T> r) : a{l, r} {}
+
+        io_threadsafe_buffer<T> &sink() { return *a[0]; }
+        io_threadsafe_buffer<T> &source() { return *a[1]; }
+
+    public:
+        virtual ~io_threadsafe_pipe() {}
+
+        static std::pair<io_threadsafe_pipe, io_threadsafe_pipe> make_threadsafe_pipe(size_t buffer_limit = 0) {
+            auto lbuffer = make_threadsafe_io_buffer<T>(buffer_limit);
+            auto rbuffer = make_threadsafe_io_buffer<T>(buffer_limit);
+
+            return std::make_pair(io_threadsafe_pipe(lbuffer, rbuffer), io_threadsafe_pipe(rbuffer, lbuffer));
+        }
+
+        template<typename U>
+        bool write(U &&v, bool wait = true) {
+            return sink().write(std::forward<U>(v), wait);
+        }
+
+        template<typename Container>
+        bool write_from(Container &&c, bool wait = true) {
+            return sink().write_from(std::forward<Container>(c), wait);
+        }
+
+        template<typename It>
+        bool write(It begin, It end, bool wait = true) {
+            return sink().write(begin, end, wait);
+        }
+
+        T read(bool wait = true) {
+            return source().read(wait);
+        }
+
+        bool read(T &element, bool wait = true) {
+            return source().read(element, wait);
+        }
+
+        template<typename Predicate>
+        void read(size_t max, Predicate p, bool wait = true) {
+            source().read(max, p, wait);
+        }
+
+        template<typename Predicate>
+        void read_all(Predicate p, bool wait = true) {
+            source().read_all(p, wait);
+        }
+
+        template<typename Container>
+        void read_into(size_t max, Container &c, bool wait = true) {
+            source().read_into(max, c, wait);
+        }
+
+        template<typename Container>
+        Container read(size_t max, bool wait = true) {
+            return source().read<Container>(max, wait);
+        }
+
+        template<typename Container>
+        void read_all_into(Container &c, bool wait = true) {
+            source().read_all_into(c, wait);
+        }
+
+        template<typename Container>
+        Container read_all(bool wait = true) {
+            return source().read_all<Container>(wait);
+        }
+
+        bool at_end() const {
+            return source().at_end();
+        }
+    };
+
+    template<typename T>
+    class io_threadsafe_pipe_guard {
+        io_threadsafe_buffer_consumer_guard<T> consumer;
+        io_threadsafe_buffer_producer_guard<T> producer;
+
+    public:
+        io_threadsafe_pipe_guard(io_threadsafe_pipe<T> &pipe)
+            : consumer(pipe.source())
+            , producer(pipe.sink())
+        {}
+
+        bool read_closed() const noexcept { return consumer.closed(); }
+        bool write_closed() const noexcept { return producer.closed(); }
+        bool null() const noexcept { return read_closed() && write_closed(); }
+
+        void close_read() { consumer.close(); }
+        void close_write() { producer.close(); }
+        void clear() {
+            close_read();
+            close_write();
+        }
+    };
+
+    template<typename T>
+    std::pair<io_threadsafe_pipe<T>, io_threadsafe_pipe<T>> make_threadsafe_pipe(size_t buffer_limit = 0) {
+        return io_threadsafe_pipe<T>::make_threadsafe_pipe(buffer_limit);
+    }
 }
 
 #endif // SKATE_IO_BUFFER_H

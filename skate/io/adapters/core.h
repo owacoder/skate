@@ -23,14 +23,10 @@
 # include <format>
 #endif
 
-#include "../utf.h"
+#include "../../system/utf.h"
+#include "../../system/includes.h"
 
 namespace skate {
-    using std::begin;
-    using std::end;
-
-    template<typename T> struct type_exists : public std::true_type { typedef int type; };
-
     // Determine if type is a string
     template<typename T> struct is_string : public std::false_type {};
     template<typename... ContainerParams>
@@ -58,6 +54,8 @@ namespace skate {
 #if __cplusplus >= 202002L
     template<>
     struct is_string<char8_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<char8_t [N]> : public std::true_type {};
 #endif
 
     // If base type is pointer, strip const/volatile off pointed-to type
@@ -252,20 +250,20 @@ namespace skate {
 
     // Determine if type is tuple with trivial elements
     template<typename T = void, typename... Types>
-    struct is_scalar_tuple_helper : public std::integral_constant<bool, is_scalar_base<T>::value &&
-                                                                         is_scalar_tuple_helper<Types...>::value> {};
+    struct is_trivial_tuple_helper : public std::integral_constant<bool, is_scalar_base<T>::value &&
+                                                                         is_trivial_tuple_helper<Types...>::value> {};
 
     template<typename T>
-    struct is_scalar_tuple_helper<T> : public std::integral_constant<bool, is_scalar_base<T>::value> {};
+    struct is_trivial_tuple_helper<T> : public std::integral_constant<bool, is_scalar_base<T>::value> {};
 
     template<typename T>
-    struct is_scalar_tuple_helper2 : public std::false_type {};
+    struct is_trivial_tuple_helper2 : public std::false_type {};
     template<template<typename...> class Tuple, typename... Types>
-    struct is_scalar_tuple_helper2<Tuple<Types...>> : public std::integral_constant<bool, is_tuple_base<Tuple<Types...>>::value &&
-                                                                                           is_scalar_tuple_helper<Types...>::value> {};
+    struct is_trivial_tuple_helper2<Tuple<Types...>> : public std::integral_constant<bool, is_tuple_base<Tuple<Types...>>::value &&
+                                                                                          is_trivial_tuple_helper<Types...>::value> {};
 
     template<typename T>
-    struct is_scalar_tuple_base : public is_scalar_tuple_helper2<typename std::decay<T>::type> {};
+    struct is_trivial_tuple_base : public is_trivial_tuple_helper2<typename std::decay<T>::type> {};
 
     // Determine if type is unique_ptr
     template<typename T> struct is_unique_ptr : public std::false_type {};

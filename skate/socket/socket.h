@@ -40,7 +40,7 @@ namespace skate {
         SocketError(Socket *sock, int system_error, const char *description = nullptr)
             : std::runtime_error(description && strlen(description)?
                                      std::string(description):
-                                     system_error_string(system_error).to_utf8())
+                                     system_error_string_utf8(system_error))
             , sock(sock)
             , error(system_error)
         {}
@@ -709,7 +709,7 @@ namespace skate {
             hints.ai_flags = AI_PASSIVE;
 
             int err = 0;
-            ApiString err_description;
+            std::string err_description;
 
             do {
                 err = ::getaddrinfo(address? address.to_string().c_str(): NULL,
@@ -727,7 +727,7 @@ namespace skate {
                     {
                         std::lock_guard<std::mutex> lock(gai_strerror_mtx);
 #if WINDOWS_OS
-                        err_description = gai_strerrorW(err);
+                        err_description = to_utf8(static_cast<LPCWSTR>(gai_strerrorW(err)));
 #else
                         err_description = gai_strerror(err);
 #endif
@@ -751,7 +751,7 @@ namespace skate {
                 } else {
                     err_description = {};
                 }
-            } while (err && handle_error(err, err_description.to_utf8().c_str()));
+            } while (err && handle_error(err, err_description.c_str()));
 
             status = Connecting;
 
