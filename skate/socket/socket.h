@@ -16,13 +16,10 @@
 #include <mutex>
 
 #if POSIX_OS
-# include <ifaddrs.h> // For getting interfaces
 # include <sys/ioctl.h>
 #elif WINDOWS_OS
-# include <iphlpapi.h> // For getting interfaces
-#
 # if MSVC_COMPILER
-#  pragma comment(lib, "iphlpapi")
+#  pragma comment(lib, "ws2_32")
 # endif
 #endif
 
@@ -31,26 +28,24 @@
 namespace skate {
     class Socket;
 
+    template<typename SocketWatcher>
+    class SocketServer;
+
     class SocketError : public std::runtime_error
     {
         Socket *sock;
-        int error;
+        std::error_code ec;
 
     public:
-        SocketError(Socket *sock, int system_error, const char *description = nullptr)
-            : std::runtime_error(description && strlen(description)?
-                                     std::string(description):
-                                     system_error_string_utf8(system_error))
+        SocketError(Socket *sock, std::error_code error)
+            : std::runtime_error(error.message())
             , sock(sock)
-            , error(system_error)
+            , ec(error)
         {}
 
         Socket *socket() const noexcept {return sock;}
-        int native_error() const noexcept {return error;}
+        std::error_code error() const noexcept {return ec;}
     };
-
-    template<typename SocketWatcher>
-    class SocketServer;
 
     class Socket {
         Socket(const Socket &) = delete;
@@ -71,12 +66,10 @@ namespace skate {
     public:
         // Handles a system error that occurred.
         //
-        // If description is non-null, it provides a user-readable description of what error occurred.
-        //
         // If exception is thrown, the current operation is aborted
         // If return value is false then continue current operation
         // If return value is true, attempt to restart current operation
-        typedef std::function<bool (Socket *, int, const char *)> ErrorFunction;
+        typedef std::function<bool (Socket *, std::error_code)> ErrorFunction;
 
     protected:
         template<typename SocketWatcher>
@@ -102,14 +95,14 @@ namespace skate {
 
         ErrorFunction _on_error;
 
-        bool handle_error(int system_error, const char *description = nullptr) {
-            if (system_error == 0)
+        bool handle_error(std::error_code system_error) {
+            if (system_error == std::errc())
                 return false;
 
             if (_on_error)
-                return _on_error(this, system_error, description);
+                return _on_error(this, system_error);
             else {
-                default_error_handler(this, system_error, description);
+                default_error_handler(this, system_error);
                 return false; // Never reached as default handler throws
             }
         }
@@ -160,12 +153,12 @@ namespace skate {
         virtual ~Socket() {
             try {
                 disconnect();
-            } catch (const SocketError &) {}
+            } catch (...) {}
         }
 
         // Default error handler (can be used in an external error handler if necessary)
-        static void default_error_handler(Socket *socket, int system_error, const char *description = nullptr) {
-            throw SocketError(socket, system_error, description);
+        static void default_error_handler(Socket *socket, std::error_code system_error) {
+            throw SocketError(socket, system_error);
         }
 
         // Returns the native socket descriptor
@@ -180,7 +173,7 @@ namespace skate {
 
         // Returns remote address information (only if connected)
         // port is in native byte order, and is indeterminate if an error occurs
-        SocketAddress remote_address(uint16_t *port = nullptr) {
+        socket_address remote_address() {
             if (!is_connected())
                 throw std::logic_error("Socket can only use remote_address()/remote_port() if connected to a remote server");
 
@@ -189,29 +182,17 @@ namespace skate {
 
             const int err = ::getpeername(sock, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
             if (err) {
-                handle_error(err);
+                handle_error(std::error_code(err, std::system_category()));
                 return {};
             }
 
-            if (port != nullptr) {
-                switch (addr.ss_family) {
-                    default: break;
-                    case SocketAddress::IPAddressV4: *port = ntohs(reinterpret_cast<struct sockaddr_in *>(&addr)->sin_port); break;
-                    case SocketAddress::IPAddressV6: *port = ntohs(reinterpret_cast<struct sockaddr_in6 *>(&addr)->sin6_port); break;
-                }
-            }
-
-            return SocketAddress{&addr};
+            return socket_address(reinterpret_cast<const struct sockaddr *>(&addr));
         }
-        uint16_t remote_port() {
-            uint16_t port = 0;
-            remote_address(&port);
-            return port;
-        }
+        uint16_t remote_port() { return remote_address().port(); }
 
         // Returns local address information (only if connected or bound)
         // port is in native byte order, and is indeterminate if an error occurs
-        SocketAddress local_address(uint16_t *port = nullptr) {
+        socket_address local_address() {
             if (!is_connected())
                 throw std::logic_error("Socket can only use local_address()/local_port() if connected to a remote server");
 
@@ -220,44 +201,32 @@ namespace skate {
 
             const int err = ::getsockname(sock, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
             if (err) {
-                handle_error(err);
+                handle_error(std::error_code(err, std::system_category()));
                 return {};
             }
 
-            if (port != nullptr) {
-                switch (addr.ss_family) {
-                    default: break;
-                    case SocketAddress::IPAddressV4: *port = ntohs(reinterpret_cast<struct sockaddr_in *>(&addr)->sin_port); break;
-                    case SocketAddress::IPAddressV6: *port = ntohs(reinterpret_cast<struct sockaddr_in6 *>(&addr)->sin6_port); break;
-                }
-            }
-
-            return SocketAddress{&addr};
+            return socket_address(reinterpret_cast<const struct sockaddr *>(&addr));
         }
-        uint16_t local_port() {
-            uint16_t port = 0;
-            local_address(&port);
-            return port;
-        }
+        uint16_t local_port() { return local_address().port(); }
 
         // Socket functionality
         // Synchronously binds to specified address and port
-        Socket &bind(SocketAddress address, uint16_t port) {
+        Socket &bind(socket_address address) {
             if (!is_unconnected())
                 throw std::logic_error("Socket was already connected or bound to an address");
 
-            bind(address, port, false);
+            bind(address, false);
 
             return *this;
         }
         // Synchronously connects to specified address and port
-        Socket &connect(SocketAddress address, uint16_t port) {
+        Socket &connect(socket_address address) {
             if (!is_unconnected() && !is_bound())
                 throw std::logic_error("connect() must be called on an unconnected or bound socket");
             else if (!is_blocking())
                 throw std::logic_error("connect() must only be used on blocking sockets");
 
-            bind(address, port, true);
+            bind(address, true);
 
             return *this;
         }
@@ -269,7 +238,7 @@ namespace skate {
 
             const int err = ::listen(sock, backlog);
             if (err)
-                handle_error(err);
+                handle_error(std::error_code(err, std::system_category()));
             else
                 status = Listening;
 
@@ -283,7 +252,7 @@ namespace skate {
             status = Unconnected;
 
             if (temp != invalid_socket)
-                handle_error(close_socket(temp));
+                handle_error(std::error_code(close_socket(temp), std::system_category()));
 
             return *this;
         }
@@ -293,7 +262,7 @@ namespace skate {
             if (!is_connected() && !is_bound() && !is_listening())
                 throw std::logic_error("Socket can only use shutdown() if connected or bound to an address");
 
-            handle_error(::shutdown(sock, type));
+            handle_error(std::error_code(::shutdown(sock, type), std::system_category()));
 
             return *this;
         }
@@ -318,7 +287,7 @@ namespace skate {
                 const int sent = ::send(sock, data, to_send, MSG_NOSIGNAL);
                 if (sent < 0) {
                     const int err = socket_error();
-                    if (socket_would_block(err) || !handle_error(err))
+                    if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                         return original_size - len;
                     continue;
                 }
@@ -374,7 +343,7 @@ namespace skate {
                     return original_max - max;
                 } else if (read < 0) {
                     const int err = socket_error();
-                    if (socket_would_block(err) || handle_error(err))
+                    if (socket_would_block(err) || handle_error(std::error_code(err, std::system_category())))
                         return original_max - max;
                     continue;
                 }
@@ -419,7 +388,7 @@ namespace skate {
                     const int read = ::recv(sock, &packet[0], to_read, 0);
                     if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return;
                         continue;
                     }
@@ -434,7 +403,7 @@ namespace skate {
                         return;
                     } else if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return;
                         continue;
                     }
@@ -470,7 +439,7 @@ namespace skate {
                     const int read = ::recv(sock, &packet[0], static_cast<int>(packet.size()), 0);
                     if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return;
                         continue;
                     }
@@ -485,7 +454,7 @@ namespace skate {
                         return;
                     } else if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return;
                         continue;
                     }
@@ -548,12 +517,12 @@ namespace skate {
 
 #if POSIX_OS
             int bytes = 0;
-            while (::ioctl(sock, FIONREAD, &bytes) < 0 && handle_error(socket_error()))
+            while (::ioctl(sock, FIONREAD, &bytes) < 0 && handle_error(std::error_code(socket_error(), std::system_category())))
                 ;
             return size_t(bytes);
 #elif WINDOWS_OS
             ULONG bytes = 0;
-            while (::ioctlsocket(sock, FIONREAD, &bytes) < 0 && handle_error(socket_error()))
+            while (::ioctlsocket(sock, FIONREAD, &bytes) < 0 && handle_error(std::error_code(socket_error(), std::system_category())))
                 ;
             return bytes;
 #else
@@ -575,13 +544,13 @@ namespace skate {
             const int flags = ::fcntl(sock, F_GETFL);
             if (flags < 0 ||
                 ::fcntl(sock, F_SETFL, b? (flags & ~O_NONBLOCK): (flags | O_NONBLOCK)) < 0)
-                handle_error(socket_error());
+                handle_error(std::error_code(socket_error(), std::system_category()));
             else
                 nonblocking = !b;
 #elif WINDOWS_OS
             u_long opt = !b;
             if (::ioctlsocket(sock, FIONBIO, &opt) < 0)
-                handle_error(socket_error());
+                handle_error(std::error_code(socket_error(), std::system_category()));
             else
                 nonblocking = !b;
 #else
@@ -598,105 +567,12 @@ namespace skate {
         bool is_closing() const noexcept {return status == Closing;}
         bool is_listening() const noexcept {return status == Listening;}
 
-        // Returns the local interface addresses for the local computer
-        // Only active addresses are returned, and the desired types can be filtered with the parameters to this function
-        static std::vector<SocketAddress> interfaces(SocketAddress::Type type = SocketAddress::IPAddressUnspecified, bool include_loopback = false) {
-#if POSIX_OS
-            struct ifaddrs *addresses = nullptr, *ptr = nullptr;
-            std::vector<SocketAddress> result;
-
-            const int err = ::getifaddrs(&addresses);
-            if (err != 0)
-                throw SocketError(nullptr, err);
-
-            try {
-                for (ptr = addresses; ptr; ptr = ptr->ifa_next) {
-                    SocketAddress address;
-
-                    switch (ptr->ifa_addr->sa_family) {
-                        default: break;
-                        case SocketAddress::IPAddressV4:
-                            if (type == SocketAddress::IPAddressUnspecified || type == SocketAddress::IPAddressV4)
-                                address = SocketAddress{reinterpret_cast<struct sockaddr_in *>(ptr->ifa_addr)};
-                            break;
-                        case SocketAddress::IPAddressV6:
-                            if (type == SocketAddress::IPAddressUnspecified || type == SocketAddress::IPAddressV6)
-                                address = SocketAddress{reinterpret_cast<struct sockaddr_in6 *>(ptr->ifa_addr)};
-                            break;
-                    }
-
-                    if (address && (!address.is_loopback() || include_loopback))
-                        result.push_back(std::move(address));
-                }
-            } catch (...) {
-                freeifaddrs(addresses);
-                throw;
-            }
-
-            freeifaddrs(addresses);
-
-            return result;
-#elif WINDOWS_OS
-            IP_ADAPTER_ADDRESSES *addresses = nullptr;
-            ULONG addresses_buffer_size = 15000, err = 0;
-            std::vector<SocketAddress> result;
-
-            do {
-                addresses = static_cast<IP_ADAPTER_ADDRESSES *>(malloc(addresses_buffer_size));
-
-                err = ::GetAdaptersAddresses(type, 0, NULL, addresses, &addresses_buffer_size);
-                if (err == ERROR_BUFFER_OVERFLOW)
-                    free(addresses);
-            } while (err == ERROR_BUFFER_OVERFLOW);
-
-            try {
-                if (err != ERROR_SUCCESS)
-                    throw SocketError(nullptr, err); // Will rethrow in catch block
-
-                for (auto ptr = addresses; ptr; ptr = ptr->Next) {
-                    // Skip network interfaces that are not up and running
-                    if (ptr->OperStatus != IfOperStatusUp)
-                        continue;
-
-                    // Skip loopback if desired
-                    if (!include_loopback && ptr->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
-                        continue;
-
-                    // Just look for unicast addresses
-                    for (auto unicast = ptr->FirstUnicastAddress; unicast; unicast = unicast->Next) {
-                        SocketAddress address;
-
-                        switch (unicast->Address.lpSockaddr->sa_family) {
-                            default:
-                            case SocketAddress::IPAddressV4: address = SocketAddress(reinterpret_cast<struct sockaddr_in *>(unicast->Address.lpSockaddr)); break;
-                            case SocketAddress::IPAddressV6: address = SocketAddress(reinterpret_cast<struct sockaddr_in6 *>(unicast->Address.lpSockaddr)); break;
-                        }
-
-                        if (address && (!address.is_loopback() || include_loopback))
-                            result.push_back(std::move(address));
-                    }
-                }
-
-                free(addresses);
-            } catch (...) {
-                free(addresses);
-                throw;
-            }
-
-            return result;
-#else
-# error Platform not supported
-#endif
-        }
-
     private:
         // Performs a synchronous (blocking) bind or connect to the given address
         // If address_is_remote is true, a connect() is performed
         // If address_is_remote is false, a bind() is performed
-        void bind(SocketAddress address,
-                  uint16_t port,
+        void bind(socket_address address,
                   bool address_is_remote) {
-            static std::mutex gai_strerror_mtx;
             struct addrinfo hints;
             struct addrinfo *addresses = nullptr, *ptr = nullptr;
 
@@ -708,53 +584,27 @@ namespace skate {
             hints.ai_protocol = protocol();
             hints.ai_flags = AI_PASSIVE;
 
-            int err = 0;
-            std::string err_description;
-
             do {
-                err = ::getaddrinfo(address? address.to_string().c_str(): NULL,
-                                    port? std::to_string(port).c_str(): NULL,
-                                    &hints,
-                                    &addresses);
+                const int err = ::getaddrinfo(!address.is_unspecified()? address.to_string(false).c_str(): NULL,
+                                        address.port()? std::to_string(address.port()).c_str(): NULL,
+                                        &hints,
+                                        &addresses);
 
 #if POSIX_OS
                 if (err == EAI_SYSTEM) {
-                    err = errno;
-                    err_description = {};
+                    if (handle_error(std::error_code(errno, std::system_category())))
+                        continue;
                 } else
 #endif
                 /* else (if POSIX_OS) */ if (err) {
-                    {
-                        std::lock_guard<std::mutex> lock(gai_strerror_mtx);
-#if WINDOWS_OS
-                        err_description = to_utf8(static_cast<LPCWSTR>(gai_strerrorW(err)));
-#else
-                        err_description = gai_strerror(err);
-#endif
-                    }
-
-                    // Map to the most similar system errors
-                    switch (err) {
-#if POSIX_OS
-                        case EAI_ADDRFAMILY:                  break; // No mapping
-                        case EAI_NODATA:                      break; // Windows doesn't like this
-#endif
-                        case EAI_AGAIN:         err = EAGAIN; break;
-                        case EAI_BADFLAGS:                    break; // Won't happen
-                        case EAI_FAIL:                        break;
-                        case EAI_FAMILY:                      break;
-                        case EAI_MEMORY:        err = ENOMEM; break;
-                        case EAI_NONAME:                      break;
-                        case EAI_SERVICE:                     break;
-                        case EAI_SOCKTYPE:                    break;
-                    }
-                } else {
-                    err_description = {};
+                    if (handle_error(std::error_code(err, getaddrinfo_error_category())))
+                        continue;
                 }
-            } while (err && handle_error(err, err_description.c_str()));
+            } while (false);
 
             status = Connecting;
 
+            int err = 0;
             do {
                 try {
                     for (ptr = addresses; ptr; ptr = ptr->ai_next) {
@@ -763,10 +613,10 @@ namespace skate {
 
                         switch (ptr->ai_family) {
                             default: continue;
-                            case SocketAddress::IPAddressV4:
-                                is_broadcast = SocketAddress(reinterpret_cast<struct sockaddr_in *>(ptr->ai_addr));
+                            case IPAddressV4:
+                                is_broadcast = socket_address(*reinterpret_cast<struct sockaddr_in *>(ptr->ai_addr)).is_broadcast();
                                 break;
-                            case SocketAddress::IPAddressV6: break;
+                            case IPAddressV6: break;
                         }
 
                         // Create new socket descriptor
@@ -819,7 +669,7 @@ namespace skate {
                 }
 
                 status = Unconnected;
-            } while (handle_error(err? err: no_address));
+            } while (handle_error(err? std::error_code(err, std::system_category()): std::make_error_code(std::errc::address_not_available)));
 
             freeaddrinfo(addresses);
 
@@ -861,7 +711,7 @@ namespace skate {
         // Returns the size of the datagram that was just read
         //
         // For nonblocking sockets, there is no way to differentiate between "no packet available" and a zero-length packet
-        size_t read_datagram(char *data, size_t max, SocketAddress *address = nullptr, uint16_t *port = nullptr) {
+        size_t read_datagram(char *data, size_t max, socket_address *address = nullptr) {
             if (!is_bound() && !is_connected())
                 throw std::logic_error("Socket can only use read_datagram() if bound or connected to an address");
 
@@ -874,21 +724,20 @@ namespace skate {
                 const int read = ::recvfrom(sock, data, to_read, 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
                 if (read < 0) {
                     const int err = socket_error();
-                    if (socket_would_block(err) || !handle_error(err))
+                    if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                         return 0;
                     continue;
                 }
 
-                SocketAddress sender_addr(&addr, port);
                 if (address)
-                    *address = sender_addr;
+                    *address = socket_address(reinterpret_cast<const struct sockaddr *>(&addr));
 
                 return read;
             }
         }
 
         // Reads a datagram from the socket and sends the packet to predicate as
-        // `void (const char *data, size_t len, SocketAddress address, uint16_t port)`
+        // `void (const char *data, size_t len, socket_address address)`
         // with the address and port of the sender included
         //
         // Returns the size of the datagram that was just read
@@ -909,14 +758,13 @@ namespace skate {
                     const int read = ::recvfrom(sock, &packet[0], packet.size(), 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
                     if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return 0;
                         continue;
                     }
 
-                    uint16_t port;
-                    SocketAddress address(&addr, &port);
-                    p(packet.c_str(), read, address, port);
+                    socket_address address(reinterpret_cast<struct sockaddr *>(&addr));
+                    p(packet.c_str(), read, address);
 
                     return read;
                 }
@@ -925,23 +773,22 @@ namespace skate {
                     const int read = ::recvfrom(sock, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
                     if (read < 0) {
                         const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(err))
+                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                             return 0;
                         continue;
                     }
 
-                    uint16_t port;
-                    SocketAddress address(&addr, &port);
-                    p(buffer, read, address, port);
+                    socket_address address(reinterpret_cast<struct sockaddr *>(&addr));
+                    p(buffer, read, address);
 
                     return read;
                 }
             }
         }
 
-        std::string read_datagram(SocketAddress *address = nullptr, uint16_t *port = nullptr) {
+        std::string read_datagram(socket_address *address = nullptr) {
             std::string datagram(pending_datagram_size(), '\0');
-            datagram.resize(read_datagram(&datagram[0], datagram.size(), address, port));
+            datagram.resize(read_datagram(&datagram[0], datagram.size(), address));
             return datagram;
         }
 
@@ -951,18 +798,17 @@ namespace skate {
         // Returns the number of bytes written
         //
         // For nonblocking sockets, there is no way to differentiate between "failed to send" and a zero-length packet
-        size_t write_datagram(SocketAddress address, uint16_t port, const char *data, size_t len) {
+        size_t write_datagram(socket_address address, const char *data, size_t len) {
             if (!is_bound() && !is_connected())
                 throw std::logic_error("Socket can only use write_datagram() if bound or connected to an address");
 
             const int yes = 1;
-            struct sockaddr_storage addr;
-            address.to_native(&addr, port);
+            struct sockaddr_storage addr = address.native();
 
             // Enable broadcast if a broadcast address
             if (address.is_broadcast() &&
                              ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0)
-                handle_error(socket_error());
+                handle_error(std::error_code(socket_error(), std::system_category()));
 
             // Send packet to socket
             while (true) {
@@ -971,7 +817,7 @@ namespace skate {
                                              reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
                 if (written < 0) {
                     const int err = socket_error();
-                    if (socket_would_block(err) || !handle_error(err))
+                    if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
                         return 0;
                     continue;
                 }
@@ -979,11 +825,11 @@ namespace skate {
                 return written;
             }
         }
-        size_t write_datagram(SocketAddress address, uint16_t port, const char *data) {
-            return write_datagram(address, port, data, strlen(data));
+        size_t write_datagram(socket_address address, const char *data) {
+            return write_datagram(address, data, strlen(data));
         }
-        size_t write_datagram(SocketAddress address, uint16_t port, const std::string &str) {
-            return write_datagram(address, port, str.c_str(), str.length());
+        size_t write_datagram(socket_address address, const std::string &str) {
+            return write_datagram(address, str.c_str(), str.length());
         }
 
         virtual Type type() const {return DatagramSocket;}

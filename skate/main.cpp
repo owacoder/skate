@@ -43,7 +43,7 @@ public:
     char &operator[](size_t idx) {return v[idx];}
 };
 
-std::ostream &operator<<(std::ostream &os, const skate::SocketAddress &address) {
+std::ostream &operator<<(std::ostream &os, const skate::socket_address &address) {
     return os << address.to_string();
 }
 
@@ -80,19 +80,19 @@ bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::jso
 
 template<typename T>
 void io_buffer_consumer(skate::io_threadsafe_pipe<T> pipe, size_t id) {
-    skate::io_threadsafe_pipe_guard guard(pipe);
+    skate::io_threadsafe_pipe_guard<T> guard(pipe);
 
     T data;
     while (pipe.read(data)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        std::lock_guard lock(coutMutex);
-        std::cout << "Got data: " << id << ": " << skate::json(data) << '\n';
+        std::lock_guard<std::mutex> lock(coutMutex);
+        std::cout << "Got data: " << id << ": " << skate::json(data) << std::endl;
 
         pipe.write("Feedback from " + std::to_string(id) + ": Got " + skate::to_json(data));
     }
 
-    std::lock_guard lock(coutMutex);
-    std::cout << "Consumer hanging up\n";
+    std::lock_guard<std::mutex> lock(coutMutex);
+    std::cout << "Consumer hanging up" << std::endl;
 }
 
 template<typename T>
@@ -105,20 +105,20 @@ void io_buffer_producer(skate::io_threadsafe_pipe<T> pipe) {
 
         std::string feedback;
         while (pipe.read(feedback, false)) {
-            std::lock_guard lock(coutMutex);
-            std::cout << feedback << '\n';
+            std::lock_guard<std::mutex> lock(coutMutex);
+            std::cout << feedback << std::endl;
         }
     }
     guard.close_write();
 
     std::string feedback;
     while (pipe.read(feedback)) {
-        std::lock_guard lock(coutMutex);
-        std::cout << feedback << '\n';
+        std::lock_guard<std::mutex> lock(coutMutex);
+        std::cout << feedback << std::endl;
     }
 
-    std::lock_guard lock(coutMutex);
-    std::cout << "Producer hanging up\n";
+    std::lock_guard<std::mutex> lock(coutMutex);
+    std::cout << "Producer hanging up" << std::endl;
 }
 
 template<typename T>
@@ -126,12 +126,38 @@ constexpr int log10ceil(T num) {
     return num < 10? 1: 1 + log10ceil(num / 10);
 }
 
+namespace skate {
+    template<typename StreamChar>
+    bool skate_json(std::basic_streambuf<StreamChar> &os, const socket_address &a, const json_write_options &options) {
+        return skate::json(a.to_string(), options).write(os);
+    }
+}
+
 int main()
 {
+    skate::url u;
+
+    u.set_scheme("http");
+    u.set_hostname("::");
+    u.set_username("owacoder");
+    u.set_path("/path/to/data");
+    u.set_password("password:");
+    u.set_fragment("fragment#");
+
+    std::cout << u.to_string() << std::endl;
+    std::cout << skate::network_address("192.168.1.1:80").to_string() << std::endl;
+    std::cout << skate::network_address("192.168.1.1:").to_string() << std::endl;
+    std::cout << skate::network_address("owacoder--cnnxnns:80").to_string(false) << std::endl;
+    std::cout << skate::network_address("0.0.0.0:8000").with_port(6500).to_string() << std::endl;
+    std::cout << skate::network_address("[::1]").to_string() << std::endl;
+    std::cout << skate::network_address("[::]:80").to_string() << std::endl;
+
+    return 0;
+
     typedef float FloatType;
 
     char buf[512];
-    sprintf(buf, "%.*g", std::numeric_limits<FloatType>::max_digits10, 1e8);
+    snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<FloatType>::max_digits10, 1e8);
     printf("%u: %s\n", (unsigned) strlen(buf), buf);
     printf("e: %u\n", std::numeric_limits<FloatType>::max_digits10 + 4 + log10ceil(std::numeric_limits<FloatType>::max_exponent10));
     printf("f: %u\n", 2 + std::numeric_limits<FloatType>::max_exponent10 + std::numeric_limits<FloatType>::max_digits10);
@@ -146,7 +172,9 @@ int main()
     b.write(MoveOnlyString("4"));
     std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
 
-#if 1
+    std::cout << "Interfaces: " << skate::json(skate::socket_address::interfaces(), skate::json_write_options(2)) << std::endl;
+
+#if 0
     auto buffer = skate::make_threadsafe_pipe<std::string>(3);
 
     std::thread thrd1(io_buffer_consumer<std::string>, buffer.first, 1);
@@ -199,7 +227,7 @@ int main()
     skate::json_value js;
     std::string js_text;
 
-    const size_t count = 0;
+    const size_t count = 20;
     if (count) {
         skate::benchmark([&js]() {
             js.resize(200000);
@@ -261,7 +289,7 @@ int main()
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
     std::string narrow = skate::utf_convert<std::string>(L"Wide to narrow string");
-    std::wstring wide = skate::utf_convert<std::wstring>(std::string_view("Narrow to wide string\xf0\x9f\x8c\x8d"));
+    std::wstring wide = skate::utf_convert<std::wstring>(std::string("Narrow to wide string\xf0\x9f\x8c\x8d"));
 
     for (const auto c : narrow) {
         std::cout << std::hex << std::setfill('0') << std::setw(2) << int(c & 0xff) << ' ';

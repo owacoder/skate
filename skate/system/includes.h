@@ -33,58 +33,6 @@ namespace skate {
             ::signal(SIGPIPE, SIG_IGN);
         }
     };
-
-    inline ApiString system_error_string(int system_error) {
-        size_t buf_size = 256;
-        char *buf = static_cast<char *>(malloc(buf_size));
-        if (buf == nullptr)
-            return {};
-
-        while (1) {
-            int string_error = 0;
-            errno = 0;
-
-            // See https://linux.die.net/man/3/strerror_r (XSI-compliant vs GNU implementation)
-#if (_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && ! _GNU_SOURCE
-            // XSI-compliant version
-
-            string_error = strerror_r(system_error, buf, buf_size);
-            if (string_error == 0) // Success
-                return ApiString(buf, ApiString::ApiFree);
-            else if (string_error < 0) // Old, sets errno for error that occurred while attempting to get string
-                string_error = errno;
-#else
-            // GNU version
-
-            char *gnu_buf = strerror_r(system_error, buf, buf_size);
-            if (gnu_buf != buf) { // Using const system string?
-                free(buf);
-                return ApiString(gnu_buf, ApiString::ApiNoFree);
-            } else if (errno == 0)
-                return ApiString(buf, ApiString::ApiFree);
-            else
-                string_error = errno;
-#endif
-
-            if (string_error != ERANGE) {
-                free(buf);
-                return {};
-            }
-
-            buf_size *= 2;
-            char *new_buf = static_cast<char *>(realloc(buf, buf_size));
-            if (new_buf == nullptr) {
-                free(buf);
-                return {};
-            }
-
-            buf = new_buf;
-        }
-    }
-    inline std::string system_error_string_utf8(int system_error) { return system_error_string(system_error); }
-
-    inline std::string system_error_string() { return system_error_string(errno); }
-    inline std::string system_error_string_utf8() { return system_error_string(); }
 }
 #elif WINDOWS_OS
 # if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0600
@@ -96,8 +44,11 @@ namespace skate {
 #  define NOMINMAX
 # endif
 
+# ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+# endif
+
 # include <winsock2.h>
-# include <ws2tcpip.h>
 # include <windows.h>
 
 // Necessary for Event classes
@@ -105,10 +56,6 @@ namespace skate {
 # include <memory>
 # include <vector>
 # include <string>
-
-# if MSVC_COMPILER
-#  pragma comment(lib, "ws2_32")
-# endif
 
 // Define missing MSG_NOSIGNAL flag to nothing since Windows doesn't use it
 #define MSG_NOSIGNAL 0
@@ -148,33 +95,6 @@ namespace skate {
         WSAStartupWrapper wsaStartup;
     };
 
-    inline std::wstring system_error_string(DWORD system_error) {
-        LPWSTR str = nullptr;
-
-        if (FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, system_error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), reinterpret_cast<LPWSTR>(&str), 0, NULL)) {
-            // For some reason, every message gets a \r\n appended to the end
-            const size_t len = wcslen(str);
-            if (len >= 2 && str[len-2] == '\r' && str[len-1] == '\n')
-                str[len-2] = 0;
-
-            try {
-                std::wstring result = str;
-                LocalFree(str); str = nullptr;
-                return result;
-            } catch (...) {
-                if (str)
-                    LocalFree(str);
-                throw;
-            }
-        }
-
-        return {};
-    }
-    inline std::string system_error_string_utf8(DWORD system_error) { return to_utf8(system_error_string(system_error)); }
-
-    inline std::wstring system_error_string() { return system_error_string(GetLastError()); }
-    inline std::string system_error_string_utf8() { return system_error_string_utf8(GetLastError()); }
-
     class EventList;
 
     class Event {
@@ -192,17 +112,17 @@ namespace skate {
                                           }))
         {
             if (!event)
-                throw std::runtime_error(system_error_string_utf8());
+                throw std::system_error(::GetLastError(), std::system_category());
         }
 
         bool is_null() const {return event.get() == nullptr;}
         void signal() {
             if (event && !::SetEvent(event.get()))
-                throw std::runtime_error(system_error_string_utf8());
+                throw std::system_error(::GetLastError(), std::system_category());
         }
         void reset() {
             if (event && !::ResetEvent(event.get()))
-                throw std::runtime_error(system_error_string_utf8());
+                throw std::system_error(::GetLastError(), std::system_category());
         }
         void set_state(bool signalled) {
             if (signalled)
@@ -214,7 +134,7 @@ namespace skate {
         // Waits for event to be signalled. An exception is thrown if an error occurs.
         void wait() {
             if (::WaitForSingleObject(event.get(), INFINITE) == WAIT_FAILED)
-                throw std::runtime_error(system_error_string_utf8());
+                throw std::system_error(::GetLastError(), std::system_category());
         }
         // Waits for event to be signalled. If true, event was signalled. If false, timeout occurred. An exception is thrown if an error occurs.
         bool wait(std::chrono::milliseconds timeout) {
@@ -225,7 +145,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string_utf8());
+                    throw std::system_error(::GetLastError(), std::system_category());
                 case WAIT_OBJECT_0:
                     return true;
                 default:
@@ -237,7 +157,7 @@ namespace skate {
             return event == other.event;
         }
         bool operator!=(const Event &other) const {
-            return !operator==(other);
+            return !(*this == other);
         }
         operator bool() const {
             return !is_null();
@@ -292,7 +212,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string_utf8());
+                    throw std::system_error(::GetLastError(), std::system_category());
                 default:
                     if (result - WAIT_OBJECT_0 < MAXIMUM_WAIT_OBJECTS)
                         return events[result - WAIT_OBJECT_0];
@@ -313,7 +233,7 @@ namespace skate {
 
             switch (result) {
                 case WAIT_FAILED:
-                    throw std::runtime_error(system_error_string_utf8());
+                    throw std::system_error(::GetLastError(), std::system_category());
                 case WAIT_TIMEOUT:
                     return {nullptr};
                 default:

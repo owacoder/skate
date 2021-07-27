@@ -1,2 +1,5 @@
 build-*/
 skate_vc*/
+.vs*/
+debug/
+release/

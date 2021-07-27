@@ -101,7 +101,7 @@ namespace skate {
             std::unique_ptr<Socket> ptr;
 
             try {
-                ptr = std::move(std::unique_ptr<Socket>(socket_factory(client, !blocking)));
+                ptr = std::unique_ptr<Socket>(socket_factory(client, !blocking));
             } catch (const std::bad_alloc &) {
                 Socket::close_socket(client);
                 return;
@@ -135,7 +135,7 @@ namespace skate {
                     if (Socket::socket_would_block(err))
                         break;
 
-                    socket->handle_error(err);
+                    socket->handle_error(std::error_code(err, std::system_category()));
                     break;
                 }
                 else
@@ -253,7 +253,7 @@ namespace skate {
                         socket_nonaccept_event_occurred(it->second.socket.get(), it->second.currently_watching, flags);
                     }
                 });
-            } while (listener->handle_error(err));
+            } while (listener->handle_error(std::error_code(err, std::system_category())));
         }
 
 #if WINDOWS_OS
@@ -281,7 +281,7 @@ namespace skate {
 
             // If an error, signal it on the socket
             if (error)
-                socket->handle_error(error);
+                socket->handle_error(std::error_code(error, std::system_category()));
 
             const WatchFlags flags = WSAAsyncSelectWatcher::watch_flags_from_kernel_flags(event);
 

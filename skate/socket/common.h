@@ -1,5 +1,5 @@
-#ifndef SKATE_COMMON_H
-#define SKATE_COMMON_H
+#ifndef SKATE_SOCKET_COMMON_H
+#define SKATE_SOCKET_COMMON_H
 
 #include "socket.h"
 
@@ -69,4 +69,4 @@ namespace skate {
     };
 }
 
-#endif // SKATE_COMMON_H
+#endif // SKATE_SOCKET_COMMON_H

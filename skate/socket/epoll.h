@@ -38,7 +38,7 @@ namespace skate {
 
         EPoll() : queue(::epoll_create1(0)) {
             if (queue == Socket::invalid_socket)
-                throw std::runtime_error(system_error_string(errno).to_utf8());
+                throw std::system_error(errno, std::system_category());
         }
         virtual ~EPoll() { close(queue); }
 
@@ -49,7 +49,7 @@ namespace skate {
 
         void watch(SocketDescriptor socket, WatchFlags watch_type = WatchRead) {
             if (!try_watch(socket, watch_type))
-                throw std::runtime_error(system_error_string(errno).to_utf8());
+                throw std::system_error(errno, std::system_category());
         }
 
         bool try_watch(SocketDescriptor socket, WatchFlags watch_type = WatchRead) {
@@ -68,13 +68,13 @@ namespace skate {
             ev.events = kernel_flags_from_watch_flags(new_watch_type);
 
             if (::epoll_ctl(queue, EPOLL_CTL_MOD, socket, &ev) < 0)
-                throw std::runtime_error(system_error_string(errno).to_utf8());
+                throw std::system_error(errno, std::system_category());
         }
 
         void unwatch(SocketDescriptor socket) {
             struct epoll_event ev;
             if (::epoll_ctl(queue, EPOLL_CTL_DEL, socket, &ev) < 0 && errno != EBADF)
-                throw std::runtime_error(system_error_string(errno).to_utf8());
+                throw std::system_error(errno, std::system_category());
         }
         void unwatch_dead_descriptor(SocketDescriptor) {
             /* Do nothing as kernel removes descriptor from epoll() set when close() is called */
@@ -82,7 +82,7 @@ namespace skate {
 
         void clear() {
             if (close(queue) || (queue = ::epoll_create1(0)) == Socket::invalid_socket)
-                throw std::runtime_error(system_error_string(errno).to_utf8());
+                throw std::system_error(errno, std::system_category());
         }
 
         int poll(NativeWatchFunction fn) {

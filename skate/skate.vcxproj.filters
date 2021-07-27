@@ -1,0 +1,130 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Distribution Files">
+      <UniqueIdentifier>{B83CAF91-C7BF-462F-B76C-EA11631F866C}</UniqueIdentifier>
+      <Extensions>*</Extensions>
+      <ParseFiles>false</ParseFiles>
+    </Filter>
+    <Filter Include="Distribution Files">
+      <UniqueIdentifier>{B83CAF91-C7BF-462F-B76C-EA11631F866C}</UniqueIdentifier>
+      <Extensions>*</Extensions>
+      <ParseFiles>false</ParseFiles>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="containers\abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\abstract_map.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\address.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="benchmark.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\buffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\adapters\core.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\adapters\csv.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="system\environment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\epoll.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="system\includes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\iocp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\adapters\json.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\kqueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\MFC\mfc_abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\POCO\poco_abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\poll.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\Qt\qt_abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\select.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\server.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\socket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="threadbuffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="system\time.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\tree.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="system\utf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket\wsaasyncselect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\WTL\wtl_abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\adapters\xml.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="todo.txt">
+      <Filter>Distribution Files</Filter>
+    </None>
+  </ItemGroup>
+</Project>

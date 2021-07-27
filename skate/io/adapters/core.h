@@ -1,5 +1,5 @@
-#ifndef SKATE_ADAPTERS_H
-#define SKATE_ADAPTERS_H
+#ifndef SKATE_IO_ADAPTERS_CORE_H
+#define SKATE_IO_ADAPTERS_CORE_H
 
 #include <cmath>
 #include <type_traits>
@@ -469,6 +469,9 @@ namespace skate {
             constexpr int log10ceil(T num) {
                 return num < 10? 1: 1 + log10ceil(num / 10);
             }
+
+            template<typename T>
+            constexpr T max(T a, T b) { return a < b? a: b; }
         }
 
         template<typename StreamChar, typename FloatType>
@@ -507,7 +510,7 @@ namespace skate {
             // The buffer is guaranteed to be a minimally sized buffer for the output string
             std::array<char, 4 +
                              std::numeric_limits<FloatType>::max_digits10 +
-                             std::max(2, impl::log10ceil(std::numeric_limits<FloatType>::max_exponent10)) +
+                             impl::max(2, impl::log10ceil(std::numeric_limits<FloatType>::max_exponent10)) +
                              1 // Add for NUL terminator
                       > buf;
 
@@ -542,7 +545,7 @@ namespace skate {
         class tuple_apply : private tuple_apply<F, size_of_tuple - 1> {
         public:
             template<typename Tuple>
-            constexpr tuple_apply(Tuple &&t, F f) : tuple_apply<F, size_of_tuple - 1>(std::forward<Tuple>(t), f) {
+            tuple_apply(Tuple &&t, F f) : tuple_apply<F, size_of_tuple - 1>(std::forward<Tuple>(t), f) {
                 f(std::get<size_of_tuple - 1>(std::forward<Tuple>(t)));
             }
         };
@@ -572,4 +575,4 @@ namespace skate {
     }
 #endif
 
-#endif // SKATE_ADAPTERS_H
+#endif // SKATE_IO_ADAPTERS_CORE_H

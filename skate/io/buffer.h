@@ -260,6 +260,7 @@ namespace skate {
     };
 
     // Provides a one-way buffer from producer threads to consumer threads
+    // Usage of this buffer should be guarded with io_threadsafe_buffer_producer_guard and io_threadsafe_buffer_consumer_guard
     template<typename T>
     class io_threadsafe_buffer : private io_buffer<T> {
         template<typename>
@@ -286,24 +287,24 @@ namespace skate {
         virtual ~io_threadsafe_buffer() {}
 
         void register_consumer() {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             consumer_registered = true;
             ++consumer_count;
         }
         void unregister_consumer() {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             if (consumer_count) {
                 if (--consumer_count == 0)
                     producer_wait.notify_all(); // Let producers know that last consumer hung up
             }
         }
         void register_producer() {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             producer_registered = true;
             ++producer_count;
         }
         void unregister_producer() {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             if (producer_count) {
                 if (--producer_count == 0)
                     consumer_wait.notify_all(); // Let consumers know that last producer hung up
@@ -315,7 +316,7 @@ namespace skate {
         // If wait is true, nothing could be written, and all consumers have unregistered, returns false
         template<typename U>
         bool write(U &&v, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             bool success;
             while (!(success = base::write(std::forward<U>(v))) && wait) {
@@ -336,7 +337,7 @@ namespace skate {
         // Also returns false if waiting and the sequence could never be written atomically
         template<typename Container>
         bool write_from(Container &&c, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             bool success;
             while (!(success = base::write_from(std::forward<Container>(c))) && wait) {
@@ -358,7 +359,7 @@ namespace skate {
         // Also returns false if waiting and the sequence could never be written atomically
         template<typename It>
         bool write(It begin, It end, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             bool success;
             while (!(success = base::write(begin, end)) && wait) {
@@ -377,7 +378,7 @@ namespace skate {
         // If wait is true, the function blocks until data is available to be read, thus making the return value usually always valid data
         // If wait is true, nothing could be read, and all producers have unregistered, returns a default-constructed element
         T read(bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -394,7 +395,7 @@ namespace skate {
         // If wait is true, the function blocks until data is available to be read, thus always calling the predicate with at least some data
         // If wait is true, nothing could be read, and all producers have unregistered, returns false
         bool read(T &element, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -412,7 +413,7 @@ namespace skate {
         // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
         template<typename Predicate>
         void read(size_t max, Predicate p, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -428,7 +429,7 @@ namespace skate {
         // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
         template<typename Predicate>
         void read_all(Predicate p, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -443,7 +444,7 @@ namespace skate {
         // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
         template<typename Container>
         void read_into(size_t max, Container &c, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -468,7 +469,7 @@ namespace skate {
         // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
         template<typename Container>
         void read_all_into(Container &c, bool wait = true) {
-            std::unique_lock lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
@@ -489,35 +490,35 @@ namespace skate {
         }
 
         void clear() {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             base::clear();
             producer_wait.notify_all();
         }
 
         // Returns true if no more data will be able to be read from this buffer (i.e. if empty and all producers have disconnected)
         bool at_end() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::empty() && !producers_available();
         }
 
         bool empty() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::empty();
         }
         size_t max_size() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::max_size();
         }
         size_t free_space() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::free_space();
         }
         size_t capacity() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::capacity();
         }
         size_t size() const {
-            std::lock_guard lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             return base::size();
         }
     };
@@ -532,15 +533,7 @@ namespace skate {
 
     template<typename T>
     class io_threadsafe_buffer_consumer_guard {
-        template<typename>
-        friend class io_threadsafe_pipe_guard;
-
         io_threadsafe_buffer<T> *buffer;
-
-        io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> *buffer) : buffer(buffer) {
-            if (buffer)
-                buffer->register_consumer();
-        }
 
     public:
         io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
@@ -564,15 +557,7 @@ namespace skate {
 
     template<typename T>
     class io_threadsafe_buffer_producer_guard {
-        template<typename>
-        friend class io_threadsafe_pipe_guard;
-
         io_threadsafe_buffer<T> *buffer;
-
-        io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> *buffer) : buffer(buffer) {
-            if (buffer)
-                buffer->register_producer();
-        }
 
     public:
         io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
@@ -594,7 +579,8 @@ namespace skate {
         }
     };
 
-    // A two-way buffer
+    // A two-way threadsafe pipe buffer, allowing any number of producers and consumers to share the same pipe
+    // Usage of this class should be guarded with io_threadsafe_pipe_guard, which also allows shutting down individual channels of the pipe
     template<typename T>
     class io_threadsafe_pipe {
         template<typename>
@@ -657,7 +643,7 @@ namespace skate {
 
         template<typename Container>
         Container read(size_t max, bool wait = true) {
-            return source().read<Container>(max, wait);
+            return source().template read<Container>(max, wait);
         }
 
         template<typename Container>
@@ -667,7 +653,7 @@ namespace skate {
 
         template<typename Container>
         Container read_all(bool wait = true) {
-            return source().read_all<Container>(wait);
+            return source().template read_all<Container>(wait);
         }
 
         bool at_end() const {

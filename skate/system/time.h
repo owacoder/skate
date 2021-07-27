@@ -21,13 +21,17 @@ namespace skate {
 
         template<typename T>
         auto localtime_r_impl(const T *timer, struct tm *buf, char) -> typename std::decay<decltype(buf)>::type {
-            std::lock_guard lock(time_mutex());
+#if MSVC_COMPILER
+            return localtime_s(buf, timer)? nullptr: buf;
+#else
+            std::lock_guard<std::mutex> lock(time_mutex());
             const struct tm *internal = localtime(timer);
             if (!internal)
                 return nullptr;
 
             *buf = *internal;
             return buf;
+#endif
         }
 
         template<typename T>
@@ -37,13 +41,17 @@ namespace skate {
 
         template<typename T>
         auto gmtime_r_impl(const T *timer, struct tm *buf, char) -> typename std::decay<decltype(buf)>::type {
-            std::lock_guard lock(time_mutex());
+#if MSVC_COMPILER
+            return gmtime_s(buf, timer) ? nullptr : buf;
+#else
+            std::lock_guard<std::mutex> lock(time_mutex());
             const struct tm *internal = gmtime(timer);
             if (!internal)
                 return nullptr;
 
             *buf = *internal;
             return buf;
+#endif
         }
     }
 
@@ -83,7 +91,7 @@ namespace skate {
         std::string result(strlen(format) + 128, '\0');
 
         while (true) {
-            const size_t written = strftime(result.data(), result.size(), format, &timeptr);
+            const size_t written = strftime(&result[0], result.size(), format, &timeptr);
             if (written) {
                 result.resize(written);
                 return result;
@@ -96,7 +104,7 @@ namespace skate {
     std::string asctime(const struct tm &timeptr) {
         static const char weekday[][4] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
         static const char month[][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        char buffer[25];
+        char buffer[26];
 
         snprintf(buffer, sizeof(buffer), "%s %s%3d %.2d:%.2d:%.2d %.4d",
                 weekday[timeptr.tm_wday],
