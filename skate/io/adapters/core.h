@@ -300,38 +300,6 @@ namespace skate {
 #endif
 
     namespace impl {
-        template<typename CharType>
-        constexpr int toxdigit(CharType t) {
-            return (t >= '0' && t <= '9')? t - '0':
-                   (t >= 'A' && t <= 'F')? (t - 'A' + 10):
-                   (t >= 'a' && t <= 'f')? (t - 'a' + 10): -1;
-        }
-
-        template<typename CharType>
-        std::basic_istream<CharType> &expect_char(std::basic_istream<CharType> &is, CharType expected) {
-            CharType c;
-
-            if (is.get(c) && c != expected)
-                is.setstate(std::ios_base::failbit);
-
-            return is;
-        }
-
-        template<typename CharType>
-        constexpr bool isspace(CharType c) {
-            return c == ' ' || c == '\n' || c == '\r' || c == '\t';
-        }
-
-        template<typename CharType>
-        constexpr bool isspace_or_tab(CharType c) {
-            return c == ' ' || c == '\t';
-        }
-
-        template<typename CharType>
-        constexpr bool isdigit(CharType c) {
-            return c >= '0' && c <= '9';
-        }
-
         template<typename StreamChar>
         bool skipws(std::basic_streambuf<StreamChar> &is) {
             while (true) {
@@ -339,7 +307,7 @@ namespace skate {
 
                 if (c == std::char_traits<StreamChar>::eof()) // Already at end
                     return false;
-                else if (!impl::isspace(c)) // Not a space, good result
+                else if (!isspace(c)) // Not a space, good result
                     return true;
                 else if (is.sbumpc() == std::char_traits<StreamChar>::eof()) // No next character
                     return false;
@@ -353,7 +321,7 @@ namespace skate {
 
                 if (c == std::char_traits<StreamChar>::eof()) // Already at end
                     return false;
-                else if (!impl::isspace_or_tab(c)) // Not a space, good result
+                else if (!isspace_or_tab(c)) // Not a space, good result
                     return true;
                 else if (is.sbumpc() == std::char_traits<StreamChar>::eof()) // No next character
                     return false;
@@ -364,7 +332,7 @@ namespace skate {
         template<typename StreamChar, typename IntType>
         bool read_int(std::basic_streambuf<StreamChar> &is, IntType &ref) {
             auto c = is.sgetc();
-            if (!impl::isdigit(c) && c != '-')
+            if (!isdigit(c) && c != '-')
                 return false;
 
             std::string temp;
@@ -373,7 +341,7 @@ namespace skate {
             while (true) {
                 const auto c = is.snextc();
 
-                if (c == std::char_traits<StreamChar>::eof() || !impl::isdigit(c))
+                if (c == std::char_traits<StreamChar>::eof() || !isdigit(c))
                     break;
 
                 temp.push_back(char(c));
@@ -416,7 +384,7 @@ namespace skate {
 
             ref = 0.0;
             auto c = is.sgetc();
-            if (!impl::isdigit(c) && c != '-' && (!allow_leading_dot || c != '.') && (!allow_leading_plus || c != '+'))
+            if (!isdigit(c) && c != '-' && (!allow_leading_dot || c != '.') && (!allow_leading_plus || c != '+'))
                 return false;
 
             std::string temp;
@@ -425,7 +393,7 @@ namespace skate {
             while (true) {
                 const auto c = is.snextc();
 
-                if (c == std::char_traits<StreamChar>::eof() || !(impl::isdigit(c) || c == '-' || c == '.' || c == 'e' || c == 'E' || c == '+'))
+                if (c == std::char_traits<StreamChar>::eof() || !isfpdigit(c))
                     break;
 
                 temp.push_back(char(c));

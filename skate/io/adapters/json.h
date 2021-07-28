@@ -203,7 +203,7 @@ namespace skate {
                                 return false;
 
                             for (size_t i = 0; i < 4; ++i) {
-                                const int digit = impl::toxdigit(digits[i]);
+                                const int digit = toxdigit(digits[i]);
                                 if (digit < 0)
                                     return false;
 
@@ -219,7 +219,7 @@ namespace skate {
                                     return false;
 
                                 for (size_t i = 0; i < 4; ++i) {
-                                    const int digit = impl::toxdigit(digits[i]);
+                                    const int digit = toxdigit(digits[i]);
                                     if (digit < 0)
                                         return false;
 
@@ -535,26 +535,25 @@ namespace skate {
                                 return false;
                         } else {
                             // Then add as a \u codepoint (or two, if surrogates are needed)
-                            const char alphabet[] = "0123456789abcdef";
                             unsigned int hi, lo;
 
                             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
                                 case 2:
                                     if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
                                         os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[hi >> 12]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[(hi >> 8) & 0xf]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[(hi >> 4) & 0xf]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[hi & 0xf]) == std::char_traits<StreamChar>::eof())
+                                        os.sputc(toxchar(hi >> 12)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(hi >>  8)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(hi >>  4)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(hi      )) == std::char_traits<StreamChar>::eof())
                                         return false;
                                     // fallthrough
                                 case 1:
                                     if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
                                         os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[lo >> 12]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[(lo >> 8) & 0xf]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[(lo >> 4) & 0xf]) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(alphabet[lo & 0xf]) == std::char_traits<StreamChar>::eof())
+                                        os.sputc(toxchar(lo >> 12)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(lo >>  8)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(lo >>  4)) == std::char_traits<StreamChar>::eof() ||
+                                        os.sputc(toxchar(lo      )) == std::char_traits<StreamChar>::eof())
                                         return false;
                                     break;
                                 default:
@@ -1133,7 +1132,7 @@ namespace skate {
                     floating |= c == '.' || c == 'e' || c == 'E';
 
                     c = is.snextc();
-                } while (impl::isdigit(c) || c == '-' || c == '.' || c == 'e' || c == 'E' || c == '+');
+                } while (isfpdigit(c));
 
                 char *end;
                 if (floating) {

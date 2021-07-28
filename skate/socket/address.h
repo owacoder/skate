@@ -2,10 +2,12 @@
 #define SKATE_SOCKET_ADDRESS_H
 
 #include "../system/includes.h"
+#include "../containers/split_join.h"
 
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <map>
 #include <system_error>
 
 #if POSIX_OS
@@ -139,10 +141,11 @@ namespace skate {
                     errno = 0;
                     char *end = nullptr;
                     const long p = strtol(colon + 1, &end, 10);
-                    if (errno || p < 0 || p > 0xffff || *end != 0)
+                    if (errno || p > 0xffff || p < 0 || end <= colon + 1 || *end != 0) {
                         *this = socket_address();
-                    else
+                    } else {
                         *this = socket_address(std::string(open_brace + 1, close_brace - open_brace - 1).c_str(), uint16_t(p));
+                    }
                 } else if (close_brace) {
                     *this = socket_address(std::string(open_brace + 1, close_brace - open_brace - 1).c_str(), 0);
                 } else {
@@ -156,10 +159,11 @@ namespace skate {
                     errno = 0;
                     char *end = nullptr;
                     const long p = strtol(colon + 1, &end, 10);
-                    if (errno || p < 0 || p > 0xffff || *end != 0)
+                    if (errno || p > 0xffff || p < 0 || end <= colon + 1 || *end != 0) {
                         *this = socket_address();
-                    else
+                    } else {
                         *this = socket_address(std::string(address, colon - address).c_str(), uint16_t(p));
+                    }
                 } else {
                     *this = socket_address(address, 0);
                 }
@@ -425,7 +429,7 @@ namespace skate {
                     errno = 0;
                     char *end = nullptr;
                     const long p = strtol(colon + 1, &end, 10);
-                    if (errno || p < 0 || p > 0xffff || *end != 0) {
+                    if (errno || p > 0xffff || p < 0 || end <= colon + 1 || *end != 0) {
                         name = address;
                     } else {
                         name = std::string(address, colon - address);
@@ -494,51 +498,73 @@ namespace skate {
         }
     };
 
+    // https://datatracker.ietf.org/doc/html/rfc3986
     class url {
         constexpr static const char *gendelims = ":/?#[]@";
         constexpr static const char *subdelims = "!$&'()*+,;=";
         constexpr static const char *pathdelims = "!$&'()*+,;=:@";
+        constexpr static const char *pathdelimswithslash = "!$&'()*+,;=:@/";
         constexpr static const char *queryfragmentdelims = "!$&'()*+,;=:@/?";
+        constexpr static const char *querymapdelims = "!$'()*+,;:@/?"; // No '=' or '&' to force escaping those characters in key/value queries
 
         static bool is_unreserved(unsigned char c) {
             return isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~';
         }
 
-        static std::string from_percent_encoded(const std::string &s) {
-            // TODO:
+#if __cplusplus >= 201703L
+        static std::string from_percent_encoded(std::string_view s, bool *error = nullptr) {
+#else
+        static std::string from_percent_encoded(const std::string &s, bool *error = nullptr) {
+#endif
+            // TODO: parse from percent_encoded
 
             return {};
         }
 
-        static std::string to_percent_encoded(const std::string &s, const char *noescape = "") {
-            std::string result;
-
+        static void to_percent_encoded(std::string &append_to, const std::string &s, const char *noescape = "") {
             for (const unsigned char c: s) {
                 if (is_unreserved(c) || (c && strchr(noescape, c)))
-                    result.push_back(c);
+                    append_to.push_back(c);
                 else {
-                    const char hex[] = "0123456789ABCDEF";
-
-                    result.push_back('%');
-                    result.push_back(hex[c >> 4]);
-                    result.push_back(hex[c & 0xf]);
+                    append_to.push_back('%');
+                    append_to.push_back(toxchar(c >> 4, true));
+                    append_to.push_back(toxchar(c     , true));
                 }
             }
-
-            return result;
         }
 
     public:
-        url() : m_valid(false) {}
+        url() {}
 
-        bool is_valid() const noexcept { return m_valid; }
+        bool has_valid_scheme() const noexcept {
+            if (m_scheme.empty() || !isalpha(m_scheme[0]))
+                return false;
+
+            for (const unsigned char c: m_scheme)
+                if (!isalnum(c) && c != '+' && c != '-' && c != '.')
+                    return false;
+
+            return true;
+        }
+
+        bool has_host() const noexcept { return !m_host.is_unspecified(); }
+        bool has_port() const noexcept { return m_host.port(); }
+        bool has_username() const noexcept { return m_username.size(); }
+        bool has_password() const noexcept { return m_password.size(); }
+        bool has_scheme() const noexcept { return m_scheme.size(); }
+        bool has_query() const noexcept { return m_query.size(); }
+        bool has_fragment() const noexcept { return m_fragment.size(); }
+
+        bool has_hostname() const noexcept { return has_host() || has_port(); }
+        bool has_userinfo() const noexcept { return has_username() || has_password(); }
+        bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
 
         url &set_hostname(std::string hostname) {
-            m_host = network_address(hostname);
+            m_host = network_address(std::move(hostname));
             return *this;
         }
         url &set_host(std::string hostname) {
-            m_host = network_address(hostname).with_port(m_host.port());
+            m_host = network_address(std::move(hostname)).with_port(m_host.port());
             return *this;
         }
         url &set_port(uint16_t port) {
@@ -546,50 +572,74 @@ namespace skate {
             return *this;
         }
         url &set_scheme(std::string scheme) {
-            m_scheme = scheme;
+            m_scheme = std::move(scheme);
             return *this;
         }
         url &set_username(std::string username) {
-            m_username = username;
+            m_username = std::move(username);
             return *this;
         }
         url &set_password(std::string password) {
-            m_password = password;
+            m_password = std::move(password);
             return *this;
         }
         url &set_path(std::string path) {
-            m_path = path;
+            m_path = std::move(path);
+            m_pathlist = {};
+            return *this;
+        }
+        url &set_path(std::vector<std::string> path) {
+            m_path.clear();
+            m_pathlist = std::move(path);
             return *this;
         }
         url &set_query(std::string query) {
-            m_query = query;
+            m_query = std::move(query);
+            m_querymap = {};
+            return *this;
+        }
+        url &set_queries(std::map<std::string, std::string> querymap) {
+            m_query.clear();
+            m_querymap = std::move(querymap);
+            return *this;
+        }
+        url &clear_queries() { return set_query(std::string{}); }
+        url &set_query(std::string key, std::string value) {
+            if (m_query.size()) { // TODO: Transfer from string query
+
+            }
+
+            m_querymap[std::move(key)] = std::move(value);
             return *this;
         }
         url &set_fragment(std::string fragment) {
-            m_fragment = fragment;
+            m_fragment = std::move(fragment);
             return *this;
         }
 
+        // Creates a string with the stored URL, but doesn't verify its validity
         std::string to_string() const {
             std::string result;
 
-            result += m_scheme;
-            result += ':';
+            if (m_scheme.size()) {
+                result += m_scheme;
+                result += ':';
+            }
 
-            if (!m_host.is_unspecified() || m_host.port()) {
+            if (has_authority()) {
                 result += "//";
 
                 if (m_username.size() || m_password.size()) {
-                    result += to_percent_encoded(m_username, subdelims);
+                    to_percent_encoded(result, m_username, subdelims);
                     result += ':';
-                    result += to_percent_encoded(m_password, subdelims);
+                    to_percent_encoded(result, m_password, subdelims);
                     result += '@';
                 }
 
                 if (m_host.is_resolved())                   // Resolved IP address
                     result += m_host.to_string(true, true); // Automatically adds port to resolved name by default
                 else {                                      // Unresolved IP address or hostname
-                    result += to_percent_encoded(m_host.to_string(false), subdelims);
+                    to_percent_encoded(result, m_host.to_string(false), subdelims);
                     if (m_host.port()) {
                         result += ':';
                         result += std::to_string(m_host.port());
@@ -597,16 +647,27 @@ namespace skate {
                 }
             }
 
-            result += to_percent_encoded(m_path, pathdelims);
+            if (m_pathlist.size()) {
+                join_append(result, m_pathlist, "/", [](std::string &append_to, const std::string &path_element) { to_percent_encoded(append_to, path_element, pathdelims); });
+            } else {
+                to_percent_encoded(result, m_path, pathdelimswithslash);
+            }
 
-            if (m_query.size()) {
+            if (m_querymap.size()) {
                 result += '?';
-                result += to_percent_encoded(m_query, queryfragmentdelims);
+                join_append(result, m_querymap, "&", [](std::string &append_to, const std::pair<std::string, std::string> &query_element) {
+                    to_percent_encoded(append_to, query_element.first, querymapdelims);
+                    append_to += '=';
+                    to_percent_encoded(append_to, query_element.second, querymapdelims);
+                });
+            } else if (m_query.size()) {
+                result += '?';
+                to_percent_encoded(result, m_query, queryfragmentdelims);
             }
 
             if (m_fragment.size()) {
                 result += '#';
-                result += to_percent_encoded(m_fragment, queryfragmentdelims);
+                to_percent_encoded(result, m_fragment, queryfragmentdelims);
             }
 
             return result;
@@ -618,10 +679,10 @@ namespace skate {
         std::string m_username;
         std::string m_password;
         std::string m_path;
+        std::vector<std::string> m_pathlist;
         std::string m_query;
+        std::map<std::string, std::string> m_querymap;
         std::string m_fragment;
-
-        bool m_valid;
     };
 }
 

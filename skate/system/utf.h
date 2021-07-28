@@ -950,6 +950,66 @@ namespace skate {
     std::wstring to_wide(const StringChar *s, bool *error = nullptr) {
         return utf_convert<std::wstring>(s, error);
     }
+
+    template<typename CharType>
+    constexpr int toxdigit(CharType c) {
+        return (c >= '0' && c <= '9')? int(c - '0'):
+               (c >= 'A' && c <= 'F')? int(c - 'A' + 10):
+               (c >= 'a' && c <= 'f')? int(c - 'a' + 10): -1;
+    }
+
+    namespace impl {
+        constexpr const char *hexupper = "0123456789ABCDEF";
+        constexpr const char *hexlower = "0123456789abcdef";
+    }
+
+    template<typename CharType = unsigned char>
+    constexpr CharType toxchar(unsigned int value, bool uppercase = false) {
+        return CharType(uppercase? impl::hexupper[value & 0xf]: impl::hexlower[value & 0xf]);
+    }
+
+    template<typename CharType>
+    constexpr bool isxdigit(CharType c) {
+        return (c >= '0' && c <= '9') ||
+               (c >= 'A' && c <= 'F') ||
+               (c >= 'a' && c <= 'f');
+    }
+
+    template<typename CharType>
+    constexpr int todigit(CharType c) {
+        return (c >= '0' && c <= '9')? int(c - '0'): -1;
+    }
+
+    template<typename CharType>
+    constexpr bool isdigit(CharType c) {
+        return c >= '0' && c <= '9';
+    }
+
+    template<typename CharType>
+    constexpr bool isfpdigit(CharType c) {
+        return (c >= '0' && c <= '9') || c == '-' || c == '.' || c == 'e' || c == 'E' || c == '+';
+    }
+
+    template<typename CharType>
+    constexpr bool isalpha(CharType c) {
+        return (c >= 'A' && c <= 'Z') ||
+               (c >= 'a' && c <= 'z');
+    }
+
+    template<typename CharType>
+    constexpr bool isalnum(CharType c) {
+        return isalpha(c) || isdigit(c);
+    }
+
+    template<typename CharType>
+    constexpr bool isspace(CharType c) {
+        return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+    }
+
+    template<typename CharType>
+    constexpr bool isspace_or_tab(CharType c) {
+        return c == ' ' || c == '\t';
+    }
 }
 
 #endif // __cplusplus

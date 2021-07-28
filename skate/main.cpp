@@ -58,10 +58,11 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include "io/adapters/json.h"
 #include "io/adapters/csv.h"
 #include "io/adapters/xml.h"
+#include "containers/split_join.h"
 #include "system/time.h"
 #include <map>
 #include <array>
-#include "benchmark.h"
+#include "system/benchmark.h"
 
 struct Point {
     int x, y;
@@ -135,14 +136,19 @@ namespace skate {
 
 int main()
 {
+    std::cout << skate::json(skate::split<std::vector<std::string>>("Header, Test,,, None 2", ",", true)) << std::endl;
+    std::cout << skate::json(skate::join(std::vector<std::string>{"Header", "Data", "Data", "", "Data"}, ",")) << std::endl;
+
     skate::url u;
 
     u.set_scheme("http");
-    u.set_hostname("::");
+    u.set_hostname("::::");
     u.set_username("owacoder");
-    u.set_path("/path/to/data");
+    u.set_path("/path to data/to/data");
     u.set_password("password:");
     u.set_fragment("fragment#");
+    u.set_query("key", "value");
+    u.set_query("test", "%^&#@@");
 
     std::cout << u.to_string() << std::endl;
     std::cout << skate::network_address("192.168.1.1:80").to_string() << std::endl;

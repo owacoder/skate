@@ -427,7 +427,7 @@ namespace skate {
                             return true;
                         else if (!get_unicode<StreamChar>{}(is, c))             // Failed to read next character
                             return false;
-                        else if (impl::isspace_or_tab(c))                       // End of quoted string, just eat whitespace
+                        else if (isspace_or_tab(c))                       // End of quoted string, just eat whitespace
                             return impl::skip_spaces_and_tabs(is);
                         else if (c != options.quote)                            // Not an escaped quote, end of string
                             return get_unicode<StreamChar>{}.unget(is, c);
@@ -441,7 +441,7 @@ namespace skate {
                 } else if (c == options.separator) {
                     return get_unicode<StreamChar>{}.unget(is, c);
                 } else {
-                    only_whitespace &= impl::isspace_or_tab(c);
+                    only_whitespace &= isspace_or_tab(c);
                 }
 
                 if (!put_unicode<StringChar>{}(ref, c))
@@ -468,7 +468,7 @@ namespace skate {
             ref = 0;
             if (!impl::skip_spaces_and_tabs(is) ||
                 !impl::read_int(is, ref) ||
-                (impl::isspace_or_tab(is.sgetc()) && !impl::skip_spaces_and_tabs(is)))
+                (isspace_or_tab(is.sgetc()) && !impl::skip_spaces_and_tabs(is)))
                 return false;
 
             return true;
@@ -480,7 +480,7 @@ namespace skate {
             ref = 0;
             if (!impl::skip_spaces_and_tabs(is) ||
                 !impl::read_float(is, ref, true, true) ||
-                (impl::isspace_or_tab(is.sgetc()) && !impl::skip_spaces_and_tabs(is)))
+                (isspace_or_tab(is.sgetc()) && !impl::skip_spaces_and_tabs(is)))
                 return false;
 
             return true;
@@ -789,7 +789,7 @@ namespace skate {
             const size_t sz = std::distance(begin(ref), end(ref));
 
             // Check for needing quotes first
-            bool needs_quotes = sz && (impl::isspace(ref[0]) || impl::isspace(ref[sz-1]));
+            bool needs_quotes = sz && (isspace(ref[0]) || isspace(ref[sz-1]));
 
             for (size_t i = 0; !needs_quotes && i < sz; ) {
                 const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
