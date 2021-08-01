@@ -20,22 +20,23 @@ namespace skate {
             class read_tuple {
                 std::basic_streambuf<StreamChar> &is;
                 bool &error;
-                size_t &index;
+                bool &has_read_something;
 
             public:
-                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index) noexcept
+                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_read_something) noexcept
                     : is(stream)
                     , error(error)
-                    , index(index)
+                    , has_read_something(has_read_something)
                 {}
 
                 template<typename Param>
                 void operator()(Param &p) {
-                    if (error || (index++ && (!skate::impl::skipws(is) || is.sbumpc() != ','))) {
+                    if (error || (has_read_something && (!skate::impl::skipws(is) || is.sbumpc() != ','))) {
                         error = true;
                         return;
                     }
 
+                    has_read_something = true;
                     error = !skate::json(p).read(is);
                 }
             };
@@ -100,12 +101,12 @@ namespace skate {
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             bool error = false;
-            size_t index = 0;
+            bool has_read_something = false;
 
             if (!impl::skipws(is) || is.sbumpc() != '[')
                 return false;
 
-            impl::apply(impl::json::read_tuple<StreamChar>(is, error, index), ref);
+            impl::apply(impl::json::read_tuple<StreamChar>(is, error, has_read_something), ref);
 
             return !error && impl::skipws(is) && is.sbumpc() == ']';
         }
@@ -367,24 +368,25 @@ namespace skate {
             class write_tuple {
                 std::basic_streambuf<StreamChar> &os;
                 bool &error;
-                size_t &index;
+                bool &has_written_something;
                 const json_write_options &options;
 
             public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const json_write_options &options) noexcept
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const json_write_options &options) noexcept
                     : os(stream)
                     , error(error)
-                    , index(index)
+                    , has_written_something(has_written_something)
                     , options(options)
                 {}
 
                 template<typename Param>
                 void operator()(const Param &p) {
-                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
+                    if (error || (has_written_something && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
                         error = true;
                         return;
                     }
 
+                    has_written_something = true;
                     error = !skate::json(p, options).write(os);
                 }
             };
@@ -457,12 +459,12 @@ namespace skate {
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             bool error = false;
-            size_t index = 0;
+            bool has_written_something = false;
 
             if (os.sputc('[') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            impl::apply(impl::json::write_tuple<StreamChar>(os, error, index, options), ref);
+            impl::apply(impl::json::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
 
             return !error && os.sputc(']') != std::char_traits<StreamChar>::eof();
         }
@@ -687,70 +689,70 @@ namespace skate {
     template<typename String>
     class basic_json_object;
 
+    enum class json_type {
+        null,
+        boolean,
+        floating,
+        int64,
+        uint64,
+        string,
+        array,
+        object
+    };
+
     template<typename String>
     class basic_json_value {
     public:
         typedef basic_json_array<String> array;
         typedef basic_json_object<String> object;
 
-        enum type {
-            NullType,
-            BooleanType,
-            FloatType,
-            Int64Type,
-            UInt64Type,
-            StringType,
-            ArrayType,
-            ObjectType
-        };
-
-        basic_json_value() : t(NullType) { d.p = nullptr; }
-        basic_json_value(const basic_json_value &other) : t(NullType) {
+        basic_json_value() : t(json_type::null) { d.p = nullptr; }
+        basic_json_value(const basic_json_value &other) : t(json_type::null) {
             switch (other.t) {
                 default: break;
-                case BooleanType: // fallthrough
-                case FloatType:   // fallthrough
-                case Int64Type:   // fallthrough
-                case UInt64Type:  d = other.d; break;
-                case StringType:  d.p = new String(*other.internal_string()); break;
-                case ArrayType:   d.p = new array(*other.internal_array());   break;
-                case ObjectType:  d.p = new object(*other.internal_object()); break;
+                case json_type::boolean:    // fallthrough
+                case json_type::floating:   // fallthrough
+                case json_type::int64:      // fallthrough
+                case json_type::uint64:     d = other.d; break;
+                case json_type::string:     d.p = new String(*other.internal_string()); break;
+                case json_type::array:      d.p = new array(*other.internal_array());   break;
+                case json_type::object:     d.p = new object(*other.internal_object()); break;
             }
 
             t = other.t;
         }
         basic_json_value(basic_json_value &&other) noexcept : t(other.t) {
             d = other.d;
-            other.t = NullType;
+            other.t = json_type::null;
         }
-        basic_json_value(array a) : t(NullType) {
+        basic_json_value(array a) : t(json_type::null) {
             d.p = new array(std::move(a));
-            t = ArrayType;
+            t = json_type::array;
         }
-        basic_json_value(object o) : t(NullType) {
+        basic_json_value(object o) : t(json_type::null) {
             d.p = new object(std::move(o));
-            t = ObjectType;
+            t = json_type::object;
         }
-        basic_json_value(bool b) : t(BooleanType) { d.b = b; }
-        basic_json_value(String s) : t(NullType) {
+        basic_json_value(bool b) : t(json_type::boolean) { d.b = b; }
+        basic_json_value(String s) : t(json_type::null) {
             d.p = new String(std::move(s));
-            t = StringType;
+            t = json_type::string;
         }
-        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(StringType) {
+        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(json_type::string) {
             d.p = new String(s);
         }
-        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(StringType) {
+        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(json_type::string) {
             d.p = new String(s, len);
         }
         template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(FloatType) {
+        basic_json_value(T v) : t(json_type::floating) {
             if (std::trunc(v) == v) {
                 // Convert to integer if at all possible, since its waaaay faster
                 if (v >= INT64_MIN && v <= INT64_MAX) {
-                    t = Int64Type;
+                    t = json_type::int64;
                     d.i = int64_t(v);
                 } else if (v >= 0 && v <= UINT64_MAX) {
-                    t = UInt64Type;
+                    t = json_type::uint64;
                     d.u = uint64_t(v);
                 } else
                     d.n = v;
@@ -758,11 +760,11 @@ namespace skate {
                 d.n = v;
         }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_signed<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(Int64Type) { d.i = v; }
+        basic_json_value(T v) : t(json_type::int64) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(UInt64Type) { d.u = v; }
+        basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
-        basic_json_value(const T &v) : t(StringType) {
+        basic_json_value(const T &v) : t(json_type::string) {
             d.p = new String(std::move(utf_convert<String>(v)));
         }
         ~basic_json_value() { clear(); }
@@ -775,13 +777,13 @@ namespace skate {
 
             switch (other.t) {
                 default: break;
-                case BooleanType: // fallthrough
-                case FloatType:   // fallthrough
-                case Int64Type:   // fallthrough
-                case UInt64Type:  d = other.d; break;
-                case StringType:  *internal_string() = *other.internal_string(); break;
-                case ArrayType:    *internal_array() = *other.internal_array();  break;
-                case ObjectType:  *internal_object() = *other.internal_object(); break;
+                case json_type::boolean:     // fallthrough
+                case json_type::floating:    // fallthrough
+                case json_type::int64:       // fallthrough
+                case json_type::uint64:      d = other.d; break;
+                case json_type::string:      *internal_string() = *other.internal_string(); break;
+                case json_type::array:       *internal_array() = *other.internal_array();  break;
+                case json_type::object:      *internal_object() = *other.internal_object(); break;
             }
 
             return *this;
@@ -791,21 +793,21 @@ namespace skate {
 
             d = other.d;
             t = other.t;
-            other.t = NullType;
+            other.t = json_type::null;
 
             return *this;
         }
 
-        type current_type() const noexcept { return t; }
-        bool is_null() const noexcept { return t == NullType; }
-        bool is_bool() const noexcept { return t == BooleanType; }
-        bool is_number() const noexcept { return t == FloatType || t == Int64Type || t == UInt64Type; }
-        bool is_floating() const noexcept { return t == FloatType; }
-        bool is_int64() const noexcept { return t == Int64Type; }
-        bool is_uint64() const noexcept { return t == UInt64Type; }
-        bool is_string() const noexcept { return t == StringType; }
-        bool is_array() const noexcept { return t == ArrayType; }
-        bool is_object() const noexcept { return t == ObjectType; }
+        json_type current_type() const noexcept { return t; }
+        bool is_null() const noexcept { return t == json_type::null; }
+        bool is_bool() const noexcept { return t == json_type::boolean; }
+        bool is_number() const noexcept { return t == json_type::floating || t == json_type::int64 || t == json_type::uint64; }
+        bool is_floating() const noexcept { return t == json_type::floating; }
+        bool is_int64() const noexcept { return t == json_type::int64; }
+        bool is_uint64() const noexcept { return t == json_type::uint64; }
+        bool is_string() const noexcept { return t == json_type::string; }
+        bool is_array() const noexcept { return t == json_type::array; }
+        bool is_object() const noexcept { return t == json_type::object; }
 
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         // Undefined if current_type() is not the correct type
@@ -820,13 +822,13 @@ namespace skate {
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         std::nullptr_t &null_ref() { static std::nullptr_t null; clear(); return null; }
-        bool &bool_ref() { create(BooleanType); return d.b; }
-        double &number_ref() { create(FloatType); return d.n; }
-        int64_t &int64_ref() { create(Int64Type); return d.i; }
-        uint64_t &uint64_ref() { create(UInt64Type); return d.u; }
-        String &string_ref() { create(StringType); return *internal_string(); }
-        array &array_ref() { create(ArrayType); return *internal_array(); }
-        object &object_ref() { create(ObjectType); return *internal_object(); }
+        bool &bool_ref() { create(json_type::boolean); return d.b; }
+        double &number_ref() { create(json_type::floating); return d.n; }
+        int64_t &int64_ref() { create(json_type::int64); return d.i; }
+        uint64_t &uint64_ref() { create(json_type::uint64); return d.u; }
+        String &string_ref() { create(json_type::string); return *internal_string(); }
+        array &array_ref() { create(json_type::array); return *internal_array(); }
+        object &object_ref() { create(json_type::object); return *internal_object(); }
 
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
         bool get_bool(bool default_value = false) const { return is_bool()? d.b: default_value; }
@@ -903,20 +905,21 @@ namespace skate {
         size_t size() const noexcept {
             switch (t) {
                 default: return 0;
-                case StringType: return internal_string()->size();
-                case ArrayType:  return  internal_array()->size();
-                case ObjectType: return internal_object()->size();
+                case json_type::string: return internal_string()->size();
+                case json_type::array:  return  internal_array()->size();
+                case json_type::object: return internal_object()->size();
             }
         }
 
         void clear() noexcept {
             switch (t) {
                 default: break;
-                case StringType: delete internal_string(); break;
-                case ArrayType:  delete  internal_array(); break;
-                case ObjectType: delete internal_object(); break;
+                case json_type::string: delete internal_string(); break;
+                case json_type::array:  delete  internal_array(); break;
+                case json_type::object: delete internal_object(); break;
             }
-            t = NullType;
+
+            t = json_type::null;
         }
 
         bool operator==(const basic_json_value &other) const {
@@ -924,9 +927,9 @@ namespace skate {
                 if (is_number() && other.is_number()) {
                     switch (t) {
                         default: break;
-                        case FloatType:  return d.n == other.get_number();
-                        case Int64Type:  return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
-                        case UInt64Type: return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
+                        case json_type::floating:  return d.n == other.get_number();
+                        case json_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
+                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
                     }
                 }
 
@@ -934,14 +937,14 @@ namespace skate {
             }
 
             switch (t) {
-                default:          return true;
-                case BooleanType: return d.b == other.d.b;
-                case FloatType:   return d.n == other.d.n;
-                case Int64Type:   return d.i == other.d.i;
-                case UInt64Type:  return d.u == other.d.u;
-                case StringType:  return *internal_string() == *other.internal_string();
-                case ArrayType:   return  *internal_array() == *other.internal_array();
-                case ObjectType:  return *internal_object() == *other.internal_object();
+                default:                     return true;
+                case json_type::boolean:     return d.b == other.d.b;
+                case json_type::floating:    return d.n == other.d.n;
+                case json_type::int64:       return d.i == other.d.i;
+                case json_type::uint64:      return d.u == other.d.u;
+                case json_type::string:      return *internal_string() == *other.internal_string();
+                case json_type::array:       return  *internal_array() == *other.internal_array();
+                case json_type::object:      return *internal_object() == *other.internal_object();
             }
         }
         bool operator!=(const basic_json_value &other) const { return !(*this == other); }
@@ -956,7 +959,7 @@ namespace skate {
         const object *internal_object() const noexcept { return static_cast<const object *>(d.p); }
         object *internal_object() noexcept { return static_cast<object *>(d.p); }
 
-        void create(type t) {
+        void create(json_type t) {
             if (t == this->t)
                 return;
 
@@ -964,19 +967,19 @@ namespace skate {
 
             switch (t) {
                 default: break;
-                case BooleanType: d.b = false; break;
-                case FloatType:   d.n = 0.0; break;
-                case Int64Type:   d.i = 0; break;
-                case UInt64Type:  d.u = 0; break;
-                case StringType:  d.p = new String(); break;
-                case ArrayType:   d.p = new array(); break;
-                case ObjectType:  d.p = new object(); break;
+                case json_type::boolean:     d.b = false; break;
+                case json_type::floating:    d.n = 0.0; break;
+                case json_type::int64:       d.i = 0; break;
+                case json_type::uint64:      d.u = 0; break;
+                case json_type::string:      d.p = new String(); break;
+                case json_type::array:       d.p = new array(); break;
+                case json_type::object:      d.p = new object(); break;
             }
 
             this->t = t;
         }
 
-        type t;
+        json_type t;
 
         union {
             bool b;
@@ -1158,15 +1161,15 @@ namespace skate {
     template<typename StreamChar, typename String>
     bool skate_json(std::basic_streambuf<StreamChar> &os, const basic_json_value<String> &j, json_write_options options) {
         switch (j.current_type()) {
-            case j.NullType:    return json(j.unsafe_get_null(), options).write(os);
-            case j.BooleanType: return json(j.unsafe_get_bool(), options).write(os);
-            case j.FloatType:   return json(j.unsafe_get_floating(), options).write(os);
-            case j.Int64Type:   return json(j.unsafe_get_int64(), options).write(os);
-            case j.UInt64Type:  return json(j.unsafe_get_uint64(), options).write(os);
-            case j.StringType:  return json(j.unsafe_get_string(), options).write(os);
-            case j.ArrayType:   return json(j.unsafe_get_array(), options).write(os);
-            case j.ObjectType:  return json(j.unsafe_get_object(), options).write(os);
-            default:            return json(nullptr, options).write(os);
+            default:                      return json(nullptr, options).write(os);
+            case json_type::null:         return json(j.unsafe_get_null(), options).write(os);
+            case json_type::boolean:      return json(j.unsafe_get_bool(), options).write(os);
+            case json_type::floating:     return json(j.unsafe_get_floating(), options).write(os);
+            case json_type::int64:        return json(j.unsafe_get_int64(), options).write(os);
+            case json_type::uint64:       return json(j.unsafe_get_uint64(), options).write(os);
+            case json_type::string:       return json(j.unsafe_get_string(), options).write(os);
+            case json_type::array:        return json(j.unsafe_get_array(), options).write(os);
+            case json_type::object:       return json(j.unsafe_get_object(), options).write(os);
         }
     }
 

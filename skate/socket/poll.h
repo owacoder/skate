@@ -14,12 +14,12 @@
 #include <sys/poll.h>
 
 namespace skate {
-    class Poll : public SocketWatcher {
+    class poll_socket_watcher : public socket_watcher {
         std::vector<pollfd> fds;
 
     public:
-        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
-            WatchFlags watch_flags = 0;
+        static socket_watch_flags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
+            socket_watch_flags watch_flags = 0;
 
             watch_flags |= kernel_flags & POLLIN? WatchRead: 0;
             watch_flags |= kernel_flags & POLLOUT? WatchWrite: 0;
@@ -31,7 +31,7 @@ namespace skate {
             return watch_flags;
         }
 
-        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
+        static short kernel_flags_from_watch_flags(socket_watch_flags watch_flags) noexcept {
             short kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? POLLIN: 0;
@@ -41,12 +41,12 @@ namespace skate {
             return kernel_flags;
         }
 
-        Poll() {}
-        virtual ~Poll() {}
+        poll_socket_watcher() {}
+        virtual ~poll_socket_watcher() {}
 
         // Returns which watch types are being watched for the given file descriptor,
         // or 0 if the descriptor is not being watched.
-        WatchFlags watching(SocketDescriptor fd) const {
+        virtual socket_watch_flags watching(system_socket_descriptor fd) const override {
             const auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return 0;
@@ -56,22 +56,22 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        void watch(SocketDescriptor fd, WatchFlags watch_type) {
-            try_watch(fd, watch_type); // Never fails unless an exception is thrown (out of memory)
-        }
-        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             pollfd desc;
 
             desc.fd = fd;
             desc.events = kernel_flags_from_watch_flags(watch_type);
 
+            ec.clear();
+
             fds.push_back(desc);
-            return true;
         }
 
         // Modifies the watch flags for a descriptor in the set
         // If the descriptor is not in the set, nothing happens
-        void modify(SocketDescriptor fd, WatchFlags new_watch_type) {
+        virtual void modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
+            ec.clear();
+
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return;
@@ -81,7 +81,9 @@ namespace skate {
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        void unwatch(SocketDescriptor fd) {
+        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+            ec.clear();
+
             const auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return;
@@ -90,65 +92,50 @@ namespace skate {
         }
 
         // Clears the set and removes all watched descriptors
-        void clear() {
+        virtual void clear(std::error_code &ec) override {
+            ec.clear();
             fds.clear();
         }
 
-        // Runs poll() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
-        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
-        // Returns 0 on success, or a system error if an error occurs
-        int poll(SocketWatcher::NativeWatchFunction fn) {
-            const int ready = ::poll(fds.data(), fds.size(), -1);
-            if (ready < 0)
-                return errno;
-
-            // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
-            std::vector<struct pollfd> fds_triggered;
-            for (const pollfd &desc: fds) {
-                if (desc.revents)
-                    fds_triggered.push_back(desc);
+        // Runs poll() on this set, with a callback function `void (system_socket_descriptor, socket_watch_flags)`
+        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in socket_watch_flags)
+        virtual void poll(std::error_code &ec, native_watch_function fn, socket_timeout timeout) override {
+            if (!timeout.is_infinite() && timeout.timeout().count() / 1000 > INT_MAX) {
+                ec = std::make_error_code(std::errc::invalid_argument);
+                return;
             }
 
-            // Now iterate through the copies of triggered sockets
-            for (const pollfd &desc: fds_triggered) {
-                fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
+            const int ready = ::poll(fds.data(), fds.size(), timeout.is_infinite()? -1: static_cast<int>(timeout.timeout().count() / 1000));
+            if (ready < 0) {
+                ec = impl::socket_error();
+            } else if (ready == 0) {
+                ec = std::make_error_code(std::errc::timed_out);
+            } else {
+                ec.clear();
+
+                // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
+                std::vector<struct pollfd> fds_triggered;
+                for (const pollfd &desc: fds) {
+                    if (desc.revents)
+                        fds_triggered.push_back(desc);
+                }
+
+                // Now iterate through the copies of triggered sockets
+                for (const pollfd &desc: fds_triggered) {
+                    fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
+                }
             }
-
-            return 0;
-        }
-
-        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
-            if (timeout.count() > INT_MAX)
-                return EINVAL;
-
-            const int ready = ::poll(fds.data(), fds.size(), timeout.count() / 1000);
-            if (ready < 0)
-                return errno;
-
-            // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
-            std::vector<struct pollfd> fds_triggered;
-            for (const pollfd &desc: fds) {
-                if (desc.revents)
-                    fds_triggered.push_back(desc);
-            }
-
-            // Now iterate through the copies of triggered sockets
-            for (const pollfd &desc: fds_triggered) {
-                fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
-            }
-
-            return ready? 0: ErrorTimedOut;
         }
     };
 }
 #elif WINDOWS_OS // End of POSIX_OS
 namespace skate {
-    class Poll : public SocketWatcher {
+    class poll_socket_watcher : public socket_watcher {
         std::vector<struct pollfd> fds;
 
     public:
-        static WatchFlags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
-            WatchFlags watch_flags = 0;
+        static socket_watch_flags watch_flags_from_kernel_flags(short kernel_flags) noexcept {
+            socket_watch_flags watch_flags = 0;
 
             watch_flags |= kernel_flags & POLLIN? WatchRead: 0;
             watch_flags |= kernel_flags & POLLOUT? WatchWrite: 0;
@@ -160,7 +147,7 @@ namespace skate {
             return watch_flags;
         }
 
-        static short kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
+        static short kernel_flags_from_watch_flags(socket_watch_flags watch_flags) noexcept {
             short kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? POLLIN: 0;
@@ -171,12 +158,12 @@ namespace skate {
             return kernel_flags;
         }
 
-        Poll() {}
-        virtual ~Poll() {}
+        poll_socket_watcher() {}
+        virtual ~poll_socket_watcher() {}
 
         // Returns which watch types are being watched for the given file descriptor,
         // or 0 if the descriptor is not being watched.
-        WatchFlags watching(SocketDescriptor fd) const {
+        virtual socket_watch_flags watching(system_socket_descriptor fd) const override {
             const auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return 0;
@@ -186,22 +173,22 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        void watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
-            try_watch(fd, watch_type); // Never fails unless an exception is thrown (out of memory)
-        }
-        bool try_watch(SocketDescriptor fd, WatchFlags watch_type = WatchRead) {
+        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             pollfd desc;
 
             desc.fd = fd;
             desc.events = kernel_flags_from_watch_flags(watch_type);
 
+            ec.clear();
+
             fds.push_back(desc);
-            return true;
         }
 
         // Modifies the watch flags for a descriptor in the set
         // If the descriptor is not in the set, nothing happens
-        void modify(SocketDescriptor fd, WatchFlags new_watch_type) {
+        virtual void modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
+            ec.clear();
+
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return;
@@ -211,7 +198,9 @@ namespace skate {
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        void unwatch(SocketDescriptor fd) {
+        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+            ec.clear();
+
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
             if (it == fds.end())
                 return;
@@ -222,54 +211,39 @@ namespace skate {
         }
 
         // Clears the set and removes all watched descriptors
-        void clear() {
+        virtual void clear(std::error_code &ec) override {
+            ec.clear();
             fds.clear();
         }
 
-        // Runs poll() on this set, with a callback function `void (SocketDescriptor, WatchFlags)`
-        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in WatchFlags)
-        // Returns 0 on success, or a system error if an error occurs
-        int poll(SocketWatcher::NativeWatchFunction fn) {
-            const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), -1);
-            if (ready < 0)
-                return WSAGetLastError();
-
-            // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
-            std::vector<struct pollfd> fds_triggered;
-            for (const pollfd &desc: fds) {
-                if (desc.revents)
-                    fds_triggered.push_back(desc);
+        // Runs poll() on this set, with a callback function `void (system_socket_descriptor, socket_watch_flags)`
+        // The callback function is called with each file descriptor that has a change, as well as what status the descriptor is in (in socket_watch_flags)
+        virtual void poll(std::error_code &ec, socket_watcher::native_watch_function fn, socket_timeout timeout) override {
+            if (!timeout.is_infinite() && timeout.timeout().count() / 1000 > INT_MAX) {
+                ec = std::make_error_code(std::errc::invalid_argument);
+                return;
             }
 
-            // Now iterate through the copies of triggered sockets
-            for (const pollfd &desc: fds_triggered) {
-                fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
+            const int ready = ::WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), timeout.is_infinite()? -1: static_cast<int>(timeout.timeout().count() / 1000));
+            if (ready < 0) {
+                ec = impl::socket_error();
+            } else if (ready == 0) {
+                ec = std::make_error_code(std::errc::timed_out);
+            } else {
+                ec.clear();
+
+                // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
+                std::vector<struct pollfd> fds_triggered;
+                for (const pollfd &desc: fds) {
+                    if (desc.revents)
+                        fds_triggered.push_back(desc);
+                }
+
+                // Now iterate through the copies of triggered sockets
+                for (const pollfd &desc: fds_triggered) {
+                    fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
+                }
             }
-
-            return 0;
-        }
-
-        int poll(SocketWatcher::NativeWatchFunction fn, std::chrono::microseconds timeout) {
-            if (timeout.count() > INT_MAX)
-                return EINVAL;
-
-            const int ready = WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), static_cast<long>(timeout.count() / 1000));
-            if (ready < 0)
-                return WSAGetLastError();
-
-            // Make copy of triggered sockets because all watch()/unwatch() functions are reentrant and could modify fds
-            std::vector<struct pollfd> fds_triggered;
-            for (const pollfd &desc: fds) {
-                if (desc.revents)
-                    fds_triggered.push_back(desc);
-            }
-
-            // Now iterate through the copies of triggered sockets
-            for (const pollfd &desc: fds_triggered) {
-                fn(desc.fd, watch_flags_from_kernel_flags(desc.revents));
-            }
-
-            return ready? 0: ErrorTimedOut;
         }
     };
 }

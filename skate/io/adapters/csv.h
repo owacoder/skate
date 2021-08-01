@@ -40,25 +40,26 @@ namespace skate {
             class read_tuple {
                 std::basic_streambuf<StreamChar> &is;
                 bool &error;
-                size_t &index;
+                bool &has_read_something;
                 const csv_options &options;
 
             public:
-                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const csv_options &options) noexcept
+                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_read_something, const csv_options &options) noexcept
                     : is(stream)
                     , error(error)
-                    , index(index)
+                    , has_read_something(has_read_something)
                     , options(options)
                 {}
 
                 template<typename Param>
                 void operator()(Param &p) {
                     unicode_codepoint c;
-                    if (error || (index++ && (!get_unicode<StreamChar>{}(is, c) || c != options.separator))) {
+                    if (error || (has_read_something && (!get_unicode<StreamChar>{}(is, c) || c != options.separator))) {
                         error = true;
                         return;
                     }
 
+                    has_read_something = true;
                     error = !skate::csv(p, options).read(is);
                 }
             };
@@ -387,12 +388,12 @@ namespace skate {
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             bool error = false;
-            size_t index = 0;
+            bool has_read_something = false;
 
             if (is.sgetc() == std::char_traits<StreamChar>::eof())
                 return false;
 
-            impl::apply(impl::csv::read_tuple<StreamChar>(is, error, index, options), ref);
+            impl::apply(impl::csv::read_tuple<StreamChar>(is, error, has_read_something, options), ref);
 
             if (error)
                 return false;
@@ -497,24 +498,25 @@ namespace skate {
             class write_tuple {
                 std::basic_streambuf<StreamChar> &os;
                 bool &error;
-                size_t &index;
+                bool &has_written_something;
                 const csv_options &options;
 
             public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, size_t &index, const csv_options &options) noexcept
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const csv_options &options) noexcept
                     : os(stream)
                     , error(error)
-                    , index(index)
+                    , has_written_something(has_written_something)
                     , options(options)
                 {}
 
                 template<typename Param>
                 void operator()(const Param &p) {
-                    if (error || (index++ && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
+                    if (error || (has_written_something && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
                         error = true;
                         return;
                     }
 
+                    has_written_something = true;
                     error = !skate::csv(p, options).write(os);
                 }
             };
@@ -725,9 +727,9 @@ namespace skate {
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             bool error = false;
-            size_t index = 0;
+            bool has_written_something = false;
 
-            impl::apply(impl::csv::write_tuple<StreamChar>(os, error, index, options), ref);
+            impl::apply(impl::csv::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
 
             if (error ||
                 (options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||

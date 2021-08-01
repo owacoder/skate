@@ -10,21 +10,23 @@ namespace skate {
     template<typename T> class io_buffer;
 
     namespace impl {
-        template<typename T, typename Container>
+        template<typename T, typename OutputIterator>
         class io_buffer_read_helper {
-            Container &c;
+            OutputIterator &c;
 
         public:
-            io_buffer_read_helper(Container &c) : c(c) {}
+            io_buffer_read_helper(OutputIterator &c) : c(c) {}
 
-            void read_from_buffer_into(io_buffer<T> &buffer, size_t max) {
-                buffer.read(max, [&](T *data, size_t count) {
-                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), std::back_inserter(c));
+            size_t read_from_buffer_into(io_buffer<T> &buffer, size_t max) {
+                return buffer.read(max, [&](T *data, size_t count) {
+                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), c);
+                    return count;
                 });
             }
-            void read_all_from_buffer_into(io_buffer<T> &buffer) {
-                buffer.read_all([&](T *data, size_t count) {
-                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), std::back_inserter(c));
+            size_t read_all_from_buffer_into(io_buffer<T> &buffer) {
+                return buffer.read_all([&](T *data, size_t count) {
+                    std::copy(std::make_move_iterator(data), std::make_move_iterator(data + count), c);
+                    return count;
                 });
             }
         };
@@ -34,14 +36,20 @@ namespace skate {
     template<typename T>
     class io_buffer
     {
+        // Only call when buffer is empty. Shrinks the storage needed to a minimal amount to save space
+        void do_empty_shrink() {
+            if (buffer_limit == 0 || data.capacity() > buffer_limit) {
+                data.clear();
+                data.shrink_to_fit();
+            }
+        }
+
     public:
         io_buffer(size_t buffer_limit = 0)
             : buffer_limit(buffer_limit)
             , buffer_first_element(0)
             , buffer_size(0)
-        {
-            clear();
-        }
+        {}
         virtual ~io_buffer() {}
 
         // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
@@ -138,9 +146,10 @@ namespace skate {
 
             T value = std::move(data[buffer_first_element++]);
 
-            if (--buffer_size == 0)
+            if (--buffer_size == 0) {
                 buffer_first_element = 0;
-            else
+                do_empty_shrink();
+            } else
                 buffer_first_element %= capacity();
 
             return value;
@@ -154,107 +163,111 @@ namespace skate {
 
             element = std::move(data[buffer_first_element++]);
 
-            if (--buffer_size == 0)
+            if (--buffer_size == 0) {
                 buffer_first_element = 0;
-            else
+                do_empty_shrink();
+            } else
                 buffer_first_element %= capacity();
 
             return true;
         }
 
-        // Data, up to max elements, is written to predicate as `void (T *data, size_t len)`
-        // The data can be moved from the provided parameters
-        // Predicate may be invoked multiple times until all requested data is read
+        // Data, up to max elements, is written to predicate as `size_t (T *data, size_t len)`
+        // The predicate must return how many data elements it has consumed
+        // The data can be moved from the provided parameters, and `len` will never be 0
+        // Predicate may be invoked multiple times until all requested data is read (although not consuming all data means "stop early")
+        // Returns the number of data elements consumed by the predicate
         template<typename Predicate>
-        void read(size_t max, Predicate p) {
+        size_t read(size_t max, Predicate p) {
+            size_t consumed = 0;
             max = std::min(max, size());
 
             if (max == 0)
-                return;
+                return 0;
             else if (capacity() - buffer_first_element >= max) {                // Requested portion is entirely contiguous
-                p(data.data() + buffer_first_element, max);
+                consumed = p(data.data() + buffer_first_element, max);
 
-                buffer_first_element = (buffer_first_element + max) % capacity();
+                buffer_first_element = (buffer_first_element + std::min(max, consumed)) % capacity();
             } else {                                                            // Requested portion is partially contiguous
                 const size_t contiguous = capacity() - buffer_first_element;    // Number of elements before end of circular buffer
                 const size_t contiguous_remainder = max - contiguous;           // Number of wrap-around elements at physical beginning of circular buffer
 
-                p(data.data() + buffer_first_element, contiguous);
-                p(data.data(), contiguous_remainder);
+                consumed = std::min<size_t>(contiguous, p(data.data() + buffer_first_element, contiguous));
 
-                if (max == size())
+                if (consumed == contiguous) {                                   // Consumed all first portion, may be able to consume more
+                    consumed += std::min<size_t>(contiguous_remainder, p(data.data(), contiguous_remainder));
+                }
+
+                if (consumed == size())                                         // If everything was consumed, the buffer is now empty, so reset to position 0
                     buffer_first_element = 0;
-                else
-                    buffer_first_element = contiguous_remainder;
+                else                                                            // Otherwise increment as much as was consumed
+                    buffer_first_element = (buffer_first_element + consumed) % capacity();
             }
 
             buffer_size -= max;
+
+            if (buffer_size == 0)
+                do_empty_shrink();
+
+            return consumed;
         }
 
-        // All data is written to predicate as `void (T *data, size_t len)`
-        // The data can be moved from the provided parameters
-        // Predicate may be invoked multiple times until all data is read
+        // All data is written to predicate as `size_t (T *data, size_t len)`
+        // The predicate must return how many data elements it has consumed
+        // The data can be moved from the provided parameters, and `len` will never be 0
+        // Predicate may be invoked multiple times until all data is read (although not consuming all data means "stop early")
+        // Returns the number of data elements consumed by the predicate
         template<typename Predicate>
-        void read_all(Predicate p) {
-            if (empty())
-                return;
-            else if (capacity() - buffer_first_element >= size()) { // Entirely contiguous
-                p(data.data() + buffer_first_element, size());
-            } else { // Partially contiguous
-                const size_t contiguous = capacity() - buffer_first_element;
+        size_t read_all(Predicate p) { return read(SIZE_MAX, p); }
 
-                p(data.data() + buffer_first_element, contiguous);
-                p(data.data(), size() - contiguous);
-            }
-
-            buffer_first_element = buffer_size = 0;
-        }
-
-        // Data, up to max elements, is added to the specified container with push_back()
-        template<typename Container>
-        void read_into(size_t max, Container &c) { impl::io_buffer_read_helper<T, Container>(c).read_from_buffer_into(*this, max); }
+        // Data, up to max elements, is added to the specified output iterator
+        template<typename OutputIterator>
+        size_t read_into(size_t max, OutputIterator c) { return impl::io_buffer_read_helper<T, OutputIterator>(c).read_from_buffer_into(*this, max); }
 
         // Data, up to max elements, is added to a new container of the specified container type with push_back() and returned
         template<typename Container>
         Container read(size_t max) {
             Container c;
-            read_into(max, c);
+            read_into(max, std::back_inserter(c));
             return c;
         }
 
         // All available data is added to the specified container with push_back()
-        template<typename Container>
-        void read_all_into(Container &c) { impl::io_buffer_read_helper<T, Container>(c).read_all_from_buffer_into(*this); }
+        template<typename OutputIterator>
+        size_t read_all_into(OutputIterator c) { return impl::io_buffer_read_helper<T, OutputIterator>(c).read_all_from_buffer_into(*this); }
 
         // All available data is added to a new container of the specified container type with push_back() and returned
         template<typename Container>
         Container read_all() {
             Container c;
-            read_all_into(c);
+            read_all_into(std::back_inserter(c));
             return c;
         }
 
-        // All data in the buffer is cleared and memory is released where possible
+        // All data in the buffer is cleared and memory is released
         void clear() {
             buffer_first_element = buffer_size = 0;
-
-            if (buffer_limit > 0)
-                data.reserve(buffer_limit);
-            else {
-                data.clear();
-                data.shrink_to_fit();
-            }
+            do_empty_shrink();
         }
+
+        // Set a custom maximum size for the buffer
+        void set_max_size(size_t max) noexcept { buffer_limit = max; }
 
         bool empty() const noexcept { return size() == 0; }
         size_t max_size() const noexcept { return buffer_limit? buffer_limit: data.max_size(); }
-        size_t free_space() const noexcept { return max_size() - size(); }
+        size_t free_space() const noexcept {
+            const auto max = max_size();
+            const auto sz = size();
+
+            // Simple subtraction will break here because the user may have adjusted the maximum size down after filling the buffer, so we do this instead
+            return max < sz? 0: max - sz;
+        }
         size_t capacity() const noexcept { return data.size(); }
         size_t size() const noexcept { return buffer_size; }
 
     protected:
         std::vector<T> data;                        // Size of vector is capacity
-        const size_t buffer_limit;                  // Limit to how many elements can be in buffer. If 0, unlimited
+        size_t buffer_limit;                        // Limit to how many elements can be in buffer. If 0, unlimited
         size_t buffer_first_element;                // Position of first element in buffer
         size_t buffer_size;                         // Number of elements in buffer
     };
@@ -408,50 +421,60 @@ namespace skate {
         }
 
         // Data, up to max elements, is written to predicate as `void (const T *data, size_t len)`
-        // Predicate may be invoked multiple times until all requested data is read
+        // The predicate must return the number of elements consumed
+        // The data can be moved from the provided parameters, and `len` will never be 0
+        // Predicate may be invoked multiple times until all requested data is read (although not consuming all data means "stop early")
         // If wait is true, the function blocks until data is available to be read, thus usually always calling the predicate with at least some data
         // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
         template<typename Predicate>
-        void read(size_t max, Predicate p, bool wait = true) {
+        size_t read(size_t max, Predicate p, bool wait = true) {
             std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
-            base::read(max, p);
+            const size_t consumed = base::read(max, p);
 
             producer_wait.notify_all();
+
+            return consumed;
         }
 
-        // All data is written to predicate as `void (const T *data, size_t len)`
-        // Predicate may be invoked multiple times until all data is read
+        // All data is written to predicate as `size_t (const T *data, size_t len)`
+        // The predicate must return the number of elements consumed
+        // The data can be moved from the provided parameters, and `len` will never be 0
+        // Predicate may be invoked multiple times until all requested data is read (although not consuming all data means "stop early")
         // The wait parameter makes the function wait until data is available to be read, thus usually always calling the predicate with at least some data
         // If wait is true, nothing could be read, and all producers have unregistered, the predicate is never called
         template<typename Predicate>
-        void read_all(Predicate p, bool wait = true) {
+        size_t read_all(Predicate p, bool wait = true) {
             std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
-            base::read_all(p);
+            const size_t consumed = base::read_all(p);
 
             producer_wait.notify_all();
+
+            return consumed;
         }
 
         // Data, up to max elements, is added to the specified container with push_back()
         // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
         // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
-        template<typename Container>
-        void read_into(size_t max, Container &c, bool wait = true) {
+        template<typename OutputIterator>
+        size_t read_into(size_t max, OutputIterator c, bool wait = true) {
             std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
-            base::read_into(max, c);
+            const size_t consumed = base::read_into(max, c);
 
             producer_wait.notify_all();
+
+            return consumed;
         }
 
         // Data, up to max elements, is added to a new container of the specified container type with push_back() and returned
@@ -460,23 +483,25 @@ namespace skate {
         template<typename Container>
         Container read(size_t max, bool wait = true) {
             Container c;
-            read_into(max, c, wait);
+            read_into(max, std::back_inserter(c), wait);
             return c;
         }
 
         // All available data is added to the specified container with push_back()
         // The wait parameter makes the function wait until data is available to be read, thus usually always adding some data to the specified container
         // If wait is true, nothing could be read, and all producers have unregistered, nothing is added to the container
-        template<typename Container>
-        void read_all_into(Container &c, bool wait = true) {
+        template<typename OutputIterator>
+        size_t read_all_into(OutputIterator c, bool wait = true) {
             std::unique_lock<std::mutex> lock(mtx);
 
             while (wait && base::empty() && producers_available())
                 consumer_wait.wait(lock);
 
-            base::read_all_into(c);
+            const size_t consumed = base::read_all_into(c);
 
             producer_wait.notify_all();
+
+            return consumed;
         }
 
         // All available data is added to a new container of the specified container type with push_back() and returned
@@ -485,7 +510,7 @@ namespace skate {
         template<typename Container>
         Container read_all(bool wait = true) {
             Container c;
-            read_all_into(c, wait);
+            read_all_into(std::back_inserter(c), wait);
             return c;
         }
 
@@ -588,19 +613,20 @@ namespace skate {
 
         std::array<io_threadsafe_buffer_ptr<T>, 2> a;               // Always writes to pipe 0 and reads from pipe 1
 
-        io_threadsafe_pipe(io_threadsafe_buffer_ptr<T> l, io_threadsafe_buffer_ptr<T> r) : a{l, r} {}
+        io_threadsafe_pipe(io_threadsafe_buffer_ptr<T> l, io_threadsafe_buffer_ptr<T> r) noexcept : a{l, r} {}
 
-        io_threadsafe_buffer<T> &sink() { return *a[0]; }
-        io_threadsafe_buffer<T> &source() { return *a[1]; }
+        io_threadsafe_buffer<T> &sink() noexcept { return *a[0]; }
+        io_threadsafe_buffer<T> &source() noexcept { return *a[1]; }
 
     public:
         virtual ~io_threadsafe_pipe() {}
 
         static std::pair<io_threadsafe_pipe, io_threadsafe_pipe> make_threadsafe_pipe(size_t buffer_limit = 0) {
-            auto lbuffer = make_threadsafe_io_buffer<T>(buffer_limit);
-            auto rbuffer = make_threadsafe_io_buffer<T>(buffer_limit);
+            auto  left = make_threadsafe_io_buffer<T>(buffer_limit);
+            auto right = make_threadsafe_io_buffer<T>(buffer_limit);
 
-            return std::make_pair(io_threadsafe_pipe(lbuffer, rbuffer), io_threadsafe_pipe(rbuffer, lbuffer));
+            return std::make_pair(io_threadsafe_pipe(left, right),
+                                  io_threadsafe_pipe(right, left)); // Channels swapped so read/writes go to the other
         }
 
         template<typename U>
@@ -627,18 +653,18 @@ namespace skate {
         }
 
         template<typename Predicate>
-        void read(size_t max, Predicate p, bool wait = true) {
-            source().read(max, p, wait);
+        size_t read(size_t max, Predicate p, bool wait = true) {
+            return source().read(max, p, wait);
         }
 
         template<typename Predicate>
-        void read_all(Predicate p, bool wait = true) {
-            source().read_all(p, wait);
+        size_t read_all(Predicate p, bool wait = true) {
+            return source().read_all(p, wait);
         }
 
-        template<typename Container>
-        void read_into(size_t max, Container &c, bool wait = true) {
-            source().read_into(max, c, wait);
+        template<typename OutputIterator>
+        size_t read_into(size_t max, OutputIterator c, bool wait = true) {
+            return source().read_into(max, c, wait);
         }
 
         template<typename Container>
@@ -646,9 +672,9 @@ namespace skate {
             return source().template read<Container>(max, wait);
         }
 
-        template<typename Container>
-        void read_all_into(Container &c, bool wait = true) {
-            source().read_all_into(c, wait);
+        template<typename OutputIterator>
+        size_t read_all_into(OutputIterator c, bool wait = true) {
+            return source().read_all_into(c, wait);
         }
 
         template<typename Container>

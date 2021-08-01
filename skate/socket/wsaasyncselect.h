@@ -6,13 +6,13 @@
 
 #if WINDOWS_OS
 namespace skate {
-    class WSAAsyncSelectWatcher : public SocketWatcher {
+    class WSAAsyncSelectWatcher : public socket_watcher {
         const HWND hwnd;
         const UINT msg;
 
     public:
-        static WatchFlags watch_flags_from_kernel_flags(long kernel_flags) noexcept {
-            WatchFlags watch_flags = 0;
+        static socket_watch_flags watch_flags_from_kernel_flags(long kernel_flags) noexcept {
+            socket_watch_flags watch_flags = 0;
 
             watch_flags |= kernel_flags & (FD_READ | FD_ACCEPT)? WatchRead: 0;
             watch_flags |= kernel_flags & FD_WRITE? WatchWrite: 0;
@@ -22,7 +22,7 @@ namespace skate {
             return watch_flags;
         }
 
-        static long kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
+        static long kernel_flags_from_watch_flags(socket_watch_flags watch_flags) noexcept {
             long kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? FD_READ | FD_ACCEPT: 0;
@@ -33,49 +33,46 @@ namespace skate {
             return kernel_flags;
         }
 
-        WSAAsyncSelectWatcher(HWND hwnd, UINT msg)
-            : hwnd(hwnd)
-            , msg(msg)
-        {}
+        WSAAsyncSelectWatcher(HWND hwnd, UINT msg) : hwnd(hwnd) , msg(msg) {}
         virtual ~WSAAsyncSelectWatcher() {}
 
-        WatchFlags watching(SocketDescriptor) const {
+        virtual socket_watch_flags watching(system_socket_descriptor) const override {
             // Not able to determine if socket is being listened to
             return 0;
         }
 
-        void watch(SocketDescriptor socket, WatchFlags watch_type) {
-            if (!try_watch(socket, watch_type))
-                throw std::system_error(::WSAGetLastError(), std::system_category());
+        virtual void watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) override {
+            if (::WSAAsyncSelect(socket, hwnd, msg, kernel_flags_from_watch_flags(watch_type)) == 0)
+                ec.clear();
+            else
+                ec = impl::socket_error();
         }
 
-        bool try_watch(SocketDescriptor socket, WatchFlags watch_type) {
-            return ::WSAAsyncSelect(socket, hwnd, msg, kernel_flags_from_watch_flags(watch_type)) == 0;
+        virtual void modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) override {
+            watch(ec, socket, new_watch_type);
         }
 
-        void modify(SocketDescriptor socket, WatchFlags new_watch_type) {
-            watch(socket, new_watch_type);
-        }
-
-        void unwatch(SocketDescriptor socket) {
+        virtual void unwatch(std::error_code &ec, system_socket_descriptor socket) override {
             if (::WSAAsyncSelect(socket, hwnd, 0, 0) != 0 && WSAGetLastError() != WSAEINVAL && WSAGetLastError() != WSAENOTSOCK) // Clearing the events desired will cancel watching
-                throw std::system_error(::WSAGetLastError(), std::system_category());
+                ec = impl::socket_error();
+            else
+                ec.clear();
         }
-        void unwatch_dead_descriptor(SocketDescriptor) {
+        virtual void unwatch_dead_descriptor(std::error_code &ec, system_socket_descriptor) override {
+            ec.clear();
             /* Do nothing as kernel removes descriptor from WSAAsyncSelect() set when closesocket() is called */
         }
 
-        void clear() {
+        virtual void clear(std::error_code &ec) override {
+            ec.clear();
             /* Do nothing as the kernel doesn't allow clearing all descriptors from the watch */
         }
 
-        int poll(NativeWatchFunction) {
+        void poll(std::error_code &, native_watch_function) {
             throw std::logic_error("poll() should not be called on a WSAAsyncSelectWatcher");
-            return 0;
         }
-        int poll(NativeWatchFunction, std::chrono::microseconds) {
+        void poll(std::error_code &, native_watch_function, std::chrono::microseconds) {
             throw std::logic_error("poll() should not be called on a WSAAsyncSelectWatcher");
-            return 0;
         }
     };
 }

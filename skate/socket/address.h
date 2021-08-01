@@ -29,106 +29,108 @@
 
 namespace skate {
     enum address_type {
-        IPAddressUnspecified = AF_UNSPEC, // Default, if specified and no hostname, null address
-        IPAddressV4 = AF_INET,
-        IPAddressV6 = AF_INET6
+        ip_address_unspecified = AF_UNSPEC, // Default, if specified and no hostname, null address
+        ip_address_v4 = AF_INET,
+        ip_address_v6 = AF_INET6
     };
 
     class socket_address {
     public:
         socket_address(uint16_t port = 0) noexcept : addr{}, port_shadow(port) {
-            addr.ss_family = IPAddressUnspecified;
+            addr.ss_family = ip_address_unspecified;
         }
         socket_address(uint32_t ipv4, uint16_t port = 0) noexcept : addr{}, port_shadow(port) {
             auto &v4 = ipv4_internal();
-            v4.sin_family = IPAddressV4;
+            v4.sin_family = ip_address_v4;
             v4.sin_addr.s_addr = htonl(ipv4);
             v4.sin_port = htons(port);
         }
         socket_address(const struct sockaddr_in &ipv4) noexcept : addr{}, port_shadow(ntohs(ipv4.sin_port)) {
             auto &v4 = ipv4_internal();
             v4 = ipv4;
-            v4.sin_family = IPAddressV4;
+            v4.sin_family = ip_address_v4;
         }
         socket_address(const struct sockaddr_in &ipv4, uint16_t port) noexcept : addr{}, port_shadow(port) {
             auto &v4 = ipv4_internal();
             v4 = ipv4;
-            v4.sin_family = IPAddressV4;
+            v4.sin_family = ip_address_v4;
             v4.sin_port = htons(port);
         }
         socket_address(const struct in_addr &ipv4) noexcept : addr{}, port_shadow(0) {
             auto &v4 = ipv4_internal();
             v4.sin_addr = ipv4;
-            v4.sin_family = IPAddressV4;
+            v4.sin_family = ip_address_v4;
         }
         socket_address(const struct in_addr &ipv4, uint16_t port) noexcept : addr{}, port_shadow(port) {
             auto &v4 = ipv4_internal();
             v4.sin_addr = ipv4;
-            v4.sin_family = IPAddressV4;
+            v4.sin_family = ip_address_v4;
             v4.sin_port = htons(port);
         }
         socket_address(const struct sockaddr_in6 &ipv6) noexcept : addr{}, port_shadow(ntohs(ipv6.sin6_port)) {
             auto &v6 = ipv6_internal();
             v6 = ipv6;
-            v6.sin6_family = IPAddressV6;
+            v6.sin6_family = ip_address_v6;
         }
         socket_address(const struct sockaddr_in6 &ipv6, uint16_t port) noexcept : addr{}, port_shadow(port) {
             auto &v6 = ipv6_internal();
             v6 = ipv6;
-            v6.sin6_family = IPAddressV6;
+            v6.sin6_family = ip_address_v6;
             v6.sin6_port = htons(port);
         }
         socket_address(const struct in6_addr &ipv6) noexcept : addr{}, port_shadow(0) {
             auto &v6 = ipv6_internal();
             v6.sin6_addr = ipv6;
-            v6.sin6_family = IPAddressV6;
+            v6.sin6_family = ip_address_v6;
         }
         socket_address(const struct in6_addr &ipv6, uint16_t port) noexcept : addr{}, port_shadow(port) {
             auto &v6 = ipv6_internal();
             v6.sin6_addr = ipv6;
-            v6.sin6_family = IPAddressV6;
+            v6.sin6_family = ip_address_v6;
             v6.sin6_port = htons(port);
         }
         socket_address(const struct sockaddr *addr) noexcept : addr{}, port_shadow(0) {
             if (!addr) {
-                this->addr.ss_family = IPAddressUnspecified;
+                this->addr.ss_family = ip_address_unspecified;
                 return;
             }
 
             switch (addr->sa_family) {
-                case IPAddressV4:
+                case ip_address_v4:
                     ipv4_internal() = *reinterpret_cast<const struct sockaddr_in *>(addr);
                     port_shadow = ntohs(ipv4_internal().sin_port);
                     break;
-                case IPAddressV6:
+                case ip_address_v6:
                     ipv6_internal() = *reinterpret_cast<const struct sockaddr_in6 *>(addr);
                     port_shadow = ntohs(ipv6_internal().sin6_port);
                     break;
                 default:
-                    this->addr.ss_family = IPAddressUnspecified;
+                    this->addr.ss_family = ip_address_unspecified;
                     break;
             }
         }
         socket_address(const struct sockaddr *addr, uint16_t port) noexcept : addr{}, port_shadow(port) {
             if (!addr) {
-                this->addr.ss_family = IPAddressUnspecified;
+                this->addr.ss_family = ip_address_unspecified;
                 return;
             }
 
             switch (addr->sa_family) {
-                case IPAddressV4:
+                case ip_address_v4:
                     ipv4_internal() = *reinterpret_cast<const struct sockaddr_in *>(addr);
                     ipv4_internal().sin_port = htons(port);
                     break;
-                case IPAddressV6:
+                case ip_address_v6:
                     ipv6_internal() = *reinterpret_cast<const struct sockaddr_in6 *>(addr);
                     ipv6_internal().sin6_port = htons(port);
                     break;
                 default:
-                    this->addr.ss_family = IPAddressUnspecified;
+                    this->addr.ss_family = ip_address_unspecified;
                     break;
             }
         }
+        socket_address(const struct sockaddr_storage &addr) noexcept : socket_address(reinterpret_cast<const struct sockaddr *>(&addr)) {}
+        socket_address(const struct sockaddr_storage &addr, uint16_t port) noexcept : socket_address(reinterpret_cast<const struct sockaddr *>(&addr), port) {}
         // Parses address and possible port
         socket_address(const char *address) : addr{}, port_shadow(0) {
             const char *open_brace = strchr(address, '[');
@@ -171,19 +173,21 @@ namespace skate {
         }
         // Parses strict address (no brackets) with port provided explicitly
         socket_address(const char *address, uint16_t port) noexcept : addr{}, port_shadow(port) {
-            if (inet_pton(IPAddressV4, address, &ipv4_internal().sin_addr) > 0) {
-                ipv4_internal().sin_family = IPAddressV4;
+            if (inet_pton(ip_address_v4, address, &ipv4_internal().sin_addr) > 0) {
+                ipv4_internal().sin_family = ip_address_v4;
                 ipv4_internal().sin_port = htons(port);
-            } else if (inet_pton(IPAddressV6, address, &ipv6_internal().sin6_addr) > 0) {
-                ipv6_internal().sin6_family = IPAddressV6;
+            } else if (inet_pton(ip_address_v6, address, &ipv6_internal().sin6_addr) > 0) {
+                ipv6_internal().sin6_family = ip_address_v6;
                 ipv6_internal().sin6_port = htons(port);
             } else {
-                addr.ss_family = IPAddressUnspecified;
+                addr.ss_family = ip_address_unspecified;
             }
         }
 
         address_type type() const noexcept { return static_cast<address_type>(addr.ss_family); }
-        struct sockaddr_storage native() const noexcept { return addr; }
+        const struct sockaddr_storage &native_storage() const noexcept { return addr; }
+        const struct sockaddr *native() const noexcept { return reinterpret_cast<const struct sockaddr *>(&addr); }
+        socklen_t native_length() const noexcept { return sizeof(addr); }
         struct sockaddr_in native_ipv4() const noexcept {
             if (is_ipv4())
                 return ipv4_internal();
@@ -197,15 +201,23 @@ namespace skate {
                 return socket_address(in6addr_any, uint16_t(0)).ipv6_internal();
         }
 
-        bool is_unspecified() const noexcept { return type() == IPAddressUnspecified; }
-        bool is_ipv4() const noexcept { return type() == IPAddressV4; }
-        bool is_ipv6() const noexcept { return type() == IPAddressV6; }
+        bool is_unspecified() const noexcept { return type() == ip_address_unspecified; }
+        bool is_ipv4() const noexcept { return type() == ip_address_v4; }
+        bool is_ipv6() const noexcept { return type() == ip_address_v6; }
 
-        static socket_address any(address_type type = IPAddressV4, uint16_t port = 0) noexcept {
+        bool is_fully_resolved() const noexcept {
+            switch (type()) {
+                case ip_address_v4:
+                case ip_address_v6: return port() != 0;
+                default: return false;
+            }
+        }
+
+        static socket_address any(address_type type = ip_address_v4, uint16_t port = 0) noexcept {
             switch (type) {
                 default: return {};
-                case IPAddressV4: return socket_address(uint32_t(INADDR_ANY), port);
-                case IPAddressV6: return socket_address(in6addr_any, port);
+                case ip_address_v4: return socket_address(uint32_t(INADDR_ANY), port);
+                case ip_address_v6: return socket_address(in6addr_any, port);
             }
         }
 
@@ -213,32 +225,32 @@ namespace skate {
             return socket_address(uint32_t(INADDR_BROADCAST), port);
         }
 
-        static socket_address loopback(address_type type = IPAddressV4, uint16_t port = 0) noexcept {
+        static socket_address loopback(address_type type = ip_address_v4, uint16_t port = 0) noexcept {
             switch (type) {
                 default: return {};
-                case IPAddressV4: return socket_address(uint32_t(INADDR_LOOPBACK), port);
-                case IPAddressV6: return socket_address(in6addr_loopback, port);
+                case ip_address_v4: return socket_address(uint32_t(INADDR_LOOPBACK), port);
+                case ip_address_v6: return socket_address(in6addr_loopback, port);
             }
         }
 
         bool is_any() const noexcept {
             switch (type()) {
                 default: return true;
-                case IPAddressV4: return ipv4_address() == INADDR_ANY;
-                case IPAddressV6: return memcmp(in6addr_any.s6_addr, ipv6_internal().sin6_addr.s6_addr, sizeof(in6_addr)) == 0;
+                case ip_address_v4: return ipv4_address() == INADDR_ANY;
+                case ip_address_v6: return memcmp(in6addr_any.s6_addr, ipv6_internal().sin6_addr.s6_addr, sizeof(in6_addr)) == 0;
             }
         }
         bool is_broadcast() const noexcept {
             switch (type()) {
                 default: return false;
-                case IPAddressV4: return ipv4_address() == INADDR_BROADCAST;
+                case ip_address_v4: return ipv4_address() == INADDR_BROADCAST;
             }
         }
         bool is_loopback() const noexcept {
             switch (type()) {
                 default: return false;
-                case IPAddressV4: return (ipv4_address() >> 24) == 127;
-                case IPAddressV6: return memcmp(in6addr_loopback.s6_addr, ipv6_internal().sin6_addr.s6_addr, sizeof(in6_addr)) == 0;
+                case ip_address_v4: return (ipv4_address() >> 24) == 127;
+                case ip_address_v6: return memcmp(in6addr_loopback.s6_addr, ipv6_internal().sin6_addr.s6_addr, sizeof(in6_addr)) == 0;
             }
         }
 
@@ -256,8 +268,8 @@ namespace skate {
             port_shadow = port;
 
             switch (type()) {
-                case IPAddressV4: ipv4_internal().sin_port = htons(port); break;
-                case IPAddressV6: ipv6_internal().sin6_port = htons(port); break;
+                case ip_address_v4: ipv4_internal().sin_port = htons(port); break;
+                case ip_address_v6: ipv6_internal().sin6_port = htons(port); break;
                 default: break;
             }
 
@@ -266,7 +278,7 @@ namespace skate {
 
         std::string to_string(bool include_port = true, bool always_include_ipv6_brackets = false) const {
             switch (type()) {
-                case IPAddressV4: {
+                case ip_address_v4: {
                     char ip4[INET_ADDRSTRLEN];
 
                     inet_ntop(type(), (void *) &ipv4_internal().sin_addr, ip4, sizeof(ip4));
@@ -276,7 +288,7 @@ namespace skate {
 
                     return ip4;
                 }
-                case IPAddressV6: {
+                case ip_address_v6: {
                     char ip6[INET6_ADDRSTRLEN];
 
                     inet_ntop(type(), (void *) &ipv6_internal().sin6_addr, ip6, sizeof(ip6));
@@ -295,7 +307,7 @@ namespace skate {
 
         // Returns the local interface addresses for the local computer
         // Same as the other interfaces() function, but throws a std::system_error if an issue occurs when retrieving interfaces
-        static std::vector<socket_address> interfaces(address_type type = IPAddressUnspecified, bool include_loopback = false) {
+        static std::vector<socket_address> interfaces(address_type type = ip_address_unspecified, bool include_loopback = false) {
             std::error_code ec;
             auto ifaces = interfaces(ec, type, include_loopback);
             if (ec)
@@ -307,7 +319,7 @@ namespace skate {
         // Only active addresses are returned, and the desired types can be filtered with the parameters to this function
         // The error code is updated with the system error that occurred while retrieving interfaces
         // Note that this function may still throw if out of memory due to vector construction
-        static std::vector<socket_address> interfaces(std::error_code &ec, address_type type = IPAddressUnspecified, bool include_loopback = false) {
+        static std::vector<socket_address> interfaces(std::error_code &ec, address_type type = ip_address_unspecified, bool include_loopback = false) {
 #if POSIX_OS
             struct ifaddrs *addresses = nullptr, *ptr = nullptr;
             std::vector<socket_address> result;
@@ -324,12 +336,12 @@ namespace skate {
 
                     switch (ptr->ifa_addr->sa_family) {
                         default: break;
-                        case IPAddressV4:
-                            if (type == IPAddressUnspecified || type == IPAddressV4)
+                        case ip_address_v4:
+                            if (type == ip_address_unspecified || type == ip_address_v4)
                                 address = socket_address{*reinterpret_cast<struct sockaddr_in *>(ptr->ifa_addr)};
                             break;
-                        case IPAddressV6:
-                            if (type == IPAddressUnspecified || type == IPAddressV6)
+                        case ip_address_v6:
+                            if (type == ip_address_unspecified || type == ip_address_v6)
                                 address = socket_address{*reinterpret_cast<struct sockaddr_in6 *>(ptr->ifa_addr)};
                             break;
                     }
@@ -364,7 +376,7 @@ namespace skate {
 
             if (err != ERROR_SUCCESS) {
                 free(addresses);
-                ec = std::error_code(err, std::system_category());
+                ec = std::error_code(err, win32_category());
                 return {};
             }
 
@@ -384,8 +396,8 @@ namespace skate {
 
                         switch (unicast->Address.lpSockaddr->sa_family) {
                             default:
-                            case IPAddressV4: address = socket_address(*reinterpret_cast<struct sockaddr_in *>(unicast->Address.lpSockaddr)); break;
-                            case IPAddressV6: address = socket_address(*reinterpret_cast<struct sockaddr_in6 *>(unicast->Address.lpSockaddr)); break;
+                            case ip_address_v4: address = socket_address(*reinterpret_cast<struct sockaddr_in *>(unicast->Address.lpSockaddr)); break;
+                            case ip_address_v6: address = socket_address(*reinterpret_cast<struct sockaddr_in6 *>(unicast->Address.lpSockaddr)); break;
                         }
 
                         if (!address.is_unspecified() && (!address.is_loopback() || include_loopback))
@@ -440,16 +452,17 @@ namespace skate {
                 }
             }
         }
+        network_address(const char *address, uint16_t port) : addr(address, port) {
+            if (addr.is_unspecified()) // Failed to parse as IP address, must be hostname?
+                name = address;
+        }
         network_address(const std::string &address) : network_address(address.c_str()) {}
+        network_address(const std::string &address, uint16_t port) : network_address(address.c_str(), port) {}
 
-        // Returns true if the address is not specified (no network address and no hostname specified)
-        bool is_unspecified() const noexcept { return addr.is_unspecified() && name.empty(); }
-
-        // Returns true if the address has not been resolved to an endpoint yet
-        bool is_unresolved() const noexcept { return addr.is_unspecified() || name.size(); }
-
-        // Returns true if the address has been resolved to an actual endpoint
-        bool is_resolved() const noexcept { return !is_unresolved(); }
+        // Returns true if the address is null (no network address and no hostname specified)
+        bool is_null() const noexcept { return addr.is_unspecified() && name.empty(); }
+        bool is_hostname() const noexcept { return !name.empty(); }
+        bool is_resolved() const noexcept { return !addr.is_unspecified() && name.empty(); }
 
         // Returns the underlying address and port, which may be unspecified if not resolved yet
         socket_address address() const noexcept { return addr; }
@@ -482,22 +495,7 @@ namespace skate {
         std::string name;
     };
 
-    class getaddrinfo_error_category : public std::error_category {
-    public:
-        virtual const char *name() const noexcept { return "getaddrinfo"; }
-        virtual std::string message(int ev) const {
-#if WINDOWS_OS
-            static std::mutex gaierror_mtx;
-
-            std::lock_guard<std::mutex> lock(gaierror_mtx);
-
-            return to_utf8(static_cast<LPCWSTR>(::gai_strerrorW(ev)));
-#else
-            return ::gai_strerror(ev);
-#endif
-        }
-    };
-
+    // TODO: not fully implemented yet
     // https://datatracker.ietf.org/doc/html/rfc3986
     class url {
         constexpr static const char *gendelims = ":/?#[]@";
@@ -547,7 +545,7 @@ namespace skate {
             return true;
         }
 
-        bool has_host() const noexcept { return !m_host.is_unspecified(); }
+        bool has_host() const noexcept { return !m_host.is_null(); }
         bool has_port() const noexcept { return m_host.port(); }
         bool has_username() const noexcept { return m_username.size(); }
         bool has_password() const noexcept { return m_password.size(); }
@@ -558,6 +556,15 @@ namespace skate {
         bool has_hostname() const noexcept { return has_host() || has_port(); }
         bool has_userinfo() const noexcept { return has_username() || has_password(); }
         bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
+
+        size_t path_elements() const {
+            if (m_path.size()) {
+                m_pathlist = split(m_path, "/");
+                m_path.clear();
+            }
+
+            return m_pathlist.size();
+        }
 
         url &set_hostname(std::string hostname) {
             m_host = network_address(std::move(hostname));
@@ -678,10 +685,15 @@ namespace skate {
         std::string m_scheme;
         std::string m_username;
         std::string m_password;
-        std::string m_path;
-        std::vector<std::string> m_pathlist;
-        std::string m_query;
-        std::map<std::string, std::string> m_querymap;
+
+        // Invariant is maintained that (m_path.size() && m_pathlist.size()) == false
+        mutable std::string m_path;
+        mutable std::vector<std::string> m_pathlist;
+
+        // Invariant is maintained that (m_query.size() && m_querymap.size()) == false
+        mutable std::string m_query;
+        mutable std::map<std::string, std::string> m_querymap;
+
         std::string m_fragment;
     };
 }

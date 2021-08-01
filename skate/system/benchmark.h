@@ -5,27 +5,27 @@
 #include <chrono>
 
 namespace skate {
-    enum BenchmarkUnit {
-        BenchmarkNanoseconds,
-        BenchmarkMicroseconds,
-        BenchmarkMilliseconds,
-        BenchmarkSeconds
+    enum benchmark_unit {
+        benchmark_nanoseconds,
+        benchmark_microseconds,
+        benchmark_milliseconds,
+        benchmark_seconds
     };
 
     namespace impl {
         template<typename duration>
-        std::ostream &output_time(std::ostream &out, duration d, BenchmarkUnit unit) {
+        std::ostream &output_time(std::ostream &out, duration d, benchmark_unit unit) {
             switch (unit) {
-                case BenchmarkNanoseconds:
+                case benchmark_nanoseconds:
                     out << std::chrono::duration_cast<std::chrono::nanoseconds>(d).count() << " ns";
                     break;
-                case BenchmarkMicroseconds:
+                case benchmark_microseconds:
                     out << std::chrono::duration_cast<std::chrono::microseconds>(d).count() << " us";
                     break;
                 default:
                     out << std::chrono::duration_cast<std::chrono::milliseconds>(d).count() << " ms";
                     break;
-                case BenchmarkSeconds:
+                case benchmark_seconds:
                     out << std::chrono::duration_cast<std::chrono::seconds>(d).count() << " secs";
                     break;
             }
@@ -36,7 +36,7 @@ namespace skate {
 
     // Benchmarks a predicate purely for how long it took
     template<typename Predicate>
-    void benchmark(std::ostream &out, Predicate p, const std::string &name = "Benchmark", BenchmarkUnit unit = BenchmarkMilliseconds) {
+    void benchmark(std::ostream &out, Predicate p, const std::string &name = "Benchmark", benchmark_unit unit = benchmark_milliseconds) {
         using std::chrono::steady_clock;
 
         const auto start = steady_clock::now();
@@ -54,7 +54,7 @@ namespace skate {
 
     // Benchmarks a predicate for how long it took to read/write a certain number of bytes
     template<typename Predicate>
-    void benchmark_throughput(std::ostream &out, Predicate p, const std::string &name = "Benchmark", BenchmarkUnit unit = BenchmarkMilliseconds) {
+    void benchmark_throughput(std::ostream &out, Predicate p, const std::string &name = "Benchmark", benchmark_unit unit = benchmark_milliseconds) {
         using std::chrono::steady_clock;
 
         const auto start = steady_clock::now();

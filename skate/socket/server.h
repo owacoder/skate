@@ -17,29 +17,35 @@
 namespace skate {
     namespace impl {
 #if LINUX_OS
-        typedef EPoll DefaultSystemWatcher;
+        typedef epoll_socket_watcher default_socket_watcher;
 #elif POSIX_OS
-        typedef Poll DefaultSystemWatcher;
+        typedef poll_socket_watcher default_socket_watcher;
 #elif WINDOWS_OS
-        typedef Poll DefaultSystemWatcher;
+        typedef poll_socket_watcher default_socket_watcher;
 #else
 # error Platform not supported
 #endif
     }
 
-    template<typename SystemWatcher = impl::DefaultSystemWatcher>
-    class SocketServer {
+    template<typename system_watcher = impl::default_socket_watcher>
+    class socket_server {
+        std::unordered_map<system_socket_descriptor, socket *> socket_map; // Maps descriptors to their socket objects
+
     public:
+
+    };
+
+#if 0
         // Called when a new socket descriptor was accept()ed from the listener socket
         //
         // If not specified, a default function will be used
-        typedef std::function<void (SocketDescriptor)> NewNativeConnectionFunction;
+        typedef std::function<void (system_socket_descriptor)> NewNativeConnectionFunction;
         // Arguments are:
         //    `socket`, the socket that was just created
         //
         // A return value of 0 disconnects the socket, requesting that it not be allowed to connect
         // Any other return value will set the initial "currently watching" flags of the socket
-        typedef std::function<WatchFlags (Socket *)> NewConnectionFunction;
+        typedef std::function<socket_watch_flags (Socket *)> NewConnectionFunction;
         // Arguments are:
         //    `socket`, the socket being watched
         //  `watching`, the flags currently being watched
@@ -48,7 +54,7 @@ namespace skate {
         // A return value equal to `watching` does nothing
         // A return value of 0 disconnects the socket, requesting watching of nothing
         // Any other return value will modify the "currently watching" flags of the socket
-        typedef std::function<WatchFlags (Socket *, WatchFlags, WatchFlags)> WatchFunction;
+        typedef std::function<socket_watch_flags (Socket *, socket_watch_flags, socket_watch_flags)> WatchFunction;
 
         enum SystemWatcherSocketPolicy {
             SocketAlwaysBlocking,       // All sockets with this system watcher are blocking (force listener to blocking, child sockets inherit)
@@ -67,11 +73,11 @@ namespace skate {
 
     protected:
         struct SocketInfo {
-            WatchFlags currently_watching;
+            socket_watch_flags currently_watching;
             std::unique_ptr<Socket> socket;
         };
 
-        std::unordered_map<SocketDescriptor, SocketInfo> sockets;
+        std::unordered_map<system_socket_descriptor, SocketInfo> sockets;
         SystemWatcher system_watcher;
 
         WatchFunction watch_callback;
@@ -81,12 +87,12 @@ namespace skate {
         Socket *listener; // Not owned by this class
 
         // Overridable factory that creates a socket object for the client, and whether it's already blocking or nonblocking
-        virtual std::unique_ptr<Socket> socket_factory(SocketDescriptor client, bool nonblocking) {
+        virtual std::unique_ptr<Socket> socket_factory(system_socket_descriptor client, bool nonblocking) {
             return std::unique_ptr<Socket>(new Socket(client, nonblocking));
         }
 
         // Default implementation of on_new_native_connection just inserts the connection as a watched socket of this server instance
-        void new_native_connection(SocketDescriptor client) {
+        void new_native_connection(system_socket_descriptor client) {
             bool blocking = false;
 
             // Create new socket device with the blocking specifier. This is not configurable, it's set by the OS and which system watcher is used
@@ -108,7 +114,7 @@ namespace skate {
             }
 
             // Assume watch all if no "new connection" callback is set
-            const WatchFlags flags = new_connection_callback? new_connection_callback(ptr.get()): WatchAll;
+            const socket_watch_flags flags = new_connection_callback? new_connection_callback(ptr.get()): WatchAll;
 
             // User can veto the connection by returning 0 for watch flags
             if (flags == 0)
@@ -120,13 +126,13 @@ namespace skate {
         }
 
         // Called when a listener socket had a readiness event occur
-        void socket_accept_event_occurred(Socket *socket, WatchFlags) {
+        void socket_accept_event_occurred(Socket *socket, socket_watch_flags) {
             struct sockaddr_storage remote_addr;
             socklen_t remote_addr_len = sizeof(remote_addr);
 
             do {
 #if POSIX_OS | WINDOWS_OS
-                const SocketDescriptor remote = ::accept(socket->native(),
+                const system_socket_descriptor remote = ::accept(socket->native(),
                                                          reinterpret_cast<struct sockaddr *>(&remote_addr),
                                                          &remote_addr_len);
 
@@ -153,11 +159,11 @@ namespace skate {
         // `currently_watching` is the flags currently being watched on the socket (e.g. watch for read, watch for write, etc.)
         // `event` is the flags that were signalled on the socket as happening (e.g. ready to read, ready to write, etc.)
         // `event` may have multiple flags set
-        void socket_nonaccept_event_occurred(Socket *socket, WatchFlags currently_watching, WatchFlags event) {
-            const SocketDescriptor desc = socket->native(); // Must be called before watch_callback. If called after, the user may have closed the socket and erased the descriptor
+        void socket_nonaccept_event_occurred(Socket *socket, socket_watch_flags currently_watching, socket_watch_flags event) {
+            const system_socket_descriptor desc = socket->native(); // Must be called before watch_callback. If called after, the user may have closed the socket and erased the descriptor
             const Socket::State original_state = socket->state();
 
-            const WatchFlags new_flags = watch_callback(socket, currently_watching, event);
+            const socket_watch_flags new_flags = watch_callback(socket, currently_watching, event);
 
             // Was it a hangup, or socket disconnected in callback? If so, unwatch and delete
             if ((event & WatchHangup) ||                                            // Originally disconnected, that's why the event came in
@@ -171,7 +177,7 @@ namespace skate {
         }
 
     public:
-        SocketServer() : listener(nullptr) {}
+        socket_server() : listener(nullptr) {}
         template<typename... Args>
         explicit SocketServer(Args&&... args) : system_watcher(std::forward<Args>(args)...), listener(nullptr) {}
 
@@ -211,7 +217,7 @@ namespace skate {
 
             if (!new_native_connection_callback) {
                 // Set up default native connection callback (the virtual override in this class) if none was set up yet
-                on_new_native_connection([this](SocketDescriptor client) {
+                on_new_native_connection([this](system_socket_descriptor client) {
                     new_native_connection(client);
                 });
             }
@@ -242,7 +248,7 @@ namespace skate {
             int err;
 
             do {
-                err = system_watcher.poll([&](SocketDescriptor desc, WatchFlags flags) {
+                err = system_watcher.poll([&](system_socket_descriptor desc, socket_watch_flags flags) {
                     if (desc == listener->native()) { // Listening socket is ready to read
                         socket_accept_event_occurred(listener, flags);
                     } else { // Some other socket had an event, trigger the user's callback
@@ -260,12 +266,12 @@ namespace skate {
         // For WSAAsyncSelectWatcher, a message was received for a socket being watched on this server
         template<typename W = SystemWatcher, typename std::enable_if<std::is_same<W, WSAAsyncSelectWatcher>::value, bool>::type = true>
         void message_received(WPARAM wParam, LPARAM lParam) {
-            const SocketDescriptor desc = wParam;
+            const system_socket_descriptor desc = wParam;
             const WORD event = WSAGETSELECTEVENT(lParam);
             const WORD error = WSAGETSELECTERROR(lParam);
 
             Socket *socket;
-            WatchFlags currently_watching = 0;
+            socket_watch_flags currently_watching = 0;
 
             if (desc == listener->native()) {
                 socket = listener;
@@ -283,7 +289,7 @@ namespace skate {
             if (error)
                 socket->handle_error(std::error_code(error, std::system_category()));
 
-            const WatchFlags flags = WSAAsyncSelectWatcher::watch_flags_from_kernel_flags(event);
+            const socket_watch_flags flags = WSAAsyncSelectWatcher::watch_flags_from_kernel_flags(event);
 
             // Otherwise signal the event on the socket
             if (event & FD_ACCEPT) {
@@ -294,6 +300,7 @@ namespace skate {
         }
 #endif
     };
+#endif
 }
 
 #endif // SKATE_SERVER_H

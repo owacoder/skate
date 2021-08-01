@@ -10,7 +10,6 @@
 #include "socket/server.h"
 
 static std::mutex coutMutex;
-static int total;
 
 template<typename Message>
 void consumer(skate::MessageHandler<Message> buffer) {
@@ -63,6 +62,16 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include <map>
 #include <array>
 #include "system/benchmark.h"
+
+void network_test() {
+    skate::startup_wrapper wrapper;
+    skate::tcp_socket tcp;
+
+    std::error_code ec;
+    tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}, skate::ip_address_v4));
+    tcp.write(ec, "GET / HTTP/1.1\r\nHost: territory.ddns.net\r\nConnection: close\r\n\r\n");
+    std::cout << tcp.read_all<std::string>(ec) << std::endl;
+}
 
 struct Point {
     int x, y;
@@ -136,6 +145,10 @@ namespace skate {
 
 int main()
 {
+    network_test();
+
+    return 0;
+
     std::cout << skate::json(skate::split<std::vector<std::string>>("Header, Test,,, None 2", ",", true)) << std::endl;
     std::cout << skate::json(skate::join(std::vector<std::string>{"Header", "Data", "Data", "", "Data"}, ",")) << std::endl;
 
@@ -458,10 +471,8 @@ int main()
 #endif
 
     try {
-        skate::StartupWrapper wrapper;
-        skate::TCPSocket socket;
-        skate::UDPSocket udp;
-        skate::SocketServer<skate::Poll> server;
+        skate::startup_wrapper wrapper;
+        skate::socket_server<skate::poll_socket_watcher> server;
 
 #if 0
         udp.bind(Skate::SocketAddress::any(), 8080);
@@ -477,7 +488,7 @@ int main()
             std::cout << "New connection to " << connection->remote_address().to_string(connection->remote_port()) <<
                          " is " << (connection->is_blocking()? "blocking": "nonblocking") << std::endl;
             return Skate::WatchRead;
-        }, [](Skate::Socket *connection, Skate::WatchFlags watching, Skate::WatchFlags event) -> Skate::WatchFlags {
+        }, [](Skate::Socket *connection, Skate::socket_watch_flags watching, Skate::socket_watch_flags event) -> Skate::socket_watch_flags {
             if (connection->is_blocking()) {
                 // Special handling for blocking sockets
             } else {
@@ -541,6 +552,5 @@ int main()
     thrd.join();
     //thrd2.join();
 
-    std::cout << "Hello World! " << total << std::endl;
     return 0;
 }

@@ -11,10 +11,10 @@
 namespace skate {
     class KQueue : public SocketWatcher {
         std::vector<struct kevent> changes;
-        SocketDescriptor queue;
+        system_socket_descriptor queue;
 
-        static WatchFlags watch_flags_from_kernel_flags(uint32_t kernel_flags) noexcept {
-            WatchFlags watch_flags = 0;
+        static socket_watch_flags watch_flags_from_kernel_flags(uint32_t kernel_flags) noexcept {
+            socket_watch_flags watch_flags = 0;
 
             watch_flags |= kernel_flags & EPOLLIN? WatchRead: 0;
             watch_flags |= kernel_flags & EPOLLOUT? WatchWrite: 0;
@@ -25,7 +25,7 @@ namespace skate {
             return watch_flags;
         }
 
-        static uint32_t kernel_flags_from_watch_flags(WatchFlags watch_flags) noexcept {
+        static uint32_t kernel_flags_from_watch_flags(socket_watch_flags watch_flags) noexcept {
             uint32_t kernel_flags = 0;
 
             kernel_flags |= watch_flags & WatchRead? static_cast<uint32_t>(EPOLLIN): 0;
@@ -44,17 +44,17 @@ namespace skate {
         }
         virtual ~KQueue() { close(queue); }
 
-        virtual WatchFlags watching(SocketDescriptor) const {
+        virtual socket_watch_flags watching(system_socket_descriptor) const {
             // TODO: no way to determine if kernel has socket in set already
             return 0;
         }
 
-        void watch(SocketDescriptor socket, WatchFlags watch_type = WatchRead) {
+        void watch(system_socket_descriptor socket, socket_watch_flags watch_type = WatchRead) {
             if (!try_watch(socket, watch_type))
                 throw std::runtime_error(system_error_string(errno).to_utf8());
         }
 
-        bool try_watch(SocketDescriptor socket, WatchFlags watch_type = WatchRead) {
+        bool try_watch(system_socket_descriptor socket, socket_watch_flags watch_type = WatchRead) {
             struct kevent ev;
 
             ev.ident = socket;
@@ -68,11 +68,11 @@ namespace skate {
             return true;
         }
 
-        void modify(SocketDescriptor socket, WatchFlags new_watch_type) {
+        void modify(system_socket_descriptor socket, socket_watch_flags new_watch_type) {
             watch(socket, new_watch_type);
         }
 
-        void unwatch(SocketDescriptor socket) {
+        void unwatch(system_socket_descriptor socket) {
             struct kevent ev;
 
             ev.ident = socket;
@@ -80,7 +80,7 @@ namespace skate {
 
             changes.push_back(ev);
         }
-        void unwatch_dead_descriptor(SocketDescriptor) {
+        void unwatch_dead_descriptor(system_socket_descriptor) {
             /* Do nothing as kernel removes descriptor from epoll() set when close() is called */
         }
 

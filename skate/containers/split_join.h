@@ -17,6 +17,14 @@ namespace skate {
         void identity_append(String &append_to, T &&item) { append_to += std::move(item); }
     }
 
+#if __cplusplus >= 201703L
+    typedef std::string_view string_parameter;
+    typedef std::wstring_view wstring_parameter;
+#else
+    typedef std::string string_parameter;
+    typedef std::wstring wstring_parameter;
+#endif
+
     // Base template string join append with `void formatter(String &append_to, const decltype(*begin(range)) &element)`
     template<typename String, typename Range, typename StringView, typename Predicate>
     void join_append(String &append_to, const Range &range, const StringView &sep, Predicate formatter) {
@@ -51,11 +59,7 @@ namespace skate {
 
     // Narrow string join
     template<typename String = std::string, typename Range = std::vector<std::string>>
-#if __cplusplus >= 201703L
-    String join(const Range &range, std::string_view sep) {
-#else
-    String join(const Range &range, const std::string &sep) {
-#endif
+    String join(const Range &range, const string_parameter &sep) {
         using std::begin;
 
         return tjoin<String>(range, sep, impl::identity<decltype(*begin(range))>);
@@ -63,21 +67,13 @@ namespace skate {
 
     // Narrow string join with `String formatter(const decltype(*begin(range)) &element)`
     template<typename String = std::string, typename Range = std::vector<std::string>, typename Predicate = void>
-#if __cplusplus >= 201703L
-    String join(const Range &range, std::string_view sep, Predicate p) {
-#else
-    String join(const Range &range, const std::string &sep, Predicate p) {
-#endif
+    String join(const Range &range, const string_parameter &sep, Predicate p) {
         return tjoin<String>(range, sep, p);
     }
 
     // Wide string join
     template<typename String = std::wstring, typename Range = std::vector<std::wstring>>
-#if __cplusplus >= 201703L
-    String join(const Range &range, std::wstring_view sep) {
-#else
-    String join(const Range &range, const std::wstring &sep) {
-#endif
+    String join(const Range &range, const wstring_parameter &sep) {
         using std::begin;
 
         return tjoin<String>(range, sep, impl::identity<decltype(*begin(range))>);
@@ -85,21 +81,13 @@ namespace skate {
 
     // Wide string join with `String formatter(const decltype(*begin(range)) &element)`
     template<typename String = std::wstring, typename Range = std::vector<std::wstring>, typename Predicate = void>
-#if __cplusplus >= 201703L
-    String join(const Range &range, std::wstring_view sep, Predicate p) {
-#else
-    String join(const Range &range, const std::wstring &sep, Predicate p) {
-#endif
+    String join(const Range &range, const wstring_parameter &sep, Predicate p) {
         return tjoin<String>(range, sep, p);
     }
 
     // Narrow string join_append
     template<typename String = std::string, typename Range = std::vector<std::string>>
-#if __cplusplus >= 201703L
-    void join_append(String &append_to, const Range &range, std::string_view sep) {
-#else
-    void join_append(String &append_to, const Range &range, const std::string &sep) {
-#endif
+    void join_append(String &append_to, const Range &range, const string_parameter &sep) {
         using std::begin;
 
         tjoin_append(append_to, range, sep, impl::identity_append<decltype(*begin(range))>);
@@ -107,11 +95,7 @@ namespace skate {
 
     // Wide string join_append
     template<typename String = std::wstring, typename Range = std::vector<std::wstring>>
-#if __cplusplus >= 201703L
-    void join_append(String &append_to, const Range &range, std::wstring_view sep) {
-#else
-    void join_append(String &append_to, const Range &range, const std::wstring &sep) {
-#endif
+    void join_append(String &append_to, const Range &range, const wstring_parameter &sep) {
         using std::begin;
 
         tjoin_append(append_to, range, sep, impl::identity_append<decltype(*begin(range))>);
@@ -143,42 +127,26 @@ namespace skate {
     }
 
     template<typename Container = std::vector<std::string>>
-#if __cplusplus >= 201703L
-    Container split(std::string_view string, std::string_view sep, bool remove_empty = false) {
-#else
-    Container split(const std::string &string, const std::string &sep, bool remove_empty = false) {
-#endif
+    Container split(const string_parameter &string, const string_parameter &sep, bool remove_empty = false) {
         Container append_to;
         tsplit_append(append_to, string, sep, remove_empty);
         return append_to;
     }
 
     template<typename Container>
-#if __cplusplus >= 201703L
-    void split_append(Container &append_to, std::string_view string, std::string_view sep, bool remove_empty = false) {
-#else
-    void split_append(Container &append_to, const std::string &string, const std::string &sep, bool remove_empty = false) {
-#endif
+    void split_append(Container &append_to, const string_parameter &string, const string_parameter &sep, bool remove_empty = false) {
         tsplit_append(append_to, string, sep, remove_empty);
     }
 
     template<typename Container = std::vector<std::wstring>>
-#if __cplusplus >= 201703L
-    Container split(std::wstring_view string, std::wstring_view sep, bool remove_empty = false) {
-#else
-    Container split(const std::wstring &string, const std::wstring &sep, bool remove_empty = false) {
-#endif
+    Container split(const wstring_parameter &string, const wstring_parameter &sep, bool remove_empty = false) {
         Container append_to;
         tsplit_append(append_to, string, sep, remove_empty);
         return append_to;
     }
 
     template<typename Container>
-#if __cplusplus >= 201703L
-    void split_append(Container &append_to, std::wstring_view string, std::wstring_view sep, bool remove_empty = false) {
-#else
-    void split_append(Container &append_to, const std::wstring &string, const std::wstring &sep, bool remove_empty = false) {
-#endif
+    void split_append(Container &append_to, const wstring_parameter &string, const wstring_parameter &sep, bool remove_empty = false) {
         tsplit_append(append_to, string, sep, remove_empty);
     }
 }
