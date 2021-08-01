@@ -472,7 +472,7 @@ namespace skate {
         // Data is appended to a new container, which is then returned
         // If the socket is blocking it will wait until the remote host closes the connection, unless an error occurs
         // Reads any data that was buffered in the socket first, then reads directly from the socket
-        template<typename Container>
+        template<typename Container = std::string>
         Container read_all(std::error_code &ec) {
             Container c;
             read_all(ec, c);

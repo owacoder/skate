@@ -70,7 +70,7 @@ void network_test() {
     std::error_code ec;
     tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}, skate::ip_address_v4));
     tcp.write(ec, "GET / HTTP/1.1\r\nHost: territory.ddns.net\r\nConnection: close\r\n\r\n");
-    std::cout << tcp.read_all<std::string>(ec) << std::endl;
+    std::cout << skate::json(tcp.read_all<std::vector<unsigned char>>(ec)) << std::endl;
 }
 
 struct Point {

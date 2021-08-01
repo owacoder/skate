@@ -414,7 +414,7 @@ namespace skate {
         template<typename StreamChar, typename IntType>
         bool write_int(std::basic_streambuf<StreamChar> &os, IntType v) {
 #if __cplusplus >= 201703L
-            std::array<char, std::numeric_limits<IntType>::digits10 + std::is_signed<IntType>::value> buf;
+            std::array<char, std::numeric_limits<IntType>::digits10 + 1 + std::is_signed<IntType>::value> buf;
 
             const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v);
             if (result.ec != std::errc())
@@ -438,6 +438,7 @@ namespace skate {
                 return num < 10? 1: 1 + log10ceil(num / 10);
             }
 
+            // Needed because std::max isn't constexpr
             template<typename T>
             constexpr T max(T a, T b) { return a < b? a: b; }
         }
