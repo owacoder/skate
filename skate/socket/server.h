@@ -8,6 +8,7 @@
 #include "epoll.h"
 #include "wsaasyncselect.h"
 
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <thread>
@@ -29,9 +30,16 @@ namespace skate {
 
     template<typename system_watcher = impl::default_socket_watcher>
     class socket_server {
-        std::unordered_map<system_socket_descriptor, socket *> socket_map; // Maps descriptors to their socket objects
+        std::unordered_map<system_socket_descriptor, socket *> third_party_socket_map;           // Maps third-party descriptors (servers can watch other sockets than just incoming connections), not owned by this class
+        std::unordered_map<system_socket_descriptor, std::unique_ptr<socket>> client_socket_map; // Maps descriptors to their client socket objects
+        system_watcher watcher;
 
     public:
+        socket_server() {}
+        template<typename... Args>
+        explicit socket_server(Args&&... args) : watcher(std::forward<Args>(args)...) {}
+        virtual ~socket_server() {}
+
 
     };
 

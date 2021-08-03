@@ -68,9 +68,9 @@ void network_test() {
     skate::tcp_socket tcp;
 
     std::error_code ec;
-    tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}, skate::ip_address_v4));
+    tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}));
     tcp.write(ec, "GET / HTTP/1.1\r\nHost: territory.ddns.net\r\nConnection: close\r\n\r\n");
-    std::cout << skate::json(tcp.read_all<std::vector<unsigned char>>(ec)) << std::endl;
+    std::cout << tcp.read_all(ec) << std::endl;
 }
 
 struct Point {
@@ -145,6 +145,8 @@ namespace skate {
 
 int main()
 {
+    std::cout << skate::compare_nocase_ascii("textA", "TEXTa") << std::endl;
+
     network_test();
 
     return 0;

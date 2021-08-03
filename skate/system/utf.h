@@ -15,6 +15,7 @@ namespace skate {
 #else // C only
 #include <string.h>
 #include <limits.h>
+#include <ctype.h>
 
 #define constexpr
 #endif
@@ -310,6 +311,29 @@ namespace skate {
         *utf8 = 0;
 
         return utf8;
+    }
+
+    inline char *utf8_lowercase_ascii_n(char *utf8, size_t len) {
+        for (size_t i = 0; i < len; ++i) {
+            if (utf8[i] >= 'A' && utf8[i] <= 'Z')
+                utf8[i] ^= 0x20;
+        }
+
+        return utf8;
+    }
+    inline char *utf8_lowercase_ascii(char *utf8) {
+        return utf8_lowercase_ascii_n(utf8, strlen(utf8));
+    }
+    inline char *utf8_uppercase_ascii_n(char *utf8, size_t len) {
+        for (size_t i = 0; i < len; ++i) {
+            if (utf8[i] >= 'a' && utf8[i] <= 'z')
+                utf8[i] ^= 0x20;
+        }
+
+        return utf8;
+    }
+    inline char *utf8_uppercase_ascii(char *utf8) {
+        return utf8_uppercase_ascii_n(utf8, strlen(utf8));
     }
 
     /*
@@ -1009,6 +1033,98 @@ namespace skate {
     template<typename CharType>
     constexpr bool isspace_or_tab(CharType c) {
         return c == ' ' || c == '\t';
+    }
+
+    template<typename CharType>
+    constexpr bool isupper(CharType c) {
+        return c >= 'A' && c <= 'Z';
+    }
+
+    template<typename CharType>
+    constexpr bool islower(CharType c) {
+        return c >= 'a' && c <= 'z';
+    }
+
+    template<typename CharType>
+    constexpr CharType tolower(CharType c) {
+        return isupper(c)? c ^ 0x20: c;
+    }
+
+    template<typename CharType>
+    constexpr CharType toupper(CharType c) {
+        return islower(c)? c ^ 0x20: c;
+    }
+
+    template<typename String>
+    constexpr int compare_nocase_ascii(const String &l, const String &r) {
+        const size_t size = std::min(l.size(), r.size());
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto left = tolower(l[i]);
+            const auto right = tolower(r[i]);
+
+            if (left != right)
+                return left - right;
+        }
+
+        if (l.size() > size)
+            return 1;
+        else if (r.size() > size)
+            return -1;
+
+        return 0;
+    }
+
+    template<typename String>
+    int compare_nocase_ascii(const String *l, const String *r) {
+        for (; *l && *r; ++l, ++r) {
+            const auto left = tolower(*l);
+            const auto right = tolower(*r);
+
+            if (left != right)
+                return left - right;
+        }
+
+        if (*l)
+            return 1;
+        else if (*r)
+            return -1;
+
+        return 0;
+    }
+
+    template<typename String>
+    void uppercase_ascii(String &s) {
+        for (size_t i = 0; i < s.size(); ++i)
+            s[i] = toupper(s[i]);
+    }
+    template<typename String>
+    String uppercase_ascii_copy(const String &s) {
+        String copy(s);
+        uppercase_ascii(s);
+        return copy;
+    }
+    template<typename String>
+    void lowercase_ascii(String &s) {
+        for (size_t i = 0; i < s.size(); ++i)
+            s[i] = tolower(s[i]);
+    }
+    template<typename String>
+    String lowercase_ascii_copy(const String &s) {
+        String copy(s);
+        lowercase_ascii(s);
+        return copy;
+    }
+
+    template<typename CharType>
+    void uppercase_ascii(CharType *s, size_t len) {
+        for (size_t i = 0; i < len; ++i)
+            s[i] = toupper(s[i]);
+    }
+    template<typename CharType>
+    void lowercase_ascii(CharType *s, size_t len) {
+        for (size_t i = 0; i < len; ++i)
+            s[i] = tolower(s[i]);
     }
 }
 

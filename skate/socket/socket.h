@@ -182,18 +182,38 @@ namespace skate {
         socket &operator=(socket &&) = delete;
 
     protected:
-        constexpr socket(system_socket_descriptor sock, socket_state current_state, bool is_blocking) noexcept
+        socket(system_socket_descriptor sock, socket_state current_state, bool is_blocking) noexcept
             : sock(sock)
             , s(current_state)
             , blocking(is_blocking)
         {}
 
+        typedef void notification_function();
+
+        std::function<notification_function> ready_to_read;
+        std::function<notification_function> ready_to_write;
+
     public:
-        constexpr socket() noexcept : sock(impl::system_invalid_socket_value), s(socket_state::invalid), blocking(true) {}
+        socket() : sock(impl::system_invalid_socket_value), s(socket_state::invalid), blocking(true) {
+            on_ready_read([&]() {
+                std::error_code ec;
+                async_fill_read_buffer(ec);
+            });
+
+            on_ready_write([&]() {
+                std::error_code ec;
+                async_flush_write_buffer(ec);
+            });
+        }
         virtual ~socket() {
             if (sock != impl::system_invalid_socket_value)
                 impl::close_socket(sock);
         }
+
+        template<typename Fn>
+        void on_ready_read(Fn fn) { ready_to_read = fn; }
+        template<typename Fn>
+        void on_ready_write(Fn fn) { ready_to_write = fn; }
 
         system_socket_descriptor native() const noexcept { return sock; }
 
@@ -391,7 +411,12 @@ namespace skate {
     class stream_socket : public socket {
         constexpr static const size_t READ_BUFFER_SIZE = 4096;
 
+        stream_socket(system_socket_descriptor s, socket_state current_state, bool is_blocking)
+            : socket(s, current_state, is_blocking)
+        {}
+
     public:
+        stream_socket() {}
         virtual ~stream_socket() {}
 
         virtual socket_type type() const noexcept final { return socket_type::stream; }
