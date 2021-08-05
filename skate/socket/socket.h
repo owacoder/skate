@@ -175,34 +175,48 @@ namespace skate {
 # error Platform not supported
 #endif
 
+    // A base socket class
+    // Subclasses must do the following:
+    //   - Set socket::did_write to true immediately when the socket object is written to.
+    //   - Reimplement all pure virtual functions
     class socket {
         socket(const socket &) = delete;
         socket(socket &&) = delete;
         socket &operator=(const socket &) = delete;
         socket &operator=(socket &&) = delete;
 
+        template<typename>
+        friend class socket_server;
+
     protected:
         socket(system_socket_descriptor sock, socket_state current_state, bool is_blocking) noexcept
-            : sock(sock)
+            : did_write(false)
+            , sock(sock)
             , s(current_state)
             , blocking(is_blocking)
         {}
 
-        typedef void notification_function();
+        bool did_write; // Subclasses must set to true immediately when the socket object is written to.
 
-        std::function<notification_function> ready_to_read;
-        std::function<notification_function> ready_to_write;
+        std::function<void ()> ready_to_read_fn;
+        std::function<void ()> ready_to_write_fn;
+        std::function<void (std::error_code)> error_fn;
 
     public:
-        socket() : sock(impl::system_invalid_socket_value), s(socket_state::invalid), blocking(true) {
+        socket() : did_write(false), sock(impl::system_invalid_socket_value), s(socket_state::invalid), blocking(true) {
             on_ready_read([&]() {
                 std::error_code ec;
                 async_fill_read_buffer(ec);
+                if (error_fn)
+                    error_fn(ec);
             });
 
             on_ready_write([&]() {
                 std::error_code ec;
                 async_flush_write_buffer(ec);
+                if (error_fn)
+                    error_fn(ec);
+                return false;
             });
         }
         virtual ~socket() {
@@ -211,9 +225,11 @@ namespace skate {
         }
 
         template<typename Fn>
-        void on_ready_read(Fn fn) { ready_to_read = fn; }
+        void on_ready_read(Fn fn) { ready_to_read_fn = fn; }
         template<typename Fn>
-        void on_ready_write(Fn fn) { ready_to_write = fn; }
+        void on_ready_write(Fn fn) { ready_to_write_fn = fn; }
+        template<typename Fn>
+        void on_error(Fn fn) { error_fn = fn; }
 
         system_socket_descriptor native() const noexcept { return sock; }
 
@@ -339,10 +355,16 @@ namespace skate {
         // Bind to a local address
         virtual void bind(std::error_code &ec, socket_address local) = 0;
 
+        // Returns the socket type that this socket supports
         virtual socket_type type() const noexcept = 0;
+        // Returns the protocol that this socket supports
         virtual socket_protocol protocol() const noexcept = 0;
+        // Attempt to fill the read buffer from the native socket
         virtual void async_fill_read_buffer(std::error_code &ec) = 0;
+        // Attempt to flush the write buffer to the native socket
         virtual void async_flush_write_buffer(std::error_code &ec) = 0;
+        // Must return true if more data is waiting to be written
+        virtual bool async_pending_write() const = 0;
 
         // Synchronous name resolution
         std::vector<socket_address> resolve(std::error_code &ec, const network_address &address, address_type addrtype = address_type::ip_address_unspecified) const {
@@ -530,6 +552,7 @@ namespace skate {
             size_t written_from_new_buffer = 0;
 
             ec.clear();
+            socket::did_write = true;
 
             // Did all of write_buffer get sent?
             if (write_buffer.read_all([&](const char *data, size_t len) { return direct_write(ec, data, len); }) == buffered) {
@@ -557,6 +580,8 @@ namespace skate {
         virtual void async_flush_write_buffer(std::error_code &ec) override {
             write(ec, nullptr, 0);
         }
+
+        virtual bool async_pending_write() const { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
@@ -750,6 +775,7 @@ namespace skate {
         }
 
         void write_datagram(std::error_code &ec, std::string datagram, bool queue_on_error = true) {
+            socket::did_write = true;
             async_flush_write_buffer(ec);
 
             if (!ec) { // No errors sending buffered packets, try new packet
@@ -767,6 +793,7 @@ namespace skate {
         }
 
         void write_datagram(std::error_code &ec, const socket_address &remote, std::string datagram, bool queue_on_error = true) {
+            socket::did_write = true;
             async_flush_write_buffer(ec);
 
             if (!ec) { // No errors sending buffered packets, try new packet
@@ -802,6 +829,8 @@ namespace skate {
             if (impl::socket_would_block(ec))
                 ec.clear();
         }
+
+        virtual bool async_pending_write() const { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
@@ -857,6 +886,9 @@ namespace skate {
         }
 
         socket_datagram direct_read(std::error_code &ec) {
+            if (!is_connected() && !is_bound())
+                throw std::logic_error("Socket can only be read from if connected or bound to an address");
+
             socket_address remote;
             std::string data;
             const size_t pending_bytes = direct_read_pending_bytes(ec);
@@ -920,8 +952,8 @@ namespace skate {
         // Write data directly to the socket, and return the number of bytes written
         // Returns a "would block" error if the operation would block
         size_t direct_write_to(std::error_code &ec, const char *data, size_t len, const socket_address &remote) {
-            if (is_connected())
-                throw std::logic_error("Socket can only be written to requested address if not already connected an address");
+            if (!is_bound())
+                throw std::logic_error("Socket can only be written to if bound to an address");
 
             if (len > INT_MAX) {
                 ec = std::make_error_code(std::errc::message_size);
@@ -955,373 +987,6 @@ namespace skate {
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::udp; }
     };
-
-    class Socket;
-
-    template<typename SocketWatcher>
-    class SocketServer;
-
-    class Socket {
-        Socket(const Socket &) = delete;
-        Socket(Socket &&) = delete;
-        Socket &operator=(const Socket &) = delete;
-        Socket &operator=(Socket &&) = delete;
-
-        enum State {
-            Unconnected,
-            LookingUpHost,
-            Connecting,
-            Connected,
-            Bound,
-            Closing,
-            Listening
-        };
-
-    public:
-        // Handles a system error that occurred.
-        //
-        // If exception is thrown, the current operation is aborted
-        // If return value is false then continue current operation
-        // If return value is true, attempt to restart current operation
-        typedef std::function<bool (Socket *, std::error_code)> ErrorFunction;
-
-    public:
-        enum Type {
-            AnySocket = 0,
-            StreamSocket = SOCK_STREAM,
-            DatagramSocket = SOCK_DGRAM
-        };
-
-        enum Protocol {
-            AnyProtocol = 0,
-            TCPProtocol = IPPROTO_TCP,
-            UDPProtocol = IPPROTO_UDP
-        };
-
-#if POSIX_OS
-        enum Shutdown {
-            ShutdownRead = SHUT_RD,
-            ShutdownWrite = SHUT_WR,
-            ShutdownReadWrite = SHUT_RDWR
-        };
-#elif WINDOWS_OS
-        enum Shutdown {
-            ShutdownRead = SD_RECEIVE,
-            ShutdownWrite = SD_SEND,
-            ShutdownReadWrite = SD_BOTH
-        };
-#else
-# error Platform not supported
-#endif
-
-        // Reimplement in client to override behavior of address resolution
-        virtual Type type() const {return AnySocket;}
-        virtual Protocol protocol() const {return AnyProtocol;}
-
-#if 0
-        // Socket functionality
-        // Synchronously binds to specified address and port
-        Socket &bind(socket_address address) {
-            if (!is_unconnected())
-                throw std::logic_error("Socket was already connected or bound to an address");
-
-            bind(address, false);
-
-            return *this;
-        }
-
-        // Synchronously connects to specified address and port
-        Socket &connect(socket_address address) {
-            if (!is_unconnected() && !is_bound())
-                throw std::logic_error("connect() must be called on an unconnected or bound socket");
-            else if (!is_blocking())
-                throw std::logic_error("connect() must only be used on blocking sockets");
-
-            bind(address, true);
-
-            return *this;
-        }
-
-        State state() const noexcept {return status;}
-        bool is_unconnected() const noexcept {return status == Unconnected;}
-        bool is_looking_up_host() const noexcept {return status == LookingUpHost;}
-        bool is_connecting() const noexcept {return status == Connecting;}
-        bool is_connected() const noexcept {return status == Connected;}
-        bool is_bound() const noexcept {return status == Bound;}
-        bool is_closing() const noexcept {return status == Closing;}
-        bool is_listening() const noexcept {return status == Listening;}
-
-    private:
-        // Performs a synchronous (blocking) bind or connect to the given address
-        // If address_is_remote is true, a connect() is performed
-        // If address_is_remote is false, a bind() is performed
-        void bind(socket_address address,
-                  bool address_is_remote) {
-            struct addrinfo hints;
-            struct addrinfo *addresses = nullptr, *ptr = nullptr;
-
-            status = LookingUpHost;
-
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = address.type();
-            hints.ai_socktype = type();
-            hints.ai_protocol = protocol();
-            hints.ai_flags = AI_PASSIVE;
-
-            do {
-                const int err = ::getaddrinfo(!address.is_unspecified()? address.to_string(false).c_str(): NULL,
-                                        address.port()? std::to_string(address.port()).c_str(): NULL,
-                                        &hints,
-                                        &addresses);
-
-#if POSIX_OS
-                if (err == EAI_SYSTEM) {
-                    if (handle_error(std::error_code(errno, socket_category())))
-                        continue;
-                } else
-#endif
-                /* else (if POSIX_OS) */ if (err) {
-                    if (handle_error(std::error_code(err, getaddrinfo_error_category())))
-                        continue;
-                }
-            } while (false);
-
-            status = Connecting;
-
-            int err = 0;
-            do {
-                try {
-                    for (ptr = addresses; ptr; ptr = ptr->ai_next) {
-                        const int yes = 1;              // setsockopt option
-                        bool is_broadcast = false;      // is address a broadcast address
-
-                        switch (ptr->ai_family) {
-                            default: continue;
-                            case IPAddressV4:
-                                is_broadcast = socket_address(*reinterpret_cast<struct sockaddr_in *>(ptr->ai_addr)).is_broadcast();
-                                break;
-                            case IPAddressV6: break;
-                        }
-
-                        // Create new socket descriptor
-                        sock = ::socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
-                        if (sock == invalid_socket) {
-                            err = socket_error();
-                            continue;
-                        }
-
-                        // If a broadcast address, try to set the socket option
-                        // It really doesn't matter if this call fails as it's just to set permissions
-                        // connect() or bind() will give the real error
-                        if (is_broadcast)
-                            ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes));
-
-                        if (address_is_remote) {
-
-                            // connect() if remote address
-
-                            if (::connect(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
-                                err = socket_error();
-                                close_socket(sock);
-                                sock = invalid_socket;
-                                continue;
-                            }
-                        } else {
-
-                            // bind() if local address
-
-                            const int yes = 1;
-                            if (::setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0 ||
-                                ::bind(sock, reinterpret_cast<struct sockaddr *>(ptr->ai_addr), static_cast<socklen_t>(ptr->ai_addrlen)) < 0) {
-                                err = socket_error();
-                                close_socket(sock);
-                                sock = invalid_socket;
-                                continue;
-                            }
-                        }
-
-                        break; // Successful, no errors; breaks address search loop, leaving ptr non-null
-                    }
-                } catch (...) {
-                    freeaddrinfo(addresses);
-                    throw;
-                }
-
-                if (ptr != nullptr) { // Successful connection was made only if ptr is nonnull
-                    status = address_is_remote? Connected: Bound;
-                    break; // Break error handling loop to finish up
-                }
-
-                status = Unconnected;
-            } while (handle_error(err? std::error_code(err, std::system_category()): std::make_error_code(std::errc::address_not_available)));
-
-            freeaddrinfo(addresses);
-
-            // Prior to this call, the blocking mode could have been set but there was no descriptor to set it on
-            // This needs to be done now
-            set_blocking(is_blocking());
-        }
-#endif
-
-    protected:
-        int sock;
-        State status;
-        bool nonblocking;
-
-        std::deque<io_buffer<char>> wbuffer;
-        io_buffer<char> rbuffer;
-    };
-
-#if 0
-    class UDPSocket : public Socket {
-    public:
-        UDPSocket() {}
-        virtual ~UDPSocket() {}
-
-        // Returns a size in bytes that is at least large enough for the next packet to be fully contained
-        // On Linux, this returns the next packet size
-        // On other platforms, this may return the cumulative size of all pending packets
-        size_t pending_datagram_size() {
-            // See https://stackoverflow.com/questions/9278189/how-do-i-get-amount-of-queued-data-for-udp-socket/9296481#9296481
-            // See https://stackoverflow.com/questions/16995766/what-does-fionread-of-udp-datagram-sockets-return
-            // This ioctl call will return the next packet size on Linux,
-            // and the full size of data to be read (possibly multiple packets)
-            // on other POSIX platforms
-
-            return bytes_available();
-        }
-
-        // Reads a datagram from the socket and places the content (up to max bytes) in data
-        // The address and port of the sender are placed in address and port, respectively, if provided
-        //
-        // Returns the size of the datagram that was just read
-        //
-        // For nonblocking sockets, there is no way to differentiate between "no packet available" and a zero-length packet
-        size_t read_datagram(char *data, size_t max, socket_address *address = nullptr) {
-            if (!is_bound() && !is_connected())
-                throw std::logic_error("Socket can only use read_datagram() if bound or connected to an address");
-
-            struct sockaddr_storage addr;
-            socklen_t addrlen;
-
-            while (true) {
-                addrlen = sizeof(addr);
-                const int to_read = max < INT_MAX? static_cast<int>(max): INT_MAX;
-                const int read = ::recvfrom(sock, data, to_read, 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
-                if (read < 0) {
-                    const int err = socket_error();
-                    if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
-                        return 0;
-                    continue;
-                }
-
-                if (address)
-                    *address = socket_address(reinterpret_cast<const struct sockaddr *>(&addr));
-
-                return read;
-            }
-        }
-
-        // Reads a datagram from the socket and sends the packet to predicate as
-        // `void (const char *data, size_t len, socket_address address)`
-        // with the address and port of the sender included
-        //
-        // Returns the size of the datagram that was just read
-        //
-        // For nonblocking sockets, the predicate is not called if the read would block
-        template<typename Predicate>
-        size_t read_datagram(Predicate p) {
-            char buffer[0x1000];
-            const size_t pending = pending_datagram_size();
-
-            struct sockaddr_storage addr;
-            socklen_t addrlen;
-
-            if (pending > sizeof(buffer)) {
-                std::string packet(pending, '\0');
-
-                while (true) {
-                    const int read = ::recvfrom(sock, &packet[0], packet.size(), 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
-                    if (read < 0) {
-                        const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
-                            return 0;
-                        continue;
-                    }
-
-                    socket_address address(reinterpret_cast<struct sockaddr *>(&addr));
-                    p(packet.c_str(), read, address);
-
-                    return read;
-                }
-            } else {
-                while (true) {
-                    const int read = ::recvfrom(sock, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&addr), &addrlen);
-                    if (read < 0) {
-                        const int err = socket_error();
-                        if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
-                            return 0;
-                        continue;
-                    }
-
-                    socket_address address(reinterpret_cast<struct sockaddr *>(&addr));
-                    p(buffer, read, address);
-
-                    return read;
-                }
-            }
-        }
-
-        std::string read_datagram(socket_address *address = nullptr) {
-            std::string datagram(pending_datagram_size(), '\0');
-            datagram.resize(read_datagram(&datagram[0], datagram.size(), address));
-            return datagram;
-        }
-
-        // Writes a datagram to the socket
-        // The address and port of the recipient must be specified
-        //
-        // Returns the number of bytes written
-        //
-        // For nonblocking sockets, there is no way to differentiate between "failed to send" and a zero-length packet
-        size_t write_datagram(socket_address address, const char *data, size_t len) {
-            if (!is_bound() && !is_connected())
-                throw std::logic_error("Socket can only use write_datagram() if bound or connected to an address");
-
-            const int yes = 1;
-            struct sockaddr_storage addr = address.native();
-
-            // Enable broadcast if a broadcast address
-            if (address.is_broadcast() &&
-                             ::setsockopt(sock, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&yes), sizeof(yes)) < 0)
-                handle_error(std::error_code(socket_error(), std::system_category()));
-
-            // Send packet to socket
-            while (true) {
-                const int to_write = len < INT_MAX? static_cast<int>(len): INT_MAX;
-                const int written = ::sendto(sock, data, to_write, 0,
-                                             reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
-                if (written < 0) {
-                    const int err = socket_error();
-                    if (socket_would_block(err) || !handle_error(std::error_code(err, std::system_category())))
-                        return 0;
-                    continue;
-                }
-
-                return written;
-            }
-        }
-        size_t write_datagram(socket_address address, const char *data) {
-            return write_datagram(address, data, strlen(data));
-        }
-        size_t write_datagram(socket_address address, const std::string &str) {
-            return write_datagram(address, str.c_str(), str.length());
-        }
-
-        virtual Type type() const {return DatagramSocket;}
-        virtual Protocol protocol() const {return UDPProtocol;}
-    };
-#endif
 }
 
 #endif // SKATE_SOCKET_H

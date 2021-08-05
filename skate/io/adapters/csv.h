@@ -81,7 +81,11 @@ namespace skate {
         {}
 
         // User object overload, skate_csv(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_csv(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<_ &>(), std::declval<csv_options>()))>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_csv(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<_ &>(), std::declval<csv_options>()))>::value &&
+                                                                                 !is_string_base<_>::value &&
+                                                                                 !is_array_base<_>::value &&
+                                                                                 !is_map_base<_>::value &&
+                                                                                 !is_tuple_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             // Library user is responsible for validating read CSV in the callback function
             return skate_csv(is, ref, options);
@@ -539,7 +543,11 @@ namespace skate {
         {}
 
         // User object overload, skate_csv(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_csv(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<csv_options>()))>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_csv(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<csv_options>()))>::value &&
+                                                                                 !is_string_base<_>::value &&
+                                                                                 !is_array_base<_>::value &&
+                                                                                 !is_map_base<_>::value &&
+                                                                                 !is_tuple_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Library user is responsible for creating valid CSV in the callback function
             return skate_csv(os, ref, options);

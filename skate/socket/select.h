@@ -67,10 +67,10 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             if (fd >= FD_SETSIZE) {
                 ec = std::make_error_code(std::errc::no_buffer_space);
-                return;
+                return socket_blocking_adjustment::unchanged;
             }
 
             ec.clear();
@@ -89,15 +89,17 @@ namespace skate {
                 FD_SET(fd, &master_except_set);
                 max_except_descriptor = std::max(fd, max_except_descriptor);
             }
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor fd) override {
             ec.clear();
 
             if (fd >= FD_SETSIZE)
-                return;
+                return socket_blocking_adjustment::unchanged;
 
             FD_CLR(fd, &master_read_set);
             if (fd == max_read_descriptor)
@@ -110,6 +112,8 @@ namespace skate {
             FD_CLR(fd, &master_except_set);
             if (fd == max_except_descriptor)
                 max_except_descriptor = highest_descriptor(&master_except_set, max_except_descriptor);
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Clears the set and removes all watched descriptors
@@ -255,14 +259,14 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             if ((  master_read_set.fd_count == FD_SETSIZE && (watch_type & WatchRead  )) ||
                 ( master_write_set.fd_count == FD_SETSIZE && (watch_type & WatchWrite )) ||
                 (master_except_set.fd_count == FD_SETSIZE && (watch_type & WatchExcept))) {
                 // FD_SETSIZE descriptors already being watched
 
                 ec = std::make_error_code(std::errc::no_buffer_space);
-                return;
+                return socket_blocking_adjustment::unchanged;
             }
 
             if (watch_type & WatchRead)
@@ -273,15 +277,18 @@ namespace skate {
 
             if (watch_type & WatchExcept)
                 FD_SET(fd, &master_except_set);
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor fd) override {
             ec.clear();
             FD_CLR(fd, &master_read_set);
             FD_CLR(fd, &master_write_set);
             FD_CLR(fd, &master_except_set);
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Clears the set and removes all watched descriptors

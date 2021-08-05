@@ -38,6 +38,7 @@ namespace skate {
     {
         // Only call when buffer is empty. Shrinks the storage needed to a minimal amount to save space
         void do_empty_shrink() {
+            buffer_first_element = 0;
             if (buffer_limit == 0 || data.capacity() > buffer_limit) {
                 data.clear();
                 data.shrink_to_fit();
@@ -60,7 +61,7 @@ namespace skate {
 
             if (capacity() == size()) {             // Need to grow buffer
                 if (buffer_first_element == 0) {    // Already aligned to start of vector
-                    data.push_back(std::forward<U>(v));
+                    data.emplace_back(std::forward<U>(v));
                 } else {                            // Not aligned to start of vector, so insert in the middle
                     data.insert(data.begin() + buffer_first_element, std::forward<U>(v));
 
@@ -147,7 +148,6 @@ namespace skate {
             T value = std::move(data[buffer_first_element++]);
 
             if (--buffer_size == 0) {
-                buffer_first_element = 0;
                 do_empty_shrink();
             } else
                 buffer_first_element %= capacity();
@@ -164,7 +164,6 @@ namespace skate {
             element = std::move(data[buffer_first_element++]);
 
             if (--buffer_size == 0) {
-                buffer_first_element = 0;
                 do_empty_shrink();
             } else
                 buffer_first_element %= capacity();
@@ -185,9 +184,7 @@ namespace skate {
             if (max == 0)
                 return 0;
             else if (capacity() - buffer_first_element >= max) {                // Requested portion is entirely contiguous
-                consumed = p(data.data() + buffer_first_element, max);
-
-                buffer_first_element = (buffer_first_element + std::min(max, consumed)) % capacity();
+                consumed = std::min<size_t>(max, p(data.data() + buffer_first_element, max));
             } else {                                                            // Requested portion is partially contiguous
                 const size_t contiguous = capacity() - buffer_first_element;    // Number of elements before end of circular buffer
                 const size_t contiguous_remainder = max - contiguous;           // Number of wrap-around elements at physical beginning of circular buffer
@@ -197,13 +194,9 @@ namespace skate {
                 if (consumed == contiguous) {                                   // Consumed all first portion, may be able to consume more
                     consumed += std::min<size_t>(contiguous_remainder, p(data.data(), contiguous_remainder));
                 }
-
-                if (consumed == size())                                         // If everything was consumed, the buffer is now empty, so reset to position 0
-                    buffer_first_element = 0;
-                else                                                            // Otherwise increment as much as was consumed
-                    buffer_first_element = (buffer_first_element + consumed) % capacity();
             }
 
+            buffer_first_element = (buffer_first_element + consumed) % capacity();
             buffer_size -= max;
 
             if (buffer_size == 0)
@@ -246,7 +239,7 @@ namespace skate {
 
         // All data in the buffer is cleared and memory is released
         void clear() {
-            buffer_first_element = buffer_size = 0;
+            buffer_size = 0;
             do_empty_shrink();
         }
 

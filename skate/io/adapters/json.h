@@ -53,7 +53,11 @@ namespace skate {
         constexpr json_reader(Type &ref) : ref(ref) {}
 
         // User object overload, skate_to_json(stream, object)
-        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::value &&
+                                                                                 !is_string_base<_>::value &&
+                                                                                 !is_array_base<_>::value &&
+                                                                                 !is_map_base<_>::value &&
+                                                                                 !is_tuple_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
             // Library user is responsible for validating read JSON in the callback function
             return skate_json(is, ref);
@@ -421,7 +425,11 @@ namespace skate {
         {}
 
         // User object overload, skate_json(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::value &&
+                                                                                 !is_string_base<_>::value &&
+                                                                                 !is_array_base<_>::value &&
+                                                                                 !is_map_base<_>::value &&
+                                                                                 !is_tuple_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Library user is responsible for creating valid JSON in the callback function
             return skate_json(os, ref, options);
@@ -604,10 +612,10 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_shared_ptr_base<_>::value ||
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<(is_shared_ptr_base<_>::value ||
                                                                                  is_weak_ptr_base<_>::value ||
                                                                                  is_unique_ptr_base<_>::value ||
-                                                                                 std::is_pointer<_>::value, int>::type = 0>
+                                                                                 std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (!ref) {
                 const StreamChar array[] = {'n', 'u', 'l', 'l'};

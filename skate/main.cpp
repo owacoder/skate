@@ -53,6 +53,7 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include <QMap>
 #endif
 
+#include "io/logger.h"
 #include "io/adapters/core.h"
 #include "io/adapters/json.h"
 #include "io/adapters/csv.h"
@@ -65,12 +66,34 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 
 void network_test() {
     skate::startup_wrapper wrapper;
+    skate::socket_server<> server;
     skate::tcp_socket tcp;
-
     std::error_code ec;
+
     tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}));
-    tcp.write(ec, "GET / HTTP/1.1\r\nHost: territory.ddns.net\r\nConnection: close\r\n\r\n");
-    std::cout << tcp.read_all(ec) << std::endl;
+    tcp.set_blocking(ec, false);
+
+    int written = 0;
+    tcp.on_ready_read([&]() {
+        std::error_code ec;
+        std::cout << tcp.read_all(ec) << std::endl;
+    });
+
+    tcp.on_ready_write([&]() {
+        if (written++ < 20000)
+            tcp.write(ec, "GET /index.html HTTP/1.1\r\nHost: territory.ddns.net\r\n\r\n");
+        else
+            tcp.disconnect(ec);
+    });
+
+    server.on_error([](skate::socket *, std::error_code ec) {
+        std::cout << ec.message() << std::endl;
+    });
+
+    std::cout << ec.message() << std::endl;
+    server.serve_socket(&tcp);
+    server.run();
+    std::cout << written << std::endl;
 }
 
 struct Point {
@@ -145,6 +168,36 @@ namespace skate {
 
 int main()
 {
+    {
+        skate::file_logger datalog("F:/Scratch/test.log", skate::time_point_string_options(3), false);
+
+        skate::benchmark([&]() {
+            for (size_t i = 0; i < 100; ++i) {
+                datalog.info("Some random info");
+                if (i > 98) {
+                    datalog.warn("Getting full");
+                }
+            }
+        }, "Logger");
+    }
+
+    {
+        const std::string info = "INFO: ";
+        const std::string data = "Some random info";
+
+        std::ostringstream out;
+        auto &buf = *out.rdbuf();
+        skate::benchmark([&]() {
+            for (size_t i = 0; i < 100000000; ++i) {
+                buf.sputn(info.c_str(), info.size());
+                buf.sputn(data.c_str(), data.size());
+                buf.sputc('\n');
+            }
+        }, "Raw");
+    }
+
+    return 0;
+
     std::cout << skate::compare_nocase_ascii("textA", "TEXTa") << std::endl;
 
     network_test();

@@ -46,7 +46,7 @@ namespace skate {
             return 0;
         }
 
-        virtual void watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) override {
             struct epoll_event ev;
 
             ev.data.fd = socket;
@@ -56,9 +56,11 @@ namespace skate {
                 ec = impl::socket_error();
             else
                 ec.clear();
+
+            return socket_blocking_adjustment::unchanged;
         }
 
-        virtual void modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) override {
+        virtual socket_blocking_adjustment modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) override {
             struct epoll_event ev;
 
             ev.data.fd = socket;
@@ -68,15 +70,19 @@ namespace skate {
                 ec = impl::socket_error();
             else
                 ec.clear();
+
+            return socket_blocking_adjustment::unchanged;
         }
 
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor socket) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor socket) override {
             struct epoll_event ev;
 
             if (::epoll_ctl(queue, EPOLL_CTL_DEL, socket, &ev) != 0 && errno != EBADF)
                 ec = impl::socket_error();
             else
                 ec.clear();
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         virtual void unwatch_dead_descriptor(std::error_code &ec, system_socket_descriptor) override {

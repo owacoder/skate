@@ -30,6 +30,12 @@ namespace skate {
         constexpr std::chrono::microseconds timeout() const noexcept { return t; }
     };
 
+    enum class socket_blocking_adjustment {
+        unchanged,
+        nonblocking,
+        blocking
+    };
+
     class socket_watcher {
         socket_watcher(const socket_watcher &) = delete;
         socket_watcher &operator=(const socket_watcher &) = delete;
@@ -47,19 +53,21 @@ namespace skate {
         virtual socket_watch_flags watching(system_socket_descriptor socket) const = 0;
 
         // Watches a descriptor with the specified watch flags
-        virtual void watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) = 0;
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) = 0;
 
         // Modifies the watch type for a specified socket
         // If the descriptor is not in the set, nothing happens
-        virtual void modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) {
-            unwatch(ec, socket);
-            if (!ec)
-                watch(ec, socket, new_watch_type);
+        virtual socket_blocking_adjustment modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) {
+            const auto v = unwatch(ec, socket);
+            if (ec)
+                return v;
+
+            return watch(ec, socket, new_watch_type);
         }
 
         // Unwatches a descriptor that may still be open
         // If the descriptor is not in the set, nothing happens
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor socket) = 0;
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor socket) = 0;
 
         // Unwatches a descriptor known to be closed already
         // If the descriptor is not in the set, nothing happens
@@ -76,6 +84,20 @@ namespace skate {
     public:
         virtual ~socket_watcher() {}
     };
+}
+
+#include "../io/adapters/json.h"
+inline void display_socket_flags(skate::socket_watch_flags flags) {
+    std::vector<const char *> vec;
+
+    if (flags & skate::WatchRead) vec.push_back("Read");
+    if (flags & skate::WatchWrite) vec.push_back("Write");
+    if (flags & skate::WatchExcept) vec.push_back("Except");
+    if (flags & skate::WatchError) vec.push_back("Error");
+    if (flags & skate::WatchHangup) vec.push_back("Hangup");
+    if (flags & skate::WatchInvalid) vec.push_back("Invalid");
+
+    std::cout << skate::json(vec) << std::endl;
 }
 
 #endif // SKATE_SOCKET_COMMON_H

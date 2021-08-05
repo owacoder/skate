@@ -56,7 +56,7 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             pollfd desc;
 
             desc.fd = fd;
@@ -65,30 +65,32 @@ namespace skate {
             ec.clear();
 
             fds.push_back(desc);
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Modifies the watch flags for a descriptor in the set
         // If the descriptor is not in the set, nothing happens
-        virtual void modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
+        virtual socket_blocking_adjustment modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
             ec.clear();
 
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
-            if (it == fds.end())
-                return;
+            if (it != fds.end())
+                it->events = kernel_flags_from_watch_flags(new_watch_type);
 
-            it->events = kernel_flags_from_watch_flags(new_watch_type);
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor fd) override {
             ec.clear();
 
             const auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
-            if (it == fds.end())
-                return;
+            if (it != fds.end())
+                fds.erase(it);
 
-            fds.erase(it);
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Clears the set and removes all watched descriptors
@@ -173,7 +175,7 @@ namespace skate {
 
         // Adds a file descriptor to the set to be watched with the specified watch types
         // The descriptor must not already exist in the set, or the behavior is undefined
-        virtual void watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags watch_type) override {
             pollfd desc;
 
             desc.fd = fd;
@@ -182,32 +184,35 @@ namespace skate {
             ec.clear();
 
             fds.push_back(desc);
+
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Modifies the watch flags for a descriptor in the set
         // If the descriptor is not in the set, nothing happens
-        virtual void modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
+        virtual socket_blocking_adjustment modify(std::error_code &ec, system_socket_descriptor fd, socket_watch_flags new_watch_type) override {
             ec.clear();
 
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
-            if (it == fds.end())
-                return;
+            if (it != fds.end())
+                it->events = kernel_flags_from_watch_flags(new_watch_type);
 
-            it->events = kernel_flags_from_watch_flags(new_watch_type);
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Removes a file descriptor from all watch types
         // If the descriptor is not in the set, nothing happens
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor fd) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor fd) override {
             ec.clear();
 
             auto it = std::find_if(fds.begin(), fds.end(), [fd](const pollfd &desc) {return desc.fd == fd;});
-            if (it == fds.end())
-                return;
+            if (it != fds.end()) {
+                const size_t last_element = fds.size() - 1;
+                std::swap(fds[last_element], *it); // Swap with last element since the order is irrelevant
+                fds.resize(last_element);
+            }
 
-            const size_t last_element = fds.size() - 1;
-            std::swap(fds[last_element], *it); // Swap with last element since the order is irrelevant
-            fds.resize(last_element);
+            return socket_blocking_adjustment::unchanged;
         }
 
         // Clears the set and removes all watched descriptors
@@ -221,6 +226,9 @@ namespace skate {
         virtual void poll(std::error_code &ec, socket_watcher::native_watch_function fn, socket_timeout timeout) override {
             if (!timeout.is_infinite() && timeout.timeout().count() / 1000 > INT_MAX) {
                 ec = std::make_error_code(std::errc::invalid_argument);
+                return;
+            } else if (fds.empty()) { // Nothing to poll
+                ec.clear();
                 return;
             }
 

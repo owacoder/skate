@@ -41,22 +41,26 @@ namespace skate {
             return 0;
         }
 
-        virtual void watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) override {
+        virtual socket_blocking_adjustment watch(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags watch_type) override {
             if (::WSAAsyncSelect(socket, hwnd, msg, kernel_flags_from_watch_flags(watch_type)) == 0)
                 ec.clear();
             else
                 ec = impl::socket_error();
+
+            return socket_blocking_adjustment::nonblocking;
         }
 
-        virtual void modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) override {
-            watch(ec, socket, new_watch_type);
+        virtual socket_blocking_adjustment modify(std::error_code &ec, system_socket_descriptor socket, socket_watch_flags new_watch_type) override {
+            return watch(ec, socket, new_watch_type);
         }
 
-        virtual void unwatch(std::error_code &ec, system_socket_descriptor socket) override {
+        virtual socket_blocking_adjustment unwatch(std::error_code &ec, system_socket_descriptor socket) override {
             if (::WSAAsyncSelect(socket, hwnd, 0, 0) != 0 && WSAGetLastError() != WSAEINVAL && WSAGetLastError() != WSAENOTSOCK) // Clearing the events desired will cancel watching
                 ec = impl::socket_error();
             else
                 ec.clear();
+
+            return socket_blocking_adjustment::nonblocking;
         }
         virtual void unwatch_dead_descriptor(std::error_code &ec, system_socket_descriptor) override {
             ec.clear();

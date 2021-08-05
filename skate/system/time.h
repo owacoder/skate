@@ -121,6 +121,53 @@ namespace skate {
     std::string ctime(time_t timer) {
         return asctime(localtime(timer));
     }
+
+    struct time_point_string_options {
+        constexpr time_point_string_options() : time_point_string_options(0u) {}
+        constexpr time_point_string_options(unsigned fractional_second_places, bool utc = false, const char *format = "%F %T")
+            : fractional_second_places(fractional_second_places)
+            , utc(utc)
+            , format(format)
+        {}
+        constexpr time_point_string_options(const char *format, unsigned fractional_second_places = 6, bool utc = false)
+            : fractional_second_places(fractional_second_places)
+            , utc(utc)
+            , format(format)
+        {}
+
+        unsigned fractional_second_places;
+        bool utc;
+        const char *format;
+    };
+
+    static std::string time_point_to_string(std::chrono::time_point<std::chrono::system_clock> when, time_point_string_options options = {}) {
+        const auto adjusted = std::chrono::time_point_cast<std::chrono::nanoseconds>(when);
+        const auto truncated = adjusted - std::chrono::nanoseconds(adjusted.time_since_epoch().count() % 1000000000); // Truncate nanoseconds off adjusted time
+        const time_t t = std::chrono::system_clock::to_time_t(std::chrono::time_point_cast<std::chrono::system_clock::duration>(truncated));
+        struct tm x;
+
+        if (options.utc)
+            skate::gmtime_r(&t, &x);
+        else
+            skate::localtime_r(&t, &x);
+
+        std::string result = skate::strftime(options.format, x);
+
+        if (options.fractional_second_places) {
+            std::string fractional = std::to_string(adjusted.time_since_epoch().count() % 1000000000);
+
+            result.push_back('.');
+
+            if (options.fractional_second_places < fractional.size())
+                fractional.resize(options.fractional_second_places, '0');
+            else
+                result.resize(result.size() + options.fractional_second_places - fractional.size(), '0');
+
+            result += fractional;
+        }
+
+        return result;
+    }
 }
 
 #endif // SKATE_TIME_H

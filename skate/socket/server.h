@@ -28,19 +28,191 @@ namespace skate {
 #endif
     }
 
+    class WSAAsyncSelectWatcher;
+
     template<typename system_watcher = impl::default_socket_watcher>
     class socket_server {
         std::unordered_map<system_socket_descriptor, socket *> third_party_socket_map;           // Maps third-party descriptors (servers can watch other sockets than just incoming connections), not owned by this class
         std::unordered_map<system_socket_descriptor, std::unique_ptr<socket>> client_socket_map; // Maps descriptors to their client socket objects
         system_watcher watcher;
+        std::function<void (socket *)> ready_to_read_fn;
+        std::function<bool (socket *)> ready_to_write_fn; // Returns true if continued writes are needed (split across multiple calls)
+        std::function<void (socket *, std::error_code)> error_fn;
+        bool canceled;
+
+        socket *third_party_socket(system_socket_descriptor native) const {
+            const auto it = third_party_socket_map.find(native);
+            if (it != third_party_socket_map.end())
+                return it->second;
+
+            return nullptr;
+        }
+        socket *owned_socket(system_socket_descriptor native) const {
+            const auto it = client_socket_map.find(native);
+            if (it != client_socket_map.end())
+                return it->second.get();
+
+            return nullptr;
+        }
+        socket *get_socket(system_socket_descriptor native) const {
+            auto sock = third_party_socket(native);
+            if (sock)
+                return sock;
+
+            return owned_socket(native);
+        }
+
+        void socket_accept_event_occurred(socket *s, socket_watch_flags flags) {
+
+        }
+
+        void socket_nonaccept_event_occurred(socket *s, socket_watch_flags flags) {
+            const system_socket_descriptor desc = s->native(); // Must be called before callbacks. If called after, the user may have closed the socket and erased the descriptor
+            const socket_state original_state = s->state();
+
+            s->did_write = false;
+
+            if (flags & WatchRead) {
+                if (s->ready_to_read_fn)
+                    s->ready_to_read_fn();
+                else if (ready_to_read_fn)
+                    ready_to_read_fn(s);
+            }
+
+            if (flags & WatchWrite) {
+                if (s->ready_to_write_fn)
+                    s->ready_to_write_fn();
+                else if (ready_to_write_fn)
+                    ready_to_write_fn(s);
+            }
+
+            std::error_code ec;
+
+            // Was it a hangup, or socket disconnected in callback? If so, unwatch and delete
+            if ((flags & WatchHangup) ||                                            // Originally disconnected, that's why the event came in
+                (s->state() != original_state && s->is_null())) {                   // Socket already was disconnected
+                watcher.unwatch_dead_descriptor(ec, desc);
+                third_party_socket_map.erase(desc);
+                client_socket_map.erase(desc);
+            } else if (s->did_write) {                                              // Data was queued to send, enable write watching
+                watcher.modify(ec, desc, WatchAll);
+            } else if ((flags & WatchWrite) && !s->did_write && !s->async_pending_write()) {                // No data queued and no data sent, disable write watching
+                watcher.modify(ec, desc, WatchAll & ~WatchWrite);
+            }
+
+            if (ec)
+                s->error_fn(ec);
+        }
+
+        // Initializes error handling on socket. If the socket has no error handler, set up a callback to the server error_fn
+        void do_socket_init(socket *s) {
+            if (!s->error_fn) {
+                s->on_error([this, s](std::error_code ec) {
+                    if (ec && error_fn)
+                        error_fn(s, ec);
+                });
+            }
+
+            std::error_code ec;
+            watcher.watch(ec, s->native(), WatchAll);
+
+            if (ec)
+                s->error_fn(ec);
+        }
 
     public:
-        socket_server() {}
+        socket_server() : canceled(false) {}
         template<typename... Args>
-        explicit socket_server(Args&&... args) : watcher(std::forward<Args>(args)...) {}
+        explicit socket_server(Args&&... args) : watcher(std::forward<Args>(args)...), canceled(false) {}
         virtual ~socket_server() {}
 
+        template<typename Fn>
+        void on_ready_read(Fn fn) { ready_to_read_fn = fn; }
+        template<typename Fn>
+        void on_ready_write(Fn fn) { ready_to_write_fn = fn; }
+        template<typename Fn>
+        void on_error(Fn fn) { error_fn = fn; }
 
+        // Add external socket to be watched by this server (any socket type works)
+        void serve_socket(socket *s) {
+            if (s->is_null())
+                throw std::logic_error("Cannot serve a null socket");
+
+            third_party_socket_map[s->native()] = s;
+            do_socket_init(s);
+        }
+
+        // Run this server, constantly polling for updates
+        // Disabled for WSAAsyncSelect watchers, use message_received() in a message handler instead
+#if WINDOWS_OS
+        template<typename W = system_watcher, typename std::enable_if<!std::is_same<W, WSAAsyncSelectWatcher>::value, bool>::type = true>
+#endif
+        void run() {
+            canceled = false;
+            while (!canceled && third_party_socket_map.size()) {
+                poll();
+                std::this_thread::yield();
+            }
+        }
+
+        // Cancel a running server
+        void cancel() { canceled = true; }
+
+        // Polls the set of socket descriptors for changes
+        // listen(), poll(), and run() are the only non-reentrant function in this class
+        // Disabled for WSAAsyncSelect watchers, use message_received() in a message handler instead
+#if WINDOWS_OS
+        template<typename W = system_watcher, typename std::enable_if<!std::is_same<W, WSAAsyncSelectWatcher>::value, bool>::type = true>
+#endif
+        void poll(socket_timeout timeout = socket_timeout::infinite()) {
+            std::error_code ec;
+
+            watcher.poll(ec, [&](system_socket_descriptor desc, socket_watch_flags flags) {
+                auto socket = get_socket(desc);
+                if (!socket)
+                    return; // Not being served by this server?
+
+                if (socket->is_listening()) { // Listening socket is ready to read
+                    socket_accept_event_occurred(socket, flags);
+                } else {
+                    socket_nonaccept_event_occurred(socket, flags);
+                }
+            }, timeout);
+
+            if (ec) {
+                if (error_fn)
+                    error_fn(nullptr, ec);
+
+                cancel();
+            }
+        }
+
+#if WINDOWS_OS
+        // For WSAAsyncSelectWatcher, a message was received for a socket being watched on this server
+        template<typename W = system_watcher, typename std::enable_if<std::is_same<W, WSAAsyncSelectWatcher>::value, bool>::type = true>
+        void message_received(WPARAM wParam, LPARAM lParam) {
+            const system_socket_descriptor desc = wParam;
+            const WORD event = WSAGETSELECTEVENT(lParam);
+            const WORD error = WSAGETSELECTERROR(lParam);
+
+            socket *sock = get_socket(desc);
+            if (!sock)
+                return; // Not being served by this server?
+
+            // If an error, signal it on the socket
+            if (error && sock->error_fn)
+                sock->error_fn(std::error_code(error, win32_category()));
+
+            const socket_watch_flags flags = WSAAsyncSelectWatcher::watch_flags_from_kernel_flags(event);
+
+            // Otherwise signal the event on the socket
+            if (event & FD_ACCEPT) {
+                socket_accept_event_occurred(sock, flags);
+            } else { // Not a listener socket
+                socket_nonaccept_event_occurred(sock, flags);
+            }
+        }
+#endif
     };
 
 #if 0

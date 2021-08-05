@@ -16,7 +16,9 @@ HEADERS += \
     containers/split_join.h \
     io/adapters/csv.h \
     containers/tree.h \
+    io/base64.h \
     io/buffer.h \
+    io/logger.h \
     socket/iocp.h \
     socket/wsaasyncselect.h \
     system/benchmark.h \
