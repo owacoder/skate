@@ -169,16 +169,40 @@ namespace skate {
 int main()
 {
     {
-        skate::file_logger datalog("F:/Scratch/test.log", skate::time_point_string_options(3), false);
+#if WINDOWS_OS
+        const char *path = "F:/Scratch/test.log";
+#else
+        const char *path = "/shared/Scratch/test.log";
+#endif
+        skate::async_file_logger datalog(path, skate::default_logger_options{skate::time_point_string_options::default_enabled()}, std::ios_base::out);
+        datalog.set_buffer_limit(0);
 
         skate::benchmark([&]() {
-            for (size_t i = 0; i < 100; ++i) {
-                datalog.info("Some random info");
-                if (i > 98) {
-                    datalog.warn("Getting full");
-                }
+            std::thread thrd[10];
+
+            for (size_t i = 0; i < 10; ++i) {
+                thrd[i] = std::thread([&, i]() {
+                    for (size_t j = 0; j < 10000000; ++j) {
+                        datalog.info("Thread " + std::to_string(i) + ", Message " + std::to_string(j));
+                    }
+                });
             }
-        }, "Logger");
+
+            for (size_t i = 0; i < 10; ++i)
+                thrd[i].join();
+        });
+
+        skate::benchmark([&]() {
+            skate::benchmark_throughput([&]() {
+                for (size_t i = 0; i < 10000000; ++i) {
+                    datalog.info("Message " + std::to_string(i));
+                }
+
+                return 10000000;
+            }, "Logger");
+
+            datalog.close();
+        }, "Entire logger");
     }
 
     {
@@ -188,7 +212,7 @@ int main()
         std::ostringstream out;
         auto &buf = *out.rdbuf();
         skate::benchmark([&]() {
-            for (size_t i = 0; i < 100000000; ++i) {
+            for (size_t i = 0; i < 1000; ++i) {
                 buf.sputn(info.c_str(), info.size());
                 buf.sputn(data.c_str(), data.size());
                 buf.sputc('\n');

@@ -123,21 +123,41 @@ namespace skate {
     }
 
     struct time_point_string_options {
-        constexpr time_point_string_options() : time_point_string_options(0u) {}
-        constexpr time_point_string_options(unsigned fractional_second_places, bool utc = false, const char *format = "%F %T")
+        static constexpr unsigned default_fractional_second_places = 6;
+        static constexpr const char *default_format = "%Y-%m-%d %H:%M:%S";
+        static constexpr bool default_utc = false;
+
+        constexpr time_point_string_options()
+            : fractional_second_places(default_fractional_second_places)
+            , utc(default_utc)
+            , format(default_format)
+            , enabled(false)
+        {}
+
+    public:
+        constexpr time_point_string_options(unsigned fractional_second_places, bool utc = default_utc, const char *format = default_format)
             : fractional_second_places(fractional_second_places)
             , utc(utc)
             , format(format)
+            , enabled(true)
         {}
-        constexpr time_point_string_options(const char *format, unsigned fractional_second_places = 6, bool utc = false)
+        constexpr time_point_string_options(const char *format, unsigned fractional_second_places = default_fractional_second_places, bool utc = default_utc)
             : fractional_second_places(fractional_second_places)
             , utc(utc)
             , format(format)
+            , enabled(true)
         {}
+
+        // Disabled, no time printing
+        static time_point_string_options disabled() { return {}; }
+
+        // Enabled, default settings
+        static time_point_string_options default_enabled() { return {default_fractional_second_places}; }
 
         unsigned fractional_second_places;
         bool utc;
         const char *format;
+        bool enabled;
     };
 
     static std::string time_point_to_string(std::chrono::time_point<std::chrono::system_clock> when, time_point_string_options options = {}) {

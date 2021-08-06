@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <condition_variable>
 
@@ -36,12 +37,43 @@ namespace skate {
     template<typename T>
     class io_buffer
     {
+        void align() {
+            if (buffer_first_element != 0) { // If readers can't keep up with writers, align to beginning and assume they still won't keep up well
+                std::vector<T> copy;
+
+                copy.reserve(size());
+
+                if (capacity() - buffer_first_element >= size()) {                  // Entirely contiguous
+                    copy.insert(copy.begin(),
+                                std::make_move_iterator(data.begin() + buffer_first_element),
+                                std::make_move_iterator(data.begin() + buffer_first_element + size()));
+                } else {                                                            // Partially contiguous
+                    const size_t contiguous = capacity() - buffer_first_element;    // Number of elements before end of circular buffer
+                    const size_t contiguous_remainder = size() - contiguous;        // Number of wrap-around elements at physical beginning of circular buffer
+
+                    copy.insert(copy.begin(),
+                                std::make_move_iterator(data.begin() + buffer_first_element),
+                                std::make_move_iterator(data.end()));
+                    copy.insert(copy.begin(),
+                                std::make_move_iterator(data.begin()),
+                                std::make_move_iterator(data.begin() + contiguous_remainder));
+                }
+
+                data.swap(copy);
+
+                buffer_first_element = 0;
+            } else {
+                data.resize(size());                                                // Shrink vector to remove possible unused elements
+            }
+        }
+
         // Only call when buffer is empty. Shrinks the storage needed to a minimal amount to save space
         void do_empty_shrink() {
             buffer_first_element = 0;
-            if (buffer_limit == 0 || data.capacity() > buffer_limit) {
-                data.clear();
-                data.shrink_to_fit();
+            if ((buffer_limit != 0 && data.capacity() > buffer_limit) ||
+                (buffer_limit == 0 && data.capacity() > 1000000)) {
+                decltype(data){}.swap(data);
+                data.reserve(buffer_limit);
             }
         }
 
@@ -60,13 +92,9 @@ namespace skate {
                 return false;
 
             if (capacity() == size()) {             // Need to grow buffer
-                if (buffer_first_element == 0) {    // Already aligned to start of vector
-                    data.emplace_back(std::forward<U>(v));
-                } else {                            // Not aligned to start of vector, so insert in the middle
-                    data.insert(data.begin() + buffer_first_element, std::forward<U>(v));
+                align();
 
-                    ++buffer_first_element;
-                }
+                data.emplace_back(std::forward<U>(v));
             } else {                                // More space in vector, no need to reallocate
                 data[(buffer_first_element + buffer_size) % capacity()] = std::forward<U>(v);
             }
@@ -86,14 +114,9 @@ namespace skate {
                 return false;
 
             if (capacity() - size() < c.size()) {   // Grow buffer and insert elements
-                if (buffer_first_element == 0) {    // Already aligned to start of vector
-                    data.resize(size());            // Shrink before inserting as a memory saving measure
-                    data.insert(data.end(), std::make_move_iterator(c.begin()), std::make_move_iterator(c.end()));
-                } else {                            // Not aligned to start of vector, so insert in the middle
-                    data.insert(data.begin() + buffer_first_element, std::make_move_iterator(c.begin()), std::make_move_iterator(c.end()));
+                align();
 
-                    buffer_first_element += c.size();
-                }
+                data.insert(data.end(), std::make_move_iterator(c.begin()), std::make_move_iterator(c.end()));
 
                 buffer_size += c.size();
             } else {                                // More space in vector, no need to reallocate
@@ -119,14 +142,9 @@ namespace skate {
                 return false;
 
             if (capacity() - size() < count) {      // Grow buffer and insert elements
-                if (buffer_first_element == 0) {    // Already aligned to start of vector
-                    data.resize(size());            // Shrink before inserting as a memory saving measure
-                    data.insert(data.end(), begin, end);
-                } else {                            // Not aligned to start of vector, realign for growth
-                    data.insert(data.begin() + buffer_first_element, begin, end);
+                align();
 
-                    buffer_first_element += count;
-                }
+                data.insert(data.end(), begin, end);
 
                 buffer_size += count;
             } else {                                // More space in vector, no need to reallocate
@@ -513,6 +531,11 @@ namespace skate {
             producer_wait.notify_all();
         }
 
+        void set_max_size(size_t max) {
+            std::lock_guard<std::mutex> lock(mtx);
+            base::set_max_size(max);
+        }
+
         // Returns true if no more data will be able to be read from this buffer (i.e. if empty and all producers have disconnected)
         bool at_end() const {
             std::lock_guard<std::mutex> lock(mtx);
@@ -551,49 +574,43 @@ namespace skate {
 
     template<typename T>
     class io_threadsafe_buffer_consumer_guard {
-        io_threadsafe_buffer<T> *buffer;
+        std::atomic<io_threadsafe_buffer<T> *> buffer;
 
     public:
         io_threadsafe_buffer_consumer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
             buffer.register_consumer();
         }
-
-        bool closed() const noexcept { return !buffer; }
-
-        void close() {
-            if (buffer) {
-                buffer->unregister_consumer();
-                buffer = nullptr;
-            }
+        ~io_threadsafe_buffer_consumer_guard() {
+            close();
         }
 
-        ~io_threadsafe_buffer_consumer_guard() {
-            if (buffer)
-                buffer->unregister_consumer();
+        // Returns true if just closed, false if already closed
+        bool close() {
+            io_threadsafe_buffer<T> *temp = buffer.exchange(nullptr);
+            if (temp)
+                temp->unregister_consumer();
+            return temp;
         }
     };
 
     template<typename T>
     class io_threadsafe_buffer_producer_guard {
-        io_threadsafe_buffer<T> *buffer;
+        std::atomic<io_threadsafe_buffer<T> *> buffer;
 
     public:
         io_threadsafe_buffer_producer_guard(io_threadsafe_buffer<T> &buffer) : buffer(&buffer) {
             buffer.register_producer();
         }
-
-        bool closed() const noexcept { return !buffer; }
-
-        void close() {
-            if (buffer) {
-                buffer->unregister_producer();
-                buffer = nullptr;
-            }
+        ~io_threadsafe_buffer_producer_guard() {
+            close();
         }
 
-        ~io_threadsafe_buffer_producer_guard() {
-            if (buffer)
-                buffer->unregister_producer();
+        // Returns true if just closed, false if already closed
+        bool close() {
+            io_threadsafe_buffer<T> *temp = buffer.exchange(nullptr);
+            if (temp)
+                temp->unregister_producer();
+            return temp;
         }
     };
 
@@ -691,16 +708,13 @@ namespace skate {
             , producer(pipe.sink())
         {}
 
-        bool read_closed() const noexcept { return consumer.closed(); }
-        bool write_closed() const noexcept { return producer.closed(); }
-        bool null() const noexcept { return read_closed() && write_closed(); }
+        // Returns true if just closed, false if already closed
+        bool close_read() { return consumer.close(); }
+        // Returns true if just closed, false if already closed
+        bool close_write() { return producer.close(); }
 
-        void close_read() { consumer.close(); }
-        void close_write() { producer.close(); }
-        void clear() {
-            close_read();
-            close_write();
-        }
+        // Returns true if either channel was just closed, false if both already closed
+        bool clear() { return close_read() || close_write(); }
     };
 
     template<typename T>

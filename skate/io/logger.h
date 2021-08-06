@@ -2,6 +2,8 @@
 #define SKATE_LOGGER_H
 
 #include <fstream>
+#include <mutex>
+#include <functional>
 
 #include "buffer.h"
 #include "../system/time.h"
@@ -17,8 +19,25 @@ namespace skate {
         critical
     };
 
-    // Simple logger class with asynchronous output, custom date/time formatting, and multiple error levels
-    class logger {
+    struct default_logger_options {
+        default_logger_options(time_point_string_options time_point_options = time_point_string_options::default_enabled(), bool always_flush = false, unsigned newline_indent = 2)
+            : time_point_options(time_point_options)
+            , always_flush(always_flush)
+            , newline_indent(newline_indent)
+        {}
+
+        time_point_string_options time_point_options;
+        bool always_flush;
+        unsigned newline_indent;
+    };
+
+    struct logger_entry {
+        std::chrono::time_point<std::chrono::system_clock> when;
+        log_type type;
+        std::string data;
+    };
+
+    class logger_base {
     protected:
         using time_point = std::chrono::time_point<std::chrono::system_clock>;
 
@@ -34,52 +53,76 @@ namespace skate {
             }
         }
 
-        struct log_entry {
-            time_point when;
-            log_type type;
-            std::string data;
-        };
+        static void do_default_log(std::streambuf *out, logger_entry &&entry, default_logger_options options = {}) {
+            // Default format log is "TIME: REASON: message\n"
+            // Default format log without time is "REASON: message\n"
+            //
+            // Messages with newlines are broken into multiple lines with optional indentation (e.g. "REASON: <indent spaces>message\n")
 
-        template<typename Fn>
-        logger(Fn fn) : producer_guard(d) {
-            thrd = std::move(std::thread([=]() {
-                io_threadsafe_buffer_consumer_guard<log_entry> consumer_guard(d);
+            std::string tstring;
 
-                std::array<log_entry, 32> entries;
+            if (!out)
+                return;
 
-                size_t read = 0;
-                do {
-                    read = d.read(entries.size(), [&](log_entry *log_entries, size_t n) { 
-                        std::copy(std::make_move_iterator(log_entries), std::make_move_iterator(log_entries + n), entries.begin()); 
-                        return n;
-                    });
+            if (options.time_point_options.enabled) {
+                tstring = time_point_to_string(entry.when, options.time_point_options);
+                out->sputn(tstring.c_str(), tstring.size());
+                out->sputn(": ", 2);
+            }
 
-                    for (size_t i = 0; i < read; ++i)
-                        fn(std::move(entries[i]));
-                } while (read);
-            }));
+            if (entry.type != log_type::none) {
+                const char *type = log_type_to_string(entry.type);
+                out->sputn(type, strlen(type));
+                out->sputn(": ", 2);
+            }
+
+            size_t newline = entry.data.find('\n');
+            size_t start = 0;
+            while (newline != entry.data.npos) {
+                out->sputn(entry.data.c_str() + start, newline - start);
+                out->sputc('\n');
+
+                // Output time on newly-written line
+                if (options.time_point_options.enabled) {
+                    out->sputn(tstring.c_str(), tstring.size());
+                    out->sputn(": ", 2);
+                }
+
+                // Output type on newly-written line
+                if (entry.type != log_type::none) {
+                    const char *type = log_type_to_string(entry.type);
+                    out->sputn(type, strlen(type));
+                    out->sputn(": ", 2);
+                }
+
+                for (unsigned i = 0; i < options.newline_indent; ++i)
+                    out->sputc(' ');
+
+                start = newline + 1;
+                newline = entry.data.find('\n', start);
+            }
+
+            out->sputn(entry.data.c_str() + start, entry.data.size() - start);
+            out->sputc('\n');
+
+            if (options.always_flush)
+                out->pubsync();
         }
 
-    private:
-        io_threadsafe_buffer<log_entry> d; // Unlimited-size thread buffer to allow any number of log writes
-        io_threadsafe_buffer_producer_guard<log_entry> producer_guard;
-        std::thread thrd;
+        virtual void write_log(logger_entry &&entry) = 0;
+        virtual void write_logs(logger_entry *entry, size_t n) = 0;
 
     public:
-        virtual ~logger() {
-            close(true);
-        }
+        virtual ~logger_base() {}
 
-        // Permanently closes the logger and optionally waits for all writing to complete
-        void close(bool wait = true) {
-            producer_guard.close();
-            if (wait && thrd.joinable())
-                thrd.join();
-        }
+        // Permanently closes the logger and waits for all writing to complete
+        virtual void close() {}
 
         // Individual writes
         void log(std::string data, log_type type = log_type::none) {
-            d.write(log_entry{std::chrono::system_clock::now(), type, std::move(data)});
+            const auto now = std::chrono::system_clock::now();
+
+            write_log(logger_entry{now, type, std::move(data)});
         }
 
         void trace(std::string data) { log(std::move(data), log_type::trace); }
@@ -92,17 +135,17 @@ namespace skate {
         // Batch writes
         template<typename Container>
         void batch_log(Container &&data, log_type type = log_type::none) {
+            const auto now = std::chrono::system_clock::now();
+
             using std::begin;
             using std::end;
 
-            const auto now = std::chrono::system_clock::now();
-
-            std::vector<log_entry> entries;
+            std::vector<logger_entry> entries;
             entries.reserve(data.size());
             for (auto it = begin(data); it != end(data); ++it)
-                entries.push_back(log_entry{now, type, std::move(*it)});
+                entries.push_back(logger_entry{now, type, std::move(*it)});
 
-            d.write_from(std::move(entries));
+            write_logs(&entries[0], entries.size());
         }
 
         template<typename Container>
@@ -119,65 +162,179 @@ namespace skate {
         void batch_critical(Container &&data) { log(std::forward<Container>(data), log_type::critical); }
     };
 
-    class streambuf_logger : public logger {
-        std::streambuf &out;
+    // Simple logger class with synchronous output
+    class sync_logger : public logger_base {
+        sync_logger(const sync_logger &) = delete;
+        sync_logger(sync_logger &&) = delete;
+        sync_logger &operator=(const sync_logger &) = delete;
+        sync_logger &operator=(sync_logger &&) = delete;
+
+    protected:
+        // Present to provide signature compatibility with async_logger, not actually used
+        template<typename Fn>
+        sync_logger(Fn fn) : sync_logger(fn, 0) {}
+        template<typename Fn, typename StartFn>
+        sync_logger(Fn fn, StartFn start) : sync_logger(fn, start, 0) {}
+        template<typename Fn, typename StartFn, typename EndFn>
+        sync_logger(Fn, StartFn, EndFn)
+            : started(false)
+        {}
+
+        // Inheriting class should reimplement if sync_logger should be supported
+        virtual void sync_write_start() {}
+        virtual void sync_write_end() {}
+        virtual void sync_write_log(logger_entry &&entry) = 0;
+        virtual void sync_write_logs(logger_entry *entry, size_t n) {
+            for (size_t i = 0; i < n; ++i)
+                sync_write_log(std::move(entry[i]));
+        }
+
+    private:
+        std::mutex mtx;
+        bool started;
+
+        virtual void write_log(logger_entry &&entry) final {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            if (!started) {
+                sync_write_start();
+                started = true;
+            }
+
+            sync_write_log(std::move(entry));
+        }
+        virtual void write_logs(logger_entry *entry, size_t n) final {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            if (!started) {
+                sync_write_start();
+                started = true;
+            }
+
+            sync_write_logs(entry, n);
+        }
 
     public:
-        streambuf_logger(std::streambuf &out, time_point_string_options options = {}, bool always_flush = true)
-            : logger([&out, always_flush, options](log_entry &&entry) {
-                const auto tstring = time_point_to_string(entry.when, options);
-                const char *type = log_type_to_string(entry.type);
-
-                out.sputn(tstring.c_str(), tstring.size());
-                out.sputn(": ", 2);
-                out.sputn(type, strlen(type));
-                out.sputn(": ", 2);
-                out.sputn(entry.data.c_str(), entry.data.size());
-                out.sputc('\n');
-
-                if (always_flush)
-                    out.pubsync();
-            })
-            , out(out)
-        {}
-        virtual ~streambuf_logger() {
-            out.pubsync();
+        virtual ~sync_logger() {
+            if (started)
+                sync_write_end();
         }
     };
 
-    class stream_logger : public logger {
+    // Simple logger class with asynchronous output, custom date/time formatting, and multiple error levels
+    class async_logger : public logger_base {
+        async_logger(const async_logger &) = delete;
+        async_logger(async_logger &&) = delete;
+        async_logger &operator=(const async_logger &) = delete;
+        async_logger &operator=(async_logger &&) = delete;
+
+    protected:
+        template<typename Fn>
+        async_logger(Fn fn) : async_logger(fn, [](){}) {}
+        template<typename Fn, typename StartFn>
+        async_logger(Fn fn, StartFn start) : async_logger(fn, start, [](){}) {}
+        template<typename Fn, typename StartFn, typename EndFn>
+        async_logger(Fn fn, StartFn start, EndFn end) : producer_guard(d) {
+            set_buffer_limit(10000000); // Default to store and read no more than 10,000,000 log entries at once
+
+            thrd = std::move(std::thread([=]() {
+                io_threadsafe_buffer_consumer_guard<logger_entry> consumer_guard(d);
+
+                std::vector<logger_entry> entries;
+                bool started = false;
+
+                do {
+                    entries.clear();
+                    d.read_all_into(std::back_inserter(entries));
+
+                    if (!started) {
+                        start();
+                        started = true;
+                    }
+
+                    for (size_t i = 0; i < entries.size(); ++i)
+                        fn(std::move(entries[i]));
+                } while (entries.size());
+
+                if (started)
+                    end();
+            }));
+        }
+
+    private:
+        io_threadsafe_buffer<logger_entry> d; // Unlimited-size thread buffer to allow any number of log writes
+        io_threadsafe_buffer_producer_guard<logger_entry> producer_guard;
+        std::thread thrd;
+
+        virtual void write_log(logger_entry &&entry) final { d.write(std::move(entry)); }
+        virtual void write_logs(logger_entry *entry, size_t n) final { d.write(std::make_move_iterator(entry), std::make_move_iterator(entry + n)); }
+
     public:
-        stream_logger(std::ostream &out, time_point_string_options options = {}, bool always_flush = true)
-            : logger([&out, always_flush, options](log_entry &&entry) {
-                const auto tstring = time_point_to_string(entry.when, options);
-                const char *type = log_type_to_string(entry.type);
+        virtual ~async_logger() {
+            close();
+        }
 
-                out.write(tstring.c_str(), tstring.size());
-                out.write(": ", 2);
-                out.write(type, strlen(type));
-                out.write(": ", 2);
-                out.write(entry.data.c_str(), entry.data.size());
-                out.put('\n');
+        // Set maximum number of messages buffered in this logger
+        void set_buffer_limit(size_t buffered_messages) { d.set_max_size(buffered_messages); }
 
-                if (always_flush)
-                    out.flush();
-            })
-        {}
+        // Permanently closes the logger and waits for all writing to complete
+        virtual void close() final {
+            if (producer_guard.close() && thrd.joinable())
+                thrd.join();
+        }
     };
 
-    class file_logger : public stream_logger {
+    template<typename LoggerType>
+    class file_logger_template : public LoggerType {
+    protected:
         std::ofstream f;
+        std::string path;
+        std::ios_base::openmode flags;
+        default_logger_options options;
+
+        // Constructor options for inheriting loggers
+        // Compatibility with async_logger
+        template<typename Fn>
+        file_logger_template(std::string path, std::ios_base::openmode flags, Fn fn) : file_logger_template(std::move(path), flags, fn, [](){}) {}
+        template<typename Fn, typename StartFn>
+        file_logger_template(std::string path, std::ios_base::openmode flags, Fn fn, StartFn start) : file_logger_template(std::move(path), flags, fn, start, [](){}) {}
+        template<typename Fn, typename StartFn, typename EndFn>
+        file_logger_template(std::string path, std::ios_base::openmode flags, Fn fn, StartFn start, EndFn end)
+            : LoggerType(fn, [this, start]() {
+                f.open(this->path, this->flags);
+                start();
+            }, end)
+            , path(path)
+            , flags(flags)
+        {}
+
+    private:
+        // Compatibility with sync_logger
+        virtual void sync_write_start() final {
+            f.open(path, flags);
+        }
+        virtual void sync_write_log(logger_entry &&entry) {
+            LoggerType::do_default_log(f.rdbuf(), std::move(entry), options);
+        }
 
     public:
+        // Default log output constructor, works for both synchronous and asynchronous loggers
         template<typename Path>
-        file_logger(const Path &path, time_point_string_options options = {}, bool always_flush = true, std::ios_base::openmode flags = std::ios_base::out | std::ios_base::app)
-            : stream_logger(f, options, always_flush)
-            , f(path, flags)
-        {}
-        virtual ~file_logger() {
-            close(true); // Close and flush output before the file object is destroyed
+        file_logger_template(Path path, default_logger_options options = {}, std::ios_base::openmode flags = std::ios_base::out | std::ios_base::app)
+            : file_logger_template(path, flags, [this](logger_entry &&entry) {
+                LoggerType::do_default_log(f.rdbuf(), std::move(entry), this->options);
+            })
+        {
+            this->options = options;
+        }
+
+        virtual ~file_logger_template() {
+            LoggerType::close(); // Close and flush output before the file object is destroyed
         }
     };
+
+    using file_logger = file_logger_template<sync_logger>;
+    using async_file_logger = file_logger_template<async_logger>;
 }
 
 #endif // SKATE_LOGGER_H
