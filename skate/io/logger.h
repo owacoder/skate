@@ -235,7 +235,7 @@ namespace skate {
         async_logger(Fn fn, StartFn start) : async_logger(fn, start, [](){}) {}
         template<typename Fn, typename StartFn, typename EndFn>
         async_logger(Fn fn, StartFn start, EndFn end) : producer_guard(d) {
-            set_buffer_limit(10000000); // Default to store and read no more than 10,000,000 log entries at once
+            set_buffer_limit(5000000); // Default to store and read no more than 5,000,000 log entries at once
 
             thrd = std::move(std::thread([=]() {
                 io_threadsafe_buffer_consumer_guard<logger_entry> consumer_guard(d);
@@ -244,8 +244,7 @@ namespace skate {
                 bool started = false;
 
                 do {
-                    entries.clear();
-                    d.read_all_into(std::back_inserter(entries));
+                    d.read_all_swap(entries);
 
                     if (!started) {
                         start();

@@ -64,36 +64,65 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include <array>
 #include "system/benchmark.h"
 
+struct http_request {
+    std::string method;
+    unsigned char httpMajor, httpMinor;
+};
+
+class http_server_socket : public skate::tcp_socket {
+    std::string request;
+
+protected:
+    http_server_socket(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking)
+        : tcp_socket(desc, current_state, blocking)
+    {}
+
+    virtual std::unique_ptr<skate::socket> create(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking) {
+        return std::unique_ptr<skate::socket>{new http_server_socket(desc, current_state, blocking)};
+    }
+
+    virtual void ready_read(std::error_code &ec) override {
+        request += read_all(ec);
+
+        if (request.find("\r\n\r\n") == request.npos)
+            return;
+
+
+    }
+
+    virtual void ready_write(std::error_code &ec) override {
+        write(ec, "HTTP/1.1 200 OK\r\n\r\nText");
+        if (!ec)
+            disconnect(ec);
+    }
+
+    virtual void error(std::error_code ec) override {
+        std::cout << ec.message() << std::endl;
+    }
+
+public:
+    http_server_socket() {}
+    virtual ~http_server_socket() {}
+};
+
 void network_test() {
     skate::startup_wrapper wrapper;
     skate::socket_server<> server;
-    skate::tcp_socket tcp;
+    http_server_socket tcp;
     std::error_code ec;
 
-    tcp.connect_sync(ec, tcp.resolve(ec, {"territory.ddns.net", 80}));
+    auto resolved = tcp.resolve(ec, {"localhost", 8100});
+    if (resolved.size())
+        tcp.bind(ec, resolved);
+
+    auto save = ec;
     tcp.set_blocking(ec, false);
 
-    int written = 0;
-    tcp.on_ready_read([&]() {
-        std::error_code ec;
-        std::cout << tcp.read_all(ec) << std::endl;
-    });
-
-    tcp.on_ready_write([&]() {
-        if (written++ < 20000)
-            tcp.write(ec, "GET /index.html HTTP/1.1\r\nHost: territory.ddns.net\r\n\r\n");
-        else
-            tcp.disconnect(ec);
-    });
-
-    server.on_error([](skate::socket *, std::error_code ec) {
-        std::cout << ec.message() << std::endl;
-    });
-
-    std::cout << ec.message() << std::endl;
+    tcp.listen(ec);
+    std::cout << save.message() << " " << ec.message() << std::endl;
     server.serve_socket(&tcp);
+    std::cout << "server running" << std::endl;
     server.run();
-    std::cout << written << std::endl;
 }
 
 struct Point {
@@ -168,6 +197,7 @@ namespace skate {
 
 int main()
 {
+#if 0
     {
 #if WINDOWS_OS
         const char *path = "F:/Scratch/test.log";
@@ -175,7 +205,7 @@ int main()
         const char *path = "/shared/Scratch/test.log";
 #endif
         skate::async_file_logger datalog(path, skate::default_logger_options{skate::time_point_string_options::default_enabled()}, std::ios_base::out);
-        datalog.set_buffer_limit(0);
+        //datalog.set_buffer_limit(0);
 
         skate::benchmark([&]() {
             std::thread thrd[10];
@@ -223,6 +253,7 @@ int main()
     return 0;
 
     std::cout << skate::compare_nocase_ascii("textA", "TEXTa") << std::endl;
+#endif
 
     network_test();
 

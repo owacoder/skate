@@ -255,6 +255,19 @@ namespace skate {
             return c;
         }
 
+        // All available data is assigned to the specified vector (NOT appended) and the storage used by the existing vector is adopted if possible
+        void read_all_swap(std::vector<T> &c) {
+            c.clear();
+
+            if (buffer_first_element == 0) {
+                data.resize(size());
+                data.swap(c);
+                buffer_size = 0;
+            } else {
+                read_all_into(std::back_inserter(c));
+            }
+        }
+
         // All data in the buffer is cleared and memory is released
         void clear() {
             buffer_size = 0;
@@ -387,7 +400,7 @@ namespace skate {
 
             bool success;
             while (!(success = base::write(begin, end)) && wait) {
-                if (!consumers_available() || base::max_size() < std::distance(begin, end))
+                if (!consumers_available() || base::max_size() < size_t(std::distance(begin, end)))
                     return false;
 
                 producer_wait.wait(lock);
@@ -523,6 +536,19 @@ namespace skate {
             Container c;
             read_all_into(std::back_inserter(c), wait);
             return c;
+        }
+
+        // All available data is assigned to the specified vector (NOT appended) and the storage used by the existing vector is adopted if possible
+        // If wait is true, nothing could be read, and all producers have unregistered, the container will be empty
+        void read_all_swap(std::vector<T> &c, bool wait = true) {
+            std::unique_lock<std::mutex> lock(mtx);
+
+            while (wait && base::empty() && producers_available())
+                consumer_wait.wait(lock);
+
+            base::read_all_swap(c);
+
+            producer_wait.notify_all();
         }
 
         void clear() {
@@ -685,6 +711,10 @@ namespace skate {
         template<typename OutputIterator>
         size_t read_all_into(OutputIterator c, bool wait = true) {
             return source().read_all_into(c, wait);
+        }
+
+        void read_all_swap(std::vector<T> &c, bool wait = true) {
+            source().read_all_swap(c, wait);
         }
 
         template<typename Container>

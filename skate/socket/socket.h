@@ -188,6 +188,23 @@ namespace skate {
         template<typename>
         friend class socket_server;
 
+        void do_server_read(std::error_code &ec) {
+            async_fill_read_buffer(ec);
+            if (!ec)
+                ready_read(ec);
+
+            if (ec)
+                error(ec);
+        }
+        void do_server_write(std::error_code &ec) {
+            async_flush_write_buffer(ec);
+            if (!ec)
+                ready_write(ec);
+
+            if (ec)
+                error(ec);
+        }
+
     protected:
         socket(system_socket_descriptor sock, socket_state current_state, bool is_blocking) noexcept
             : did_write(false)
@@ -198,38 +215,16 @@ namespace skate {
 
         bool did_write; // Subclasses must set to true immediately when the socket object is written to.
 
-        std::function<void ()> ready_to_read_fn;
-        std::function<void ()> ready_to_write_fn;
-        std::function<void (std::error_code)> error_fn;
+        virtual void ready_read(std::error_code &) {}
+        virtual void ready_write(std::error_code &) {}
+        virtual void error(std::error_code) {}
 
     public:
-        socket() : did_write(false), sock(impl::system_invalid_socket_value), s(socket_state::invalid), blocking(true) {
-            on_ready_read([&]() {
-                std::error_code ec;
-                async_fill_read_buffer(ec);
-                if (error_fn)
-                    error_fn(ec);
-            });
-
-            on_ready_write([&]() {
-                std::error_code ec;
-                async_flush_write_buffer(ec);
-                if (error_fn)
-                    error_fn(ec);
-                return false;
-            });
-        }
+        socket() : socket(impl::system_invalid_socket_value, socket_state::invalid, true) {}
         virtual ~socket() {
             if (sock != impl::system_invalid_socket_value)
                 impl::close_socket(sock);
         }
-
-        template<typename Fn>
-        void on_ready_read(Fn fn) { ready_to_read_fn = fn; }
-        template<typename Fn>
-        void on_ready_write(Fn fn) { ready_to_write_fn = fn; }
-        template<typename Fn>
-        void on_error(Fn fn) { error_fn = fn; }
 
         system_socket_descriptor native() const noexcept { return sock; }
 
@@ -366,6 +361,10 @@ namespace skate {
         // Must return true if more data is waiting to be written
         virtual bool async_pending_write() const = 0;
 
+        // Factory to create another socket with this type and protocol, specifically for accepting new connections
+        // May return null if creating a new socket is not supported (the default)
+        virtual std::unique_ptr<socket> create(system_socket_descriptor /*desc*/, socket_state /*current_state*/, bool /*blocking*/) = 0;
+
         // Synchronous name resolution
         std::vector<socket_address> resolve(std::error_code &ec, const network_address &address, address_type addrtype = address_type::ip_address_unspecified) const {
             std::vector<socket_address> result;
@@ -433,6 +432,7 @@ namespace skate {
     class stream_socket : public socket {
         constexpr static const size_t READ_BUFFER_SIZE = 4096;
 
+    protected:
         stream_socket(system_socket_descriptor s, socket_state current_state, bool is_blocking)
             : socket(s, current_state, is_blocking)
         {}
@@ -975,10 +975,18 @@ namespace skate {
     };
 
     class tcp_socket : public stream_socket {
+    protected:
+        tcp_socket(system_socket_descriptor s, socket_state current_state, bool is_blocking)
+            : stream_socket(s, current_state, is_blocking)
+        {}
+
     public:
+        tcp_socket() {}
         virtual ~tcp_socket() {}
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::tcp; }
+
+        virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool blocking) { return std::unique_ptr<socket>{new tcp_socket(desc, current_state, blocking)}; }
     };
 
     class udp_socket : public datagram_socket {
@@ -986,6 +994,8 @@ namespace skate {
         virtual ~udp_socket() {}
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::udp; }
+
+        virtual std::unique_ptr<socket> create(system_socket_descriptor, socket_state, bool) { return {}; }
     };
 }
 

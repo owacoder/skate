@@ -10,6 +10,7 @@
 #include <memory>
 
 #include <tuple>
+#include <array>
 #include <vector>
 #include <map>
 
@@ -427,6 +428,30 @@ namespace skate {
 
             for (auto begin = buf.data(); begin != end; ++begin)
                 if (os.sputc(*begin) == std::char_traits<StreamChar>::eof())
+                    return false;
+
+            return true;
+        }
+
+        template<typename StreamChar, typename IntType>
+        bool write_little_endian(std::basic_streambuf<StreamChar> &os, IntType v) {
+            typedef typename std::make_unsigned<IntType>::type UIntType;
+            const UIntType copy = v;
+
+            for (size_t i = 0; i < std::numeric_limits<UIntType>::digits / 8; ++i)
+                if (os.sputc((copy >> (i * 8)) & 0xff) == std::char_traits<StreamChar>::eof())
+                    return false;
+
+            return true;
+        }
+
+        template<typename StreamChar, typename IntType>
+        bool write_big_endian(std::basic_streambuf<StreamChar> &os, IntType v) {
+            typedef typename std::make_unsigned<IntType>::type UIntType;
+            const UIntType copy = v;
+
+            for (size_t i = std::numeric_limits<UIntType>::digits / 8; i; --i)
+                if (os.sputc((copy >> ((i - 1) * 8)) & 0xff) == std::char_traits<StreamChar>::eof())
                     return false;
 
             return true;

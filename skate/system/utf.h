@@ -412,8 +412,8 @@ namespace skate {
     template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
     StrType begin(StrType c) { return c; }
 
-    const char *end(const char *c) { return c + strlen(c); }
-    const wchar_t *end(const wchar_t *c) { return c + wcslen(c); }
+    inline const char *end(const char *c) { return c + strlen(c); }
+    inline const wchar_t *end(const wchar_t *c) { return c + wcslen(c); }
 
     template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
     StrType end(StrType c) { while (*c) ++c; return c; }

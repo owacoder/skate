@@ -1,20 +1,20 @@
-#ifndef SKATE_JSON_H
-#define SKATE_JSON_H
+#ifndef SKATE_MSGPACK_H
+#define SKATE_MSGPACK_H
 
 #include "core.h"
 
 namespace skate {
     template<typename Type>
-    class json_reader;
+    class msgpack_reader;
 
     template<typename Type>
-    class json_writer;
+    class msgpack_writer;
 
     template<typename Type>
-    json_reader<Type> json(Type &);
+    msgpack_reader<Type> msgpack(Type &);
 
     namespace impl {
-        namespace json {
+        namespace msgpack {
             // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
             template<typename StreamChar>
             class read_tuple {
@@ -37,30 +37,30 @@ namespace skate {
                     }
 
                     has_read_something = true;
-                    error = !skate::json(p).read(is);
+                    error = !skate::msgpack(p).read(is);
                 }
             };
         }
     }
 
     template<typename Type>
-    class json_reader {
+    class msgpack_reader {
         Type &ref;
 
-        template<typename> friend class json_writer;
+        template<typename> friend class msgpack_writer;
 
     public:
-        constexpr json_reader(Type &ref) : ref(ref) {}
+        constexpr msgpack_reader(Type &ref) : ref(ref) {}
 
-        // User object overload, skate_to_json(stream, object)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::value &&
+        // User object overload, skate_to_msgpack(stream, object)
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::value &&
                                                                                  !is_string_base<_>::value &&
                                                                                  !is_array_base<_>::value &&
                                                                                  !is_map_base<_>::value &&
                                                                                  !is_tuple_base<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
-            // Library user is responsible for validating read JSON in the callback function
-            return skate_json(is, ref);
+            // Library user is responsible for validating read MsgPack in the callback function
+            return skate_msgpack(is, ref);
         }
 
         // Array overload
@@ -84,7 +84,7 @@ namespace skate {
             do {
                 Element element;
 
-                if (!json(element).read(is))
+                if (!msgpack(element).read(is))
                     return false;
 
                 ref.push_back(std::move(element));
@@ -110,7 +110,7 @@ namespace skate {
             if (!impl::skipws(is) || is.sbumpc() != '[')
                 return false;
 
-            impl::apply(impl::json::read_tuple<StreamChar>(is, error, has_read_something), ref);
+            impl::apply(impl::msgpack::read_tuple<StreamChar>(is, error, has_read_something), ref);
 
             return !error && impl::skipws(is) && is.sbumpc() == ']';
         }
@@ -142,13 +142,13 @@ namespace skate {
                 if (!impl::skipws(is) || is.sgetc() != '"')
                     return false;
 
-                if (!json(key).read(is))
+                if (!msgpack(key).read(is))
                     return false;
 
                 if (!impl::skipws(is) || is.sbumpc() != ':')
                     return false;
 
-                if (!json(value).read(is))
+                if (!msgpack(value).read(is))
                     return false;
 
                 ref[std::move(key)] = std::move(value);
@@ -322,7 +322,7 @@ namespace skate {
             } else {
                 ref.reset(new Type{});
 
-                return json(*ref).read(is);
+                return msgpack(*ref).read(is);
             }
         }
 
@@ -342,19 +342,19 @@ namespace skate {
             } else {
                 ref = Type{};
 
-                return json(*ref).read(is);
+                return msgpack(*ref).read(is);
             }
         }
 #endif
     };
 
-    struct json_write_options {
-        constexpr json_write_options(size_t indent = 0, size_t current_indentation = 0) noexcept
+    struct msgpack_write_options {
+        constexpr msgpack_write_options(size_t indent = 0, size_t current_indentation = 0) noexcept
             : current_indentation(current_indentation)
             , indent(indent)
         {}
 
-        json_write_options indented() const noexcept {
+        msgpack_write_options indented() const noexcept {
             return { indent, current_indentation + indent };
         }
 
@@ -363,20 +363,20 @@ namespace skate {
     };
 
     template<typename Type>
-    json_writer<Type> json(const Type &, json_write_options options = {});
+    msgpack_writer<Type> msgpack(const Type &, msgpack_write_options options = {});
 
     namespace impl {
-        namespace json {
+        namespace msgpack {
             // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
             template<typename StreamChar>
             class write_tuple {
                 std::basic_streambuf<StreamChar> &os;
                 bool &error;
                 bool &has_written_something;
-                const json_write_options &options;
+                const msgpack_write_options &options;
 
             public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const json_write_options &options) noexcept
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const msgpack_write_options &options) noexcept
                     : os(stream)
                     , error(error)
                     , has_written_something(has_written_something)
@@ -391,75 +391,60 @@ namespace skate {
                     }
 
                     has_written_something = true;
-                    error = !skate::json(p, options).write(os);
+                    error = !skate::msgpack(p, options).write(os);
                 }
             };
         }
     }
 
     template<typename Type>
-    class json_writer {
+    class msgpack_writer {
         const Type &ref;
-        const json_write_options options;
-
-        template<typename StreamChar>
-        bool do_indent(std::basic_streambuf<StreamChar> &os, size_t sz) const {
-            if (os.sputc('\n') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            for (size_t i = 0; i < sz; ++i)
-                if (os.sputc(' ') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-            return true;
-        }
+        const msgpack_write_options options;
 
     public:
-        constexpr json_writer(const json_reader<Type> &reader, json_write_options options = {})
+        constexpr msgpack_writer(const msgpack_reader<Type> &reader, msgpack_write_options options = {})
             : ref(reader.ref)
             , options(options)
         {}
-        constexpr json_writer(const Type &ref, json_write_options options = {})
+        constexpr msgpack_writer(const Type &ref, msgpack_write_options options = {})
             : ref(ref)
             , options(options)
         {}
 
-        // User object overload, skate_json(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::value &&
+        // User object overload, skate_msgpack(stream, object, options)
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<msgpack_write_options>()))>::value &&
                                                                                  !is_string_base<_>::value &&
                                                                                  !is_array_base<_>::value &&
                                                                                  !is_map_base<_>::value &&
                                                                                  !is_tuple_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            // Library user is responsible for creating valid JSON in the callback function
-            return skate_json(os, ref, options);
+            // Library user is responsible for creating valid MsgPack in the callback function
+            return skate_msgpack(os, ref, options);
         }
 
         // Array overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            size_t index = 0;
-
-            if (os.sputc('[') == std::char_traits<StreamChar>::eof())
+            if (ref.size() <= 15) {
+                if (os.sputc(0x90 | ref.size()) == std::char_traits<StreamChar>::eof())
+                    return false;
+            } else if (ref.size() <= 0xffffu) {
+                if (os.sputc(0xdc) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
+                    return false;
+            } else if (ref.size() <= 0xffffffffu) {
+                if (os.sputc(0xdd) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
+                    return false;
+            } else {
                 return false;
-
-            for (const auto &el: ref) {
-                if (index && os.sputc(',') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-                if (options.indent && !do_indent(os, options.current_indentation + options.indent))
-                    return false;
-
-                if (!json(el, options.indented()).write(os))
-                    return false;
-
-                ++index;
             }
 
-            if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if array is non-empty
-                return false;
+            for (const auto &el: ref) {
+                if (!msgpack(el, options.indented()).write(os))
+                    return false;
+            }
 
-            return os.sputc(']') != std::char_traits<StreamChar>::eof();
+            return true;
         }
 
         // Tuple/pair overload
@@ -472,9 +457,9 @@ namespace skate {
             if (os.sputc('[') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            impl::apply(impl::json::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
+            impl::apply(impl::msgpack::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
 
-            return !error && os.sputc(']') != std::char_traits<StreamChar>::eof();
+            return !error;
         }
 
         // Map overload
@@ -482,35 +467,28 @@ namespace skate {
         bool write(std::basic_streambuf<StreamChar> &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
-            size_t index = 0;
-
-            if (os.sputc('{') == std::char_traits<StreamChar>::eof())
+            if (ref.size() <= 15) {
+                if (os.sputc(0x80 | ref.size()) == std::char_traits<StreamChar>::eof())
+                    return false;
+            } else if (ref.size() <= 0xffffu) {
+                if (os.sputc(0xde) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
+                    return false;
+            } else if (ref.size() <= 0xffffffffu) {
+                if (os.sputc(0xdf) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
+                    return false;
+            } else {
                 return false;
-
-            for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && os.sputc(',') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-                if (options.indent && !do_indent(os, options.current_indentation + options.indent))
-                    return false;
-
-                if (!json(key_of<KeyValuePair>{}(el), options.indented()).write(os))
-                    return false;
-
-                if (os.sputc(':') == std::char_traits<StreamChar>::eof() ||
-                    (options.indent && os.sputc(' ') == std::char_traits<StreamChar>::eof()))
-                    return false;
-
-                if (!json(value_of<KeyValuePair>{}(el), options.indented()).write(os))
-                    return false;
-
-                ++index;
             }
 
-            if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if object is non-empty
-                return false;
+            for (auto el = begin(ref); el != end(ref); ++el) {
+                if (!msgpack(key_of<KeyValuePair>{}(el), options.indented()).write(os))
+                    return false;
 
-            return os.sputc('}') != std::char_traits<StreamChar>::eof();
+                if (!msgpack(value_of<KeyValuePair>{}(el), options.indented()).write(os))
+                    return false;
+            }
+
+            return true;
         }
 
         // String overload
@@ -582,32 +560,42 @@ namespace skate {
         // Null overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            const StreamChar array[] = {'n', 'u', 'l', 'l'};
-            return os.sputn(array, 4) == 4;
+            return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
         }
 
         // Boolean overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (ref) {
-                const StreamChar true_array[] = {'t', 'r', 'u', 'e'};
-                return os.sputn(true_array, 4) == 4;
-            } else {
-                const StreamChar false_array[] = {'f', 'a', 'l', 's', 'e'};
-                return os.sputn(false_array, 5) == 5;
-            }
+            return os.sputc(0xc2 | ref) != std::char_traits<StreamChar>::eof();
         }
 
         // Integer overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            return impl::write_int(os, ref);
+            if (ref < 0) {
+                if (ref >= -32) {
+                    // TODO
+                }
+
+                // TODO
+            } else { // Positive number
+                if (ref <= 0x7fu)
+                    return os.sputc(ref) != std::char_traits<StreamChar>::eof();
+                else if (ref <= 0xffu)
+                    return os.sputc(0xcc) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint8_t(ref));
+                else if (ref <= 0xffffu)
+                    return os.sputc(0xcd) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint16_t(ref));
+                else if (ref <= 0xffffffffu)
+                    return os.sputc(0xce) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint32_t(ref));
+                else
+                    return os.sputc(0xcf) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint64_t(ref));
+            }
         }
 
         // Floating point overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            // JSON doesn't support infinities or NAN
+            // MsgPack doesn't support infinities or NAN
             return impl::write_float(os, ref, false, false);
         }
 
@@ -618,10 +606,9 @@ namespace skate {
                                                                                  std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (!ref) {
-                const StreamChar array[] = {'n', 'u', 'l', 'l'};
-                return os.sputn(array, 4) == 4;
+                return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
             } else {
-                return json(*ref, options).write(os);
+                return msgpack(*ref, options).write(os);
             }
         }
 
@@ -630,41 +617,40 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (!ref) {
-                const StreamChar array[] = {'n', 'u', 'l', 'l'};
-                return os.sputn(array, 4) == 4;
+                return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
             } else {
-                return json(*ref, options).write(os);
+                return msgpack(*ref, options).write(os);
             }
         }
 #endif
     };
 
     template<typename Type>
-    json_reader<Type> json(Type &value) { return json_reader<Type>(value); }
+    msgpack_reader<Type> msgpack(Type &value) { return msgpack_reader<Type>(value); }
 
     template<typename Type>
-    json_writer<Type> json(const Type &value, json_write_options options) { return json_writer<Type>(value, options); }
+    msgpack_writer<Type> msgpack(const Type &value, msgpack_write_options options) { return msgpack_writer<Type>(value, options); }
 
     template<typename StreamChar, typename Type>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, json_reader<Type> value) {
+    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, msgpack_reader<Type> value) {
         if (!is.rdbuf() || !value.read(*is.rdbuf()))
             is.setstate(std::ios_base::failbit);
         return is;
     }
 
     template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_reader<Type> value) {
-        return os << json_writer<Type>(value);
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, msgpack_reader<Type> value) {
+        return os << msgpack_writer<Type>(value);
     }
     template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_writer<Type> value) {
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, msgpack_writer<Type> value) {
         if (!os.rdbuf() || !value.write(*os.rdbuf()))
             os.setstate(std::ios_base::failbit);
         return os;
     }
 
     template<typename Type>
-    Type from_json(const std::string &s) {
+    Type from_msgpack(const std::string &s) {
         Type value;
 
         struct one_pass_readbuf : public std::streambuf {
@@ -675,29 +661,29 @@ namespace skate {
             }
         } buf{s.c_str(), s.size()};
 
-        if (!json(value).read(buf))
+        if (!msgpack(value).read(buf))
             return {};
 
         return value;
     }
 
     template<typename Type>
-    std::string to_json(const Type &value, json_write_options options = {}) {
+    std::string to_msgpack(const Type &value, msgpack_write_options options = {}) {
         std::stringbuf buf;
-        if (!json(value, options).write(buf))
+        if (!msgpack(value, options).write(buf))
             return {};
 
         return buf.str();
     }
 
-    // JSON classes that allow serialization and deserialization
+    // MsgPack classes that allow serialization and deserialization
     template<typename String>
-    class basic_json_array;
+    class basic_msgpack_array;
 
     template<typename String>
-    class basic_json_object;
+    class basic_msgpack_object;
 
-    enum class json_type {
+    enum class msgpack_type {
         null,
         boolean,
         floating,
@@ -709,58 +695,58 @@ namespace skate {
     };
 
     template<typename String>
-    class basic_json_value {
+    class basic_msgpack_value {
     public:
-        typedef basic_json_array<String> array;
-        typedef basic_json_object<String> object;
+        typedef basic_msgpack_array<String> array;
+        typedef basic_msgpack_object<String> object;
 
-        basic_json_value() : t(json_type::null) { d.p = nullptr; }
-        basic_json_value(const basic_json_value &other) : t(json_type::null) {
+        basic_msgpack_value() : t(msgpack_type::null) { d.p = nullptr; }
+        basic_msgpack_value(const basic_msgpack_value &other) : t(msgpack_type::null) {
             switch (other.t) {
                 default: break;
-                case json_type::boolean:    // fallthrough
-                case json_type::floating:   // fallthrough
-                case json_type::int64:      // fallthrough
-                case json_type::uint64:     d = other.d; break;
-                case json_type::string:     d.p = new String(*other.internal_string()); break;
-                case json_type::array:      d.p = new array(*other.internal_array());   break;
-                case json_type::object:     d.p = new object(*other.internal_object()); break;
+                case msgpack_type::boolean:    // fallthrough
+                case msgpack_type::floating:   // fallthrough
+                case msgpack_type::int64:      // fallthrough
+                case msgpack_type::uint64:     d = other.d; break;
+                case msgpack_type::string:     d.p = new String(*other.internal_string()); break;
+                case msgpack_type::array:      d.p = new array(*other.internal_array());   break;
+                case msgpack_type::object:     d.p = new object(*other.internal_object()); break;
             }
 
             t = other.t;
         }
-        basic_json_value(basic_json_value &&other) noexcept : t(other.t) {
+        basic_msgpack_value(basic_msgpack_value &&other) noexcept : t(other.t) {
             d = other.d;
-            other.t = json_type::null;
+            other.t = msgpack_type::null;
         }
-        basic_json_value(array a) : t(json_type::null) {
+        basic_msgpack_value(array a) : t(msgpack_type::null) {
             d.p = new array(std::move(a));
-            t = json_type::array;
+            t = msgpack_type::array;
         }
-        basic_json_value(object o) : t(json_type::null) {
+        basic_msgpack_value(object o) : t(msgpack_type::null) {
             d.p = new object(std::move(o));
-            t = json_type::object;
+            t = msgpack_type::object;
         }
-        basic_json_value(bool b) : t(json_type::boolean) { d.b = b; }
-        basic_json_value(String s) : t(json_type::null) {
+        basic_msgpack_value(bool b) : t(msgpack_type::boolean) { d.b = b; }
+        basic_msgpack_value(String s) : t(msgpack_type::null) {
             d.p = new String(std::move(s));
-            t = json_type::string;
+            t = msgpack_type::string;
         }
-        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(json_type::string) {
+        basic_msgpack_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(msgpack_type::string) {
             d.p = new String(s);
         }
-        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(json_type::string) {
+        basic_msgpack_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(msgpack_type::string) {
             d.p = new String(s, len);
         }
         template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(json_type::floating) {
+        basic_msgpack_value(T v) : t(msgpack_type::floating) {
             if (std::trunc(v) == v) {
                 // Convert to integer if at all possible, since its waaaay faster
                 if (v >= INT64_MIN && v <= INT64_MAX) {
-                    t = json_type::int64;
+                    t = msgpack_type::int64;
                     d.i = int64_t(v);
                 } else if (v >= 0 && v <= UINT64_MAX) {
-                    t = json_type::uint64;
+                    t = msgpack_type::uint64;
                     d.u = uint64_t(v);
                 } else
                     d.n = v;
@@ -768,16 +754,16 @@ namespace skate {
                 d.n = v;
         }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_signed<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(json_type::int64) { d.i = v; }
+        basic_msgpack_value(T v) : t(msgpack_type::int64) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
-        basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
+        basic_msgpack_value(T v) : t(msgpack_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
-        basic_json_value(const T &v) : t(json_type::string) {
+        basic_msgpack_value(const T &v) : t(msgpack_type::string) {
             d.p = new String(std::move(utf_convert<String>(v)));
         }
-        ~basic_json_value() { clear(); }
+        ~basic_msgpack_value() { clear(); }
 
-        basic_json_value &operator=(const basic_json_value &other) {
+        basic_msgpack_value &operator=(const basic_msgpack_value &other) {
             if (&other == this)
                 return *this;
 
@@ -785,37 +771,37 @@ namespace skate {
 
             switch (other.t) {
                 default: break;
-                case json_type::boolean:     // fallthrough
-                case json_type::floating:    // fallthrough
-                case json_type::int64:       // fallthrough
-                case json_type::uint64:      d = other.d; break;
-                case json_type::string:      *internal_string() = *other.internal_string(); break;
-                case json_type::array:       *internal_array() = *other.internal_array();  break;
-                case json_type::object:      *internal_object() = *other.internal_object(); break;
+                case msgpack_type::boolean:     // fallthrough
+                case msgpack_type::floating:    // fallthrough
+                case msgpack_type::int64:       // fallthrough
+                case msgpack_type::uint64:      d = other.d; break;
+                case msgpack_type::string:      *internal_string() = *other.internal_string(); break;
+                case msgpack_type::array:       *internal_array() = *other.internal_array();  break;
+                case msgpack_type::object:      *internal_object() = *other.internal_object(); break;
             }
 
             return *this;
         }
-        basic_json_value &operator=(basic_json_value &&other) noexcept {
+        basic_msgpack_value &operator=(basic_msgpack_value &&other) noexcept {
             clear();
 
             d = other.d;
             t = other.t;
-            other.t = json_type::null;
+            other.t = msgpack_type::null;
 
             return *this;
         }
 
-        json_type current_type() const noexcept { return t; }
-        bool is_null() const noexcept { return t == json_type::null; }
-        bool is_bool() const noexcept { return t == json_type::boolean; }
-        bool is_number() const noexcept { return t == json_type::floating || t == json_type::int64 || t == json_type::uint64; }
-        bool is_floating() const noexcept { return t == json_type::floating; }
-        bool is_int64() const noexcept { return t == json_type::int64; }
-        bool is_uint64() const noexcept { return t == json_type::uint64; }
-        bool is_string() const noexcept { return t == json_type::string; }
-        bool is_array() const noexcept { return t == json_type::array; }
-        bool is_object() const noexcept { return t == json_type::object; }
+        msgpack_type current_type() const noexcept { return t; }
+        bool is_null() const noexcept { return t == msgpack_type::null; }
+        bool is_bool() const noexcept { return t == msgpack_type::boolean; }
+        bool is_number() const noexcept { return t == msgpack_type::floating || t == msgpack_type::int64 || t == msgpack_type::uint64; }
+        bool is_floating() const noexcept { return t == msgpack_type::floating; }
+        bool is_int64() const noexcept { return t == msgpack_type::int64; }
+        bool is_uint64() const noexcept { return t == msgpack_type::uint64; }
+        bool is_string() const noexcept { return t == msgpack_type::string; }
+        bool is_array() const noexcept { return t == msgpack_type::array; }
+        bool is_object() const noexcept { return t == msgpack_type::object; }
 
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         // Undefined if current_type() is not the correct type
@@ -830,13 +816,13 @@ namespace skate {
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         std::nullptr_t &null_ref() { static std::nullptr_t null; clear(); return null; }
-        bool &bool_ref() { create(json_type::boolean); return d.b; }
-        double &number_ref() { create(json_type::floating); return d.n; }
-        int64_t &int64_ref() { create(json_type::int64); return d.i; }
-        uint64_t &uint64_ref() { create(json_type::uint64); return d.u; }
-        String &string_ref() { create(json_type::string); return *internal_string(); }
-        array &array_ref() { create(json_type::array); return *internal_array(); }
-        object &object_ref() { create(json_type::object); return *internal_object(); }
+        bool &bool_ref() { create(msgpack_type::boolean); return d.b; }
+        double &number_ref() { create(msgpack_type::floating); return d.n; }
+        int64_t &int64_ref() { create(msgpack_type::int64); return d.i; }
+        uint64_t &uint64_ref() { create(msgpack_type::uint64); return d.u; }
+        String &string_ref() { create(msgpack_type::string); return *internal_string(); }
+        array &array_ref() { create(msgpack_type::array); return *internal_array(); }
+        object &object_ref() { create(msgpack_type::object); return *internal_object(); }
 
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
         bool get_bool(bool default_value = false) const { return is_bool()? d.b: default_value; }
@@ -853,19 +839,19 @@ namespace skate {
         // Array helpers
         void reserve(size_t size) { array_ref().reserve(size); }
         void resize(size_t size) { array_ref().resize(size); }
-        void push_back(basic_json_value v) { array_ref().push_back(std::move(v)); }
+        void push_back(basic_msgpack_value v) { array_ref().push_back(std::move(v)); }
         void pop_back() { array_ref().pop_back(); }
 
-        const basic_json_value &at(size_t index) const {
-            static const basic_json_value null;
+        const basic_msgpack_value &at(size_t index) const {
+            static const basic_msgpack_value null;
 
             if (!is_array() || index >= unsafe_get_array().size())
                 return null;
 
             return unsafe_get_array()[index];
         }
-        const basic_json_value &operator[](size_t index) const { return at(index); }
-        basic_json_value &operator[](size_t index) {
+        const basic_msgpack_value &operator[](size_t index) const { return at(index); }
+        basic_msgpack_value &operator[](size_t index) {
             if (index >= array_ref().size())
                 internal_array()->resize(index + 1);
 
@@ -875,19 +861,19 @@ namespace skate {
 
         // ---------------------------------------------------
         // Object helpers
-        basic_json_value value(const String &key, basic_json_value default_value = {}) const {
+        basic_msgpack_value value(const String &key, basic_msgpack_value default_value = {}) const {
             if (!is_object())
                 return default_value;
 
             return unsafe_get_object().value(key, default_value);
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_json_value value(const S &key, basic_json_value default_value = {}) const {
+        basic_msgpack_value value(const S &key, basic_msgpack_value default_value = {}) const {
             return value(utf_convert<String>(key), default_value);
         }
 
-        const basic_json_value &operator[](const String &key) const {
-            static const basic_json_value null;
+        const basic_msgpack_value &operator[](const String &key) const {
+            static const basic_msgpack_value null;
 
             if (!is_object())
                 return null;
@@ -898,14 +884,14 @@ namespace skate {
 
             return it->second;
         }
-        basic_json_value &operator[](const String &key) { return object_ref()[key]; }
-        basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
+        basic_msgpack_value &operator[](const String &key) { return object_ref()[key]; }
+        basic_msgpack_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        const basic_json_value &operator[](const S &key) const {
+        const basic_msgpack_value &operator[](const S &key) const {
             return (*this)[utf_convert<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_json_value &operator[](const S &key) {
+        basic_msgpack_value &operator[](const S &key) {
             return (*this)[std::move(utf_convert<String>(key))];
         }
         // ---------------------------------------------------
@@ -913,31 +899,31 @@ namespace skate {
         size_t size() const noexcept {
             switch (t) {
                 default: return 0;
-                case json_type::string: return internal_string()->size();
-                case json_type::array:  return  internal_array()->size();
-                case json_type::object: return internal_object()->size();
+                case msgpack_type::string: return internal_string()->size();
+                case msgpack_type::array:  return  internal_array()->size();
+                case msgpack_type::object: return internal_object()->size();
             }
         }
 
         void clear() noexcept {
             switch (t) {
                 default: break;
-                case json_type::string: delete internal_string(); break;
-                case json_type::array:  delete  internal_array(); break;
-                case json_type::object: delete internal_object(); break;
+                case msgpack_type::string: delete internal_string(); break;
+                case msgpack_type::array:  delete  internal_array(); break;
+                case msgpack_type::object: delete internal_object(); break;
             }
 
-            t = json_type::null;
+            t = msgpack_type::null;
         }
 
-        bool operator==(const basic_json_value &other) const {
+        bool operator==(const basic_msgpack_value &other) const {
             if (t != other.t) {
                 if (is_number() && other.is_number()) {
                     switch (t) {
                         default: break;
-                        case json_type::floating:  return d.n == other.get_number();
-                        case json_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
-                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
+                        case msgpack_type::floating:  return d.n == other.get_number();
+                        case msgpack_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
+                        case msgpack_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
                     }
                 }
 
@@ -946,16 +932,16 @@ namespace skate {
 
             switch (t) {
                 default:                     return true;
-                case json_type::boolean:     return d.b == other.d.b;
-                case json_type::floating:    return d.n == other.d.n;
-                case json_type::int64:       return d.i == other.d.i;
-                case json_type::uint64:      return d.u == other.d.u;
-                case json_type::string:      return *internal_string() == *other.internal_string();
-                case json_type::array:       return  *internal_array() == *other.internal_array();
-                case json_type::object:      return *internal_object() == *other.internal_object();
+                case msgpack_type::boolean:     return d.b == other.d.b;
+                case msgpack_type::floating:    return d.n == other.d.n;
+                case msgpack_type::int64:       return d.i == other.d.i;
+                case msgpack_type::uint64:      return d.u == other.d.u;
+                case msgpack_type::string:      return *internal_string() == *other.internal_string();
+                case msgpack_type::array:       return  *internal_array() == *other.internal_array();
+                case msgpack_type::object:      return *internal_object() == *other.internal_object();
             }
         }
-        bool operator!=(const basic_json_value &other) const { return !(*this == other); }
+        bool operator!=(const basic_msgpack_value &other) const { return !(*this == other); }
 
     private:
         const String *internal_string() const noexcept { return static_cast<const String *>(d.p); }
@@ -967,7 +953,7 @@ namespace skate {
         const object *internal_object() const noexcept { return static_cast<const object *>(d.p); }
         object *internal_object() noexcept { return static_cast<object *>(d.p); }
 
-        void create(json_type t) {
+        void create(msgpack_type t) {
             if (t == this->t)
                 return;
 
@@ -975,19 +961,19 @@ namespace skate {
 
             switch (t) {
                 default: break;
-                case json_type::boolean:     d.b = false; break;
-                case json_type::floating:    d.n = 0.0; break;
-                case json_type::int64:       d.i = 0; break;
-                case json_type::uint64:      d.u = 0; break;
-                case json_type::string:      d.p = new String(); break;
-                case json_type::array:       d.p = new array(); break;
-                case json_type::object:      d.p = new object(); break;
+                case msgpack_type::boolean:     d.b = false; break;
+                case msgpack_type::floating:    d.n = 0.0; break;
+                case msgpack_type::int64:       d.i = 0; break;
+                case msgpack_type::uint64:      d.u = 0; break;
+                case msgpack_type::string:      d.p = new String(); break;
+                case msgpack_type::array:       d.p = new array(); break;
+                case msgpack_type::object:      d.p = new object(); break;
             }
 
             this->t = t;
         }
 
-        json_type t;
+        msgpack_type t;
 
         union {
             bool b;
@@ -999,14 +985,14 @@ namespace skate {
     };
 
     template<typename String>
-    class basic_json_array {
-        typedef std::vector<basic_json_value<String>> array;
+    class basic_msgpack_array {
+        typedef std::vector<basic_msgpack_value<String>> array;
 
         array v;
 
     public:
-        basic_json_array() {}
-        basic_json_array(std::initializer_list<basic_json_value<String>> il) : v(std::move(il)) {}
+        basic_msgpack_array() {}
+        basic_msgpack_array(std::initializer_list<basic_msgpack_value<String>> il) : v(std::move(il)) {}
 
         typedef typename array::const_iterator const_iterator;
         typedef typename array::iterator iterator;
@@ -1017,12 +1003,12 @@ namespace skate {
         const_iterator end() const noexcept { return v.end(); }
 
         void erase(size_t index) { v.erase(v.begin() + index); }
-        void insert(size_t before, basic_json_value<String> item) { v.insert(v.begin() + before, std::move(item)); }
-        void push_back(basic_json_value<String> item) { v.push_back(std::move(item)); }
+        void insert(size_t before, basic_msgpack_value<String> item) { v.insert(v.begin() + before, std::move(item)); }
+        void push_back(basic_msgpack_value<String> item) { v.push_back(std::move(item)); }
         void pop_back() noexcept { v.pop_back(); }
 
-        const basic_json_value<String> &operator[](size_t index) const noexcept { return v[index]; }
-        basic_json_value<String> &operator[](size_t index) noexcept { return v[index]; }
+        const basic_msgpack_value<String> &operator[](size_t index) const noexcept { return v[index]; }
+        basic_msgpack_value<String> &operator[](size_t index) noexcept { return v[index]; }
 
         void resize(size_t size) { v.resize(size); }
         void reserve(size_t size) { v.reserve(size); }
@@ -1030,19 +1016,19 @@ namespace skate {
         void clear() noexcept { v.clear(); }
         size_t size() const noexcept { return v.size(); }
 
-        bool operator==(const basic_json_array &other) const { return v == other.v; }
-        bool operator!=(const basic_json_array &other) const { return !(*this == other); }
+        bool operator==(const basic_msgpack_array &other) const { return v == other.v; }
+        bool operator!=(const basic_msgpack_array &other) const { return !(*this == other); }
     };
 
     template<typename String>
-    class basic_json_object {
-        typedef std::map<String, basic_json_value<String>> object;
+    class basic_msgpack_object {
+        typedef std::map<String, basic_msgpack_value<String>> object;
 
         object v;
 
     public:
-        basic_json_object() {}
-        basic_json_object(std::initializer_list<std::pair<const String, basic_json_value<String>>> il) : v(std::move(il)) {}
+        basic_msgpack_object() {}
+        basic_msgpack_object(std::initializer_list<std::pair<String, basic_msgpack_value<String>>> il) : v(std::move(il)) {}
 
         typedef typename object::const_iterator const_iterator;
         typedef typename object::iterator iterator;
@@ -1058,7 +1044,7 @@ namespace skate {
         template<typename K, typename V>
         void insert(K &&key, V &&value) { v.insert(std::forward<K>(key), std::forward<V>(value)); }
 
-        basic_json_value<String> value(const String &key, basic_json_value<String> default_value = {}) const {
+        basic_msgpack_value<String> value(const String &key, basic_msgpack_value<String> default_value = {}) const {
             const auto it = v.find(key);
             if (it == v.end())
                 return default_value;
@@ -1066,18 +1052,18 @@ namespace skate {
             return it->second;
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
+        basic_msgpack_value<String> value(const S &key, basic_msgpack_value<String> default_value = {}) const {
             return value(utf_convert<String>(key), default_value);
         }
 
-        basic_json_value<String> &operator[](const String &key) {
+        basic_msgpack_value<String> &operator[](const String &key) {
             const auto it = v.find(key);
             if (it != v.end())
                 return it->second;
 
             return v.insert({key, typename object::mapped_type{}}).first->second;
         }
-        basic_json_value<String> &operator[](String &&key) {
+        basic_msgpack_value<String> &operator[](String &&key) {
             const auto it = v.find(key);
             if (it != v.end())
                 return it->second;
@@ -1085,31 +1071,31 @@ namespace skate {
             return v.insert({std::move(key), typename object::mapped_type{}}).first->second;
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        const basic_json_value<String> &operator[](const S &key) const {
+        const basic_msgpack_value<String> &operator[](const S &key) const {
             return (*this)[utf_convert<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_json_value<String> &operator[](const S &key) {
+        basic_msgpack_value<String> &operator[](const S &key) {
             return (*this)[std::move(utf_convert<String>(key))];
         }
 
         void clear() noexcept { v.clear(); }
         size_t size() const noexcept { return v.size(); }
 
-        bool operator==(const basic_json_object &other) const { return v == other.v; }
-        bool operator!=(const basic_json_object &other) const { return !(*this == other); }
+        bool operator==(const basic_msgpack_object &other) const { return v == other.v; }
+        bool operator!=(const basic_msgpack_object &other) const { return !(*this == other); }
     };
 
-    typedef basic_json_array<std::string> json_array;
-    typedef basic_json_object<std::string> json_object;
-    typedef basic_json_value<std::string> json_value;
+    typedef basic_msgpack_array<std::string> msgpack_array;
+    typedef basic_msgpack_object<std::string> msgpack_object;
+    typedef basic_msgpack_value<std::string> msgpack_value;
 
-    typedef basic_json_array<std::wstring> json_warray;
-    typedef basic_json_object<std::wstring> json_wobject;
-    typedef basic_json_value<std::wstring> json_wvalue;
+    typedef basic_msgpack_array<std::wstring> msgpack_warray;
+    typedef basic_msgpack_object<std::wstring> msgpack_wobject;
+    typedef basic_msgpack_value<std::wstring> msgpack_wvalue;
 
     template<typename StreamChar, typename String>
-    bool skate_json(std::basic_streambuf<StreamChar> &is, basic_json_value<String> &j) {
+    bool skate_msgpack(std::basic_streambuf<StreamChar> &is, basic_msgpack_value<String> &j) {
         if (!impl::skipws(is))
             return false;
 
@@ -1117,12 +1103,12 @@ namespace skate {
 
         switch (c) {
             case std::char_traits<StreamChar>::eof(): return false;
-            case '"': return json(j.string_ref()).read(is);
-            case '[': return json(j.array_ref()).read(is);
-            case '{': return json(j.object_ref()).read(is);
+            case '"': return msgpack(j.string_ref()).read(is);
+            case '[': return msgpack(j.array_ref()).read(is);
+            case '{': return msgpack(j.object_ref()).read(is);
             case 't': // fallthrough
-            case 'f': return json(j.bool_ref()).read(is);
-            case 'n': return json(j.null_ref()).read(is);
+            case 'f': return msgpack(j.bool_ref()).read(is);
+            case 'n': return msgpack(j.null_ref()).read(is);
             case '0': // fallthrough
             case '1': // fallthrough
             case '2': // fallthrough
@@ -1167,45 +1153,45 @@ namespace skate {
     }
 
     template<typename StreamChar, typename String>
-    bool skate_json(std::basic_streambuf<StreamChar> &os, const basic_json_value<String> &j, json_write_options options) {
+    bool skate_msgpack(std::basic_streambuf<StreamChar> &os, const basic_msgpack_value<String> &j, msgpack_write_options options) {
         switch (j.current_type()) {
-            default:                      return json(nullptr, options).write(os);
-            case json_type::null:         return json(j.unsafe_get_null(), options).write(os);
-            case json_type::boolean:      return json(j.unsafe_get_bool(), options).write(os);
-            case json_type::floating:     return json(j.unsafe_get_floating(), options).write(os);
-            case json_type::int64:        return json(j.unsafe_get_int64(), options).write(os);
-            case json_type::uint64:       return json(j.unsafe_get_uint64(), options).write(os);
-            case json_type::string:       return json(j.unsafe_get_string(), options).write(os);
-            case json_type::array:        return json(j.unsafe_get_array(), options).write(os);
-            case json_type::object:       return json(j.unsafe_get_object(), options).write(os);
+            default:                         return msgpack(nullptr, options).write(os);
+            case msgpack_type::null:         return msgpack(j.unsafe_get_null(), options).write(os);
+            case msgpack_type::boolean:      return msgpack(j.unsafe_get_bool(), options).write(os);
+            case msgpack_type::floating:     return msgpack(j.unsafe_get_floating(), options).write(os);
+            case msgpack_type::int64:        return msgpack(j.unsafe_get_int64(), options).write(os);
+            case msgpack_type::uint64:       return msgpack(j.unsafe_get_uint64(), options).write(os);
+            case msgpack_type::string:       return msgpack(j.unsafe_get_string(), options).write(os);
+            case msgpack_type::array:        return msgpack(j.unsafe_get_array(), options).write(os);
+            case msgpack_type::object:       return msgpack(j.unsafe_get_object(), options).write(os);
         }
     }
 
     template<typename StreamChar, typename String>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_json_value<String> &j) {
-        return is >> json(j);
+    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_msgpack_value<String> &j) {
+        return is >> msgpack(j);
     }
 
     template<typename StreamChar, typename String>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_json_value<String> &j) {
-        return os << json(j);
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_msgpack_value<String> &j) {
+        return os << msgpack(j);
     }
 
     // Qt helpers
 #ifdef QT_VERSION
     template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
+    std::basic_istream<StreamChar> &skate_msgpack(std::basic_istream<StreamChar> &is, QString &str) {
         std::wstring wstr;
-        is >> skate::json(wstr);
+        is >> skate::msgpack(wstr);
         str = QString::fromStdWString(wstr);
         return is;
     }
 
     template<typename StreamChar>
-    std::basic_ostream<StreamChar> &skate_json(std::basic_ostream<StreamChar> &os, const QString &str) {
-        return os << skate::json(str.toStdWString());
+    std::basic_ostream<StreamChar> &skate_msgpack(std::basic_ostream<StreamChar> &os, const QString &str) {
+        return os << skate::msgpack(str.toStdWString());
     }
 #endif
 }
 
-#endif // SKATE_JSON_H
+#endif // SKATE_MSGPACK_H
