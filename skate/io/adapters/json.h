@@ -8,6 +8,7 @@
 #define SKATE_JSON_H
 
 #include "core.h"
+#include "../../containers/split_join.h"
 
 namespace skate {
     template<typename Type>
@@ -670,7 +671,7 @@ namespace skate {
     }
 
     template<typename Type>
-    Type from_json(const std::string &s) {
+    Type from_json(const std::string &s, bool *error = nullptr) {
         Type value;
 
         struct one_pass_readbuf : public std::streambuf {
@@ -681,8 +682,15 @@ namespace skate {
             }
         } buf{s.c_str(), s.size()};
 
-        if (!json(value).read(buf))
+        if (!json(value).read(buf)) {
+            if (error)
+                *error = true;
+
             return {};
+        }
+
+        if (error)
+            *error = false;
 
         return value;
     }
@@ -714,6 +722,7 @@ namespace skate {
         object
     };
 
+    // The basic_json_value class holds a generic JSON value. Strings are expected to be stored as UTF-formatted strings, but this is not required.
     template<typename String>
     class basic_json_value {
     public:
@@ -779,7 +788,7 @@ namespace skate {
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
-            d.p = new String(std::move(utf_convert<String>(v)));
+            d.p = new String(std::move(utf_convert_weak<String>(v)));
         }
         ~basic_json_value() { clear(); }
 
@@ -869,20 +878,98 @@ namespace skate {
         }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert<S>(unsafe_get_string()): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
+        // Conversion routines, all follow JavaScript conversion rules as closely as possible for converting types (as_int routines can't return NAN though, and return 0 instead)
         bool as_bool() const noexcept {
             switch (current_type()) {
-                case json_type::null:       return false;
+                default:                    return false;
                 case json_type::boolean:    return unsafe_get_bool();
                 case json_type::int64:      return unsafe_get_int64() != 0;
                 case json_type::uint64:     return unsafe_get_uint64() != 0;
-                case json_type::floating:   return unsafe_get_floating() != 0.0;
-                case json_type::string:     return
+                case json_type::floating:   return !std::isnan(unsafe_get_floating()) && unsafe_get_floating() != 0.0;
+                case json_type::string:     return unsafe_get_string().size() != 0;
+                case json_type::array:      return true;
+                case json_type::object:     return true;
             }
         }
+        double as_number() const noexcept {
+            switch (current_type()) {
+                default:                    return 0.0;
+                case json_type::boolean:    return unsafe_get_bool();
+                case json_type::int64:      return unsafe_get_int64();
+                case json_type::uint64:     return unsafe_get_uint64();
+                case json_type::floating:   return unsafe_get_floating();
+                case json_type::string:     {
+                    bool error = false;
+                    const auto v = from_json<double>(utf_convert_weak<std::string>(unsafe_get_string()), &error);
+                    return error? NAN: v;
+                }
+                case json_type::array:      return unsafe_get_array().size() == 0? 0.0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_number(): NAN;
+                case json_type::object:     return NAN;
+            }
+        }
+        int64_t as_int64() const noexcept {
+            switch (current_type()) {
+                default:                    return 0;
+                case json_type::boolean:    return unsafe_get_bool();
+                case json_type::int64:      // fallthrough
+                case json_type::uint64:     // fallthrough
+                case json_type::floating:   return get_int64();
+                case json_type::string:     return from_json<int64_t>(utf_convert_weak<std::string>(unsafe_get_string()));
+                case json_type::array:      return unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): 0;
+                case json_type::object:     return 0;
+            }
+        }
+        uint64_t as_uint64() const noexcept {
+            switch (current_type()) {
+                default:                    return 0;
+                case json_type::boolean:    return unsafe_get_bool();
+                case json_type::int64:      // fallthrough
+                case json_type::uint64:     // fallthrough
+                case json_type::floating:   return get_int64();
+                case json_type::string:     return from_json<uint64_t>(utf_convert_weak<std::string>(unsafe_get_string()));
+                case json_type::array:      return unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): 0;
+                case json_type::object:     return 0;
+            }
+        }
+        template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I as_int() const noexcept {
+            const int64_t i = as_int64();
+
+            if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return 0;
+        }
+        template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I as_uint() const noexcept {
+            const uint64_t i = as_uint64();
+
+            if (i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return 0;
+        }
+        template<typename S = String>
+        S as_string() const {
+            switch (current_type()) {
+                default:                    return utf_convert_weak<S>("null");
+                case json_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false");
+                case json_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64()));
+                case json_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64()));
+                case json_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN"):
+                                                   std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity"):
+                                                                                      utf_convert_weak<S>(to_json(unsafe_get_floating()));
+                case json_type::string:     return utf_convert_weak<S>(unsafe_get_string());
+                case json_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(","), [](const basic_json_value &v) { return v.as_string<S>(); });
+                case json_type::object:     return utf_convert_weak<S>("[object Object]");
+            }
+        }
+        array as_array() const { return get_array(); }
+        object as_object() const { return get_object(); }
 
         // ---------------------------------------------------
         // Array helpers
@@ -918,7 +1005,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value value(const S &key, basic_json_value default_value = {}) const {
-            return value(utf_convert<String>(key), default_value);
+            return value(utf_convert_weak<String>(key), default_value);
         }
 
         const basic_json_value &operator[](const String &key) const {
@@ -937,11 +1024,11 @@ namespace skate {
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_json_value &operator[](const S &key) const {
-            return (*this)[utf_convert<String>(key)];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value &operator[](const S &key) {
-            return (*this)[std::move(utf_convert<String>(key))];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         // ---------------------------------------------------
 
@@ -1102,7 +1189,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
-            return value(utf_convert<String>(key), default_value);
+            return value(utf_convert_weak<String>(key), default_value);
         }
 
         basic_json_value<String> &operator[](const String &key) {
@@ -1121,11 +1208,11 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_json_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert<String>(key)];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value<String> &operator[](const S &key) {
-            return (*this)[std::move(utf_convert<String>(key))];
+            return (*this)[std::move(utf_convert_weak<String>(key))];
         }
 
         void clear() noexcept { v.clear(); }

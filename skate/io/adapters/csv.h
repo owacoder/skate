@@ -895,7 +895,7 @@ namespace skate {
     }
 
     template<typename Type>
-    Type from_csv(const std::string &s, csv_options options = {}) {
+    Type from_csv(const std::string &s, csv_options options = {}, bool *error = nullptr) {
         Type value;
 
         struct one_pass_readbuf : public std::streambuf {
@@ -906,8 +906,15 @@ namespace skate {
             }
         } buf{s.c_str(), s.size()};
 
-        if (!csv(value, options).read(buf))
+        if (!csv(value, options).read(buf)) {
+            if (error)
+                *error = true;
+
             return {};
+        }
+
+        if (error)
+            *error = false;
 
         return value;
     }

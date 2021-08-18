@@ -674,7 +674,7 @@ namespace skate {
     }
 
     template<typename Type>
-    Type from_msgpack(const std::string &s) {
+    Type from_msgpack(const std::string &s, bool *error = nullptr) {
         Type value;
 
         struct one_pass_readbuf : public std::streambuf {
@@ -685,8 +685,15 @@ namespace skate {
             }
         } buf{s.c_str(), s.size()};
 
-        if (!msgpack(value).read(buf))
+        if (!msgpack(value).read(buf)) {
+            if (error)
+                *error = true;
+
             return {};
+        }
+
+        if (error)
+            *error = false;
 
         return value;
     }
@@ -783,7 +790,7 @@ namespace skate {
         basic_msgpack_value(T v) : t(msgpack_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
         basic_msgpack_value(const T &v) : t(msgpack_type::string) {
-            d.p = new String(std::move(utf_convert<String>(v)));
+            d.p = new String(utf_convert_weak<String>(v));
         }
         ~basic_msgpack_value() { clear(); }
 
@@ -855,7 +862,7 @@ namespace skate {
         uint64_t get_uint64(uint64_t default_value = 0) const { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && d.n <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert<S>(unsafe_get_string()): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
@@ -893,7 +900,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value value(const S &key, basic_msgpack_value default_value = {}) const {
-            return value(utf_convert<String>(key), default_value);
+            return value(utf_convert_weak<String>(key), default_value);
         }
 
         const basic_msgpack_value &operator[](const String &key) const {
@@ -912,11 +919,11 @@ namespace skate {
         basic_msgpack_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_msgpack_value &operator[](const S &key) const {
-            return (*this)[utf_convert<String>(key)];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value &operator[](const S &key) {
-            return (*this)[std::move(utf_convert<String>(key))];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         // ---------------------------------------------------
 
@@ -1077,7 +1084,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value<String> value(const S &key, basic_msgpack_value<String> default_value = {}) const {
-            return value(utf_convert<String>(key), default_value);
+            return value(utf_convert_weak<String>(key), default_value);
         }
 
         basic_msgpack_value<String> &operator[](const String &key) {
@@ -1096,11 +1103,11 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_msgpack_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert<String>(key)];
+            return (*this)[utf_convert_weak<String>(key)];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value<String> &operator[](const S &key) {
-            return (*this)[std::move(utf_convert<String>(key))];
+            return (*this)[utf_convert_weak<String>(key)];
         }
 
         void clear() noexcept { v.clear(); }

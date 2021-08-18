@@ -1,9 +1,7 @@
-/**
+/** @file
  *
- * Copyright (c) Oliver Adams, 2021.
- *
- * Licensed under Apache 2.0 license
- *
+ *  @author Oliver Adams
+ *  @copyright Copyright (C) 2021, Licensed under Apache 2.0
  */
 
 #ifndef SKATE_KQUEUE_H

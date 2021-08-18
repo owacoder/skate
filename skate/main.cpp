@@ -197,7 +197,18 @@ namespace skate {
 
 int main()
 {
-    std::cout << skate::from_json<skate::json_value>("266688").get_int() << std::endl;
+    skate::json_array s;
+    skate::json_value jv;
+
+    jv = skate::from_json<skate::json_value>("[false]");
+
+    skate::benchmark([&]() {
+        for (size_t i = 0; i < 10000000; ++i)
+            s.push_back(jv.as_string());
+    });
+
+    std::cout << jv.as_string() << '\n';
+
     return 0;
 
 #if 0

@@ -300,6 +300,7 @@ namespace skate {
             0xE0, /* 11100000 for 3-byte */
             0xF0, /* 11110000 for 4-byte */
         };
+
         const size_t bytesInCode = utf8size(codepoint);
         const size_t continuationBytesInCode = bytesInCode - 1;
 
@@ -502,6 +503,12 @@ namespace skate {
      */
     template<typename String>
     inline bool utf8append(String &utf8, unicode_codepoint codepoint) {
+        if (codepoint.value() < 0x80) { // Shortcut for speed, not strictly necessary
+            utf8.push_back(codepoint.value());
+            return true;
+        } else if (!codepoint.valid())
+            return false;
+
         const unsigned char headerForCodepointSize[5] = {
             0x80, /* 10000000 for continuation byte */
             0x00, /* 00000000 for single byte */
@@ -509,9 +516,6 @@ namespace skate {
             0xE0, /* 11100000 for 3-byte */
             0xF0, /* 11110000 for 4-byte */
         };
-
-        if (!codepoint.valid())
-            return false;
 
         const size_t bytesInCode = utf8size(codepoint.value());
         const size_t continuationBytesInCode = bytesInCode - 1;
@@ -957,6 +961,54 @@ namespace skate {
     template<typename ToString>
     ToString utf_convert(const wchar_t *s, bool *error = nullptr) {
         return utf_convert<ToString>(s, wcslen(s), error);
+    }
+
+    // Weak conversion for UTF strings. If the string is already in a compatible representation, it isn't checked for properly-formed UTF
+    template<typename ToString>
+    ToString &&utf_convert_weak(ToString &&s) {
+        return std::forward<ToString>(s);
+    }
+
+    template<typename ToString, typename String>
+    ToString utf_convert_weak(const String &s) {
+        return utf_convert<ToString>(s);
+    }
+
+    // Weak conversion for UTF C-style strings. If the string is already in a compatible representation, it isn't checked for properly-formed UTF
+    template<typename ToString, typename StringChar, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
+                                                                                          StringChar>::value, int>::type = 0>
+    ToString utf_convert_weak(const StringChar *s) {
+        return s;
+    }
+
+    template<typename ToString, typename StringChar, typename std::enable_if<!std::is_same<typename std::decay<ToString>::type,
+                                                                                           StringChar>::value, int>::type = 0>
+    ToString utf_convert_weak(const StringChar *s) {
+        return utf_convert<ToString>(s);
+    }
+
+    template<typename ToString, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
+                                                                     char>::value, int>::type = 0>
+    ToString utf_convert_weak(const char *s) {
+        return s;
+    }
+
+    template<typename ToString, typename std::enable_if<!std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
+                                                                      char>::value, int>::type = 0>
+    ToString utf_convert_weak(const char *s) {
+        return utf_convert<ToString>(s);
+    }
+
+    template<typename ToString, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
+                                                                     wchar_t>::value, int>::type = 0>
+    ToString utf_convert_weak(const wchar_t *s) {
+        return s;
+    }
+
+    template<typename ToString, typename std::enable_if<!std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
+                                                                      wchar_t>::value, int>::type = 0>
+    ToString utf_convert_weak(const wchar_t *s) {
+        return utf_convert<ToString>(s);
     }
 
     // Convert to narrow string as UTF-8
