@@ -1,3 +1,9 @@
+/** @file
+ *
+ *  @author Oliver Adams
+ *  @copyright Copyright (C) 2021, Licensed under Apache 2.0
+ */
+
 #ifndef THREADBUFFER_H
 #define THREADBUFFER_H
 

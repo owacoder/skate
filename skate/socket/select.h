@@ -1,3 +1,11 @@
+/**
+ *
+ * Copyright (c) Oliver Adams, 2021.
+ *
+ * Licensed under Apache 2.0 license
+ *
+ */
+
 #ifndef SKATE_SELECT_H
 #define SKATE_SELECT_H
 

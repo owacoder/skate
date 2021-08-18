@@ -47,7 +47,7 @@
  *     - TMS470
  *
  *  @author Oliver Adams
- *  @copyright Copyright (C) 2021
+ *  @copyright Copyright (C) 2021, Licensed under Apache 2.0
  */
 
 #ifndef SKATE_ENVIRONMENT_H

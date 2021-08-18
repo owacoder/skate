@@ -197,6 +197,9 @@ namespace skate {
 
 int main()
 {
+    std::cout << skate::from_json<skate::json_value>("266688").get_int() << std::endl;
+    return 0;
+
 #if 0
     {
 #if WINDOWS_OS

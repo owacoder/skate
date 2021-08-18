@@ -1,3 +1,9 @@
+/** @file
+ *
+ *  @author Oliver Adams
+ *  @copyright Copyright (C) 2021, Licensed under Apache 2.0
+ */
+
 #ifndef SKATE_MSGPACK_H
 #define SKATE_MSGPACK_H
 
@@ -372,25 +378,20 @@ namespace skate {
             class write_tuple {
                 std::basic_streambuf<StreamChar> &os;
                 bool &error;
-                bool &has_written_something;
                 const msgpack_write_options &options;
 
             public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const msgpack_write_options &options) noexcept
+                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, const msgpack_write_options &options) noexcept
                     : os(stream)
                     , error(error)
-                    , has_written_something(has_written_something)
                     , options(options)
                 {}
 
                 template<typename Param>
                 void operator()(const Param &p) {
-                    if (error || (has_written_something && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
-                        error = true;
+                    if (error)
                         return;
-                    }
 
-                    has_written_something = true;
                     error = !skate::msgpack(p, options).write(os);
                 }
             };
@@ -451,13 +452,23 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
                                                                                  !is_array_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
+            constexpr size_t size = std::tuple_size<typename std::decay<_>::type>::value;
             bool error = false;
-            bool has_written_something = false;
 
-            if (os.sputc('[') == std::char_traits<StreamChar>::eof())
+            if (size <= 15) {
+                if (os.sputc(0x90 | size) == std::char_traits<StreamChar>::eof())
+                    return false;
+            } else if (size <= 0xffffu) {
+                if (os.sputc(0xdc) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(size)))
+                    return false;
+            } else if (size <= 0xffffffffu) {
+                if (os.sputc(0xdd) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(size)))
+                    return false;
+            } else {
                 return false;
+            }
 
-            impl::apply(impl::msgpack::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
+            impl::apply(impl::msgpack::write_tuple<StreamChar>(os, error, options), ref);
 
             return !error;
         }
@@ -500,8 +511,21 @@ namespace skate {
         bool write(std::basic_streambuf<StreamChar> &os) const {
             const size_t sz = std::distance(begin(ref), end(ref));
 
-            if (os.sputc('"') == std::char_traits<StreamChar>::eof())
+            if (sz <= 31) {
+                if (os.sputc(0xa0 | sz) == std::char_traits<StreamChar>::eof())
+                    return false;
+            } else if (sz <= 0xffu) {
+                if (os.sputc(0xd9) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint8_t(sz)))
+                    return false;
+            } else if (sz <= 0xffffu) {
+                if (os.sputc(0xda) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(sz)))
+                    return false;
+            } else if (sz <= 0xffffffffu) {
+                if (os.sputc(0xdb) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(sz)))
+                    return false;
+            } else {
                 return false;
+            }
 
             for (size_t i = 0; i < sz;) {
                 // Read Unicode in from string
@@ -1028,7 +1052,7 @@ namespace skate {
 
     public:
         basic_msgpack_object() {}
-        basic_msgpack_object(std::initializer_list<std::pair<String, basic_msgpack_value<String>>> il) : v(std::move(il)) {}
+        basic_msgpack_object(std::initializer_list<std::pair<const String, basic_msgpack_value<String>>> il) : v(std::move(il)) {}
 
         typedef typename object::const_iterator const_iterator;
         typedef typename object::iterator iterator;
