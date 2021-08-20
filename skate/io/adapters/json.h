@@ -788,7 +788,7 @@ namespace skate {
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
-            d.p = new String(std::move(utf_convert_weak<String>(v)));
+            d.p = new String(utf_convert_weak<String>(v).get());
         }
         ~basic_json_value() { clear(); }
 
@@ -855,7 +855,8 @@ namespace skate {
 
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
         bool get_bool(bool default_value = false) const noexcept { return is_bool()? d.b: default_value; }
-        double get_number(double default_value = 0.0) const noexcept { return is_number()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
+        template<typename FloatType = double>
+        FloatType get_number(FloatType default_value = 0.0) const noexcept { return is_number()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
         int64_t get_int64(int64_t default_value = 0) const noexcept { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && std::trunc(d.n) >= INT64_MIN && std::trunc(d.n) <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
         uint64_t get_uint64(uint64_t default_value = 0) const noexcept { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && std::trunc(d.n) <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
         template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
@@ -878,11 +879,11 @@ namespace skate {
         }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
-        // Conversion routines, all follow JavaScript conversion rules as closely as possible for converting types (as_int routines can't return NAN though, and return 0 instead)
+        // Conversion routines, all follow JavaScript conversion rules as closely as possible for converting types (as_int routines can't return NAN though, and return error_value instead)
         bool as_bool() const noexcept {
             switch (current_type()) {
                 default:                    return false;
@@ -895,7 +896,8 @@ namespace skate {
                 case json_type::object:     return true;
             }
         }
-        double as_number() const noexcept {
+        template<typename FloatType = double>
+        FloatType as_number() const noexcept {
             switch (current_type()) {
                 default:                    return 0.0;
                 case json_type::boolean:    return unsafe_get_bool();
@@ -903,69 +905,74 @@ namespace skate {
                 case json_type::uint64:     return unsafe_get_uint64();
                 case json_type::floating:   return unsafe_get_floating();
                 case json_type::string:     {
-                    bool error = false;
-                    const auto v = from_json<double>(utf_convert_weak<std::string>(unsafe_get_string()), &error);
-                    return error? NAN: v;
+                    FloatType v = 0.0;
+                    return impl::parse_float(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: NAN;
                 }
                 case json_type::array:      return unsafe_get_array().size() == 0? 0.0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_number(): NAN;
                 case json_type::object:     return NAN;
             }
         }
-        int64_t as_int64() const noexcept {
+        int64_t as_int64(int64_t error_value = 0) const noexcept {
             switch (current_type()) {
                 default:                    return 0;
                 case json_type::boolean:    return unsafe_get_bool();
                 case json_type::int64:      // fallthrough
                 case json_type::uint64:     // fallthrough
                 case json_type::floating:   return get_int64();
-                case json_type::string:     return from_json<int64_t>(utf_convert_weak<std::string>(unsafe_get_string()));
-                case json_type::array:      return unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): 0;
-                case json_type::object:     return 0;
+                case json_type::string:     {
+                    int64_t v = 0;
+                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                }
+                case json_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
+                case json_type::object:     return error_value;
             }
         }
-        uint64_t as_uint64() const noexcept {
+        uint64_t as_uint64(uint64_t error_value = 0) const noexcept {
             switch (current_type()) {
                 default:                    return 0;
                 case json_type::boolean:    return unsafe_get_bool();
                 case json_type::int64:      // fallthrough
                 case json_type::uint64:     // fallthrough
                 case json_type::floating:   return get_int64();
-                case json_type::string:     return from_json<uint64_t>(utf_convert_weak<std::string>(unsafe_get_string()));
-                case json_type::array:      return unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): 0;
-                case json_type::object:     return 0;
+                case json_type::string:     {
+                    uint64_t v = 0;
+                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                }
+                case json_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
+                case json_type::object:     return error_value;
             }
         }
         template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
-        I as_int() const noexcept {
-            const int64_t i = as_int64();
+        I as_int(I error_value = 0) const noexcept {
+            const int64_t i = as_int64(error_value);
 
             if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
                 return I(i);
 
-            return 0;
+            return error_value;
         }
         template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
-        I as_uint() const noexcept {
-            const uint64_t i = as_uint64();
+        I as_uint(I error_value = 0) const noexcept {
+            const uint64_t i = as_uint64(error_value);
 
             if (i <= std::numeric_limits<I>::max())
                 return I(i);
 
-            return 0;
+            return error_value;
         }
         template<typename S = String>
         S as_string() const {
             switch (current_type()) {
-                default:                    return utf_convert_weak<S>("null");
-                case json_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false");
-                case json_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64()));
-                case json_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64()));
-                case json_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN"):
-                                                   std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity"):
-                                                                                      utf_convert_weak<S>(to_json(unsafe_get_floating()));
-                case json_type::string:     return utf_convert_weak<S>(unsafe_get_string());
-                case json_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(","), [](const basic_json_value &v) { return v.as_string<S>(); });
-                case json_type::object:     return utf_convert_weak<S>("[object Object]");
+                default:                    return utf_convert_weak<S>("null").get();
+                case json_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false").get();
+                case json_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64())).get();
+                case json_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64())).get();
+                case json_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN").get():
+                                                   std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity").get():
+                                                                                      utf_convert_weak<S>(to_json(unsafe_get_floating())).get();
+                case json_type::string:     return utf_convert_weak<S>(unsafe_get_string()).get();
+                case json_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(",").get(), [](const basic_json_value &v) { return v.as_string<S>(); });
+                case json_type::object:     return utf_convert_weak<S>("[object Object]").get();
             }
         }
         array as_array() const { return get_array(); }
@@ -975,6 +982,7 @@ namespace skate {
         // Array helpers
         void reserve(size_t size) { array_ref().reserve(size); }
         void resize(size_t size) { array_ref().resize(size); }
+        void erase(size_t index, size_t count = 1) { array_ref().erase(index, count); }
         void push_back(basic_json_value v) { array_ref().push_back(std::move(v)); }
         void pop_back() { array_ref().pop_back(); }
 
@@ -997,6 +1005,10 @@ namespace skate {
 
         // ---------------------------------------------------
         // Object helpers
+        void erase(const String &key) { object_ref().erase(key); }
+        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        void erase(const S &key) { object_ref().erase(utf_convert_weak<String>(key).get()); }
+
         basic_json_value value(const String &key, basic_json_value default_value = {}) const {
             if (!is_object())
                 return default_value;
@@ -1005,7 +1017,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value value(const S &key, basic_json_value default_value = {}) const {
-            return value(utf_convert_weak<String>(key), default_value);
+            return value(utf_convert_weak<String>(key).get(), default_value);
         }
 
         const basic_json_value &operator[](const String &key) const {
@@ -1024,11 +1036,11 @@ namespace skate {
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_json_value &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         // ---------------------------------------------------
 
@@ -1057,9 +1069,9 @@ namespace skate {
                 if (is_number() && other.is_number()) {
                     switch (t) {
                         default: break;
-                        case json_type::floating:  return d.n == other.get_number();
-                        case json_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
-                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
+                        case json_type::floating:  return other == *this; // Swap operand order so floating point is always on right
+                        case json_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && std::trunc(other.d.n) == other.d.n && d.i == int64_t(other.d.n));
+                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && std::trunc(other.d.n) == other.d.n && d.u == uint64_t(other.d.n));
                     }
                 }
 
@@ -1138,7 +1150,7 @@ namespace skate {
         const_iterator begin() const noexcept { return v.begin(); }
         const_iterator end() const noexcept { return v.end(); }
 
-        void erase(size_t index) { v.erase(v.begin() + index); }
+        void erase(size_t index, size_t count = 1) { v.erase(v.begin() + index, v.begin() + std::min(size() - index, count)); }
         void insert(size_t before, basic_json_value<String> item) { v.insert(v.begin() + before, std::move(item)); }
         void push_back(basic_json_value<String> item) { v.push_back(std::move(item)); }
         void pop_back() noexcept { v.pop_back(); }
@@ -1189,7 +1201,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
-            return value(utf_convert_weak<String>(key), default_value);
+            return value(utf_convert_weak<String>(key).get(), default_value);
         }
 
         basic_json_value<String> &operator[](const String &key) {
@@ -1208,11 +1220,11 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_json_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_json_value<String> &operator[](const S &key) {
-            return (*this)[std::move(utf_convert_weak<String>(key))];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
 
         void clear() noexcept { v.clear(); }

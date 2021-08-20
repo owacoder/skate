@@ -56,6 +56,7 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include "io/logger.h"
 #include "io/adapters/core.h"
 #include "io/adapters/json.h"
+#include "io/adapters/msgpack.h"
 #include "io/adapters/csv.h"
 #include "io/adapters/xml.h"
 #include "containers/split_join.h"
@@ -200,14 +201,20 @@ int main()
     skate::json_array s;
     skate::json_value jv;
 
-    jv = skate::from_json<skate::json_value>("[false]");
+    jv = "01233";
+
+    std::cout << jv.as_int() << '\n';
+
+    const auto msgp = skate::to_msgpack(1.23f);
+
+    for (const auto &el: msgp)
+        std::cout << skate::toxchar(el >> 4) << skate::toxchar(el & 0xf) << ' ';
+    std::cout << '\n';
 
     skate::benchmark([&]() {
         for (size_t i = 0; i < 10000000; ++i)
-            s.push_back(jv.as_string());
+            s.push_back(jv.as_int());
     });
-
-    std::cout << jv.as_string() << '\n';
 
     return 0;
 

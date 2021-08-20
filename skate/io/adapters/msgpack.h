@@ -84,7 +84,7 @@ namespace skate {
             if (!impl::skipws(is))
                 return false;
             else if (is.sgetc() == ']') { // Empty array?
-                return is.sbumpc() != std::char_traits<StreamChar>::eof();
+                return is.sbumpc() != std::char_traits<char>::eof();
             }
 
             do {
@@ -137,7 +137,7 @@ namespace skate {
             if (!impl::skipws(is))
                 return false;
             else if (is.sgetc() == '}') { // Empty object?
-                return is.sbumpc() != std::char_traits<StreamChar>::eof();
+                return is.sbumpc() != std::char_traits<char>::eof();
             }
 
             do {
@@ -198,7 +198,7 @@ namespace skate {
                     const auto c = is.sbumpc();
 
                     switch (c) {
-                        case std::char_traits<StreamChar>::eof(): return false;
+                        case std::char_traits<char>::eof(): return false;
                         case '"':
                         case '\\':
                         case 'b':
@@ -355,17 +355,7 @@ namespace skate {
     };
 
     struct msgpack_write_options {
-        constexpr msgpack_write_options(size_t indent = 0, size_t current_indentation = 0) noexcept
-            : current_indentation(current_indentation)
-            , indent(indent)
-        {}
-
-        msgpack_write_options indented() const noexcept {
-            return { indent, current_indentation + indent };
-        }
-
-        size_t current_indentation; // Current indentation depth in number of spaces
-        size_t indent; // Indent per level in number of spaces (0 if no indent desired)
+        constexpr msgpack_write_options() noexcept {}
     };
 
     template<typename Type>
@@ -374,14 +364,13 @@ namespace skate {
     namespace impl {
         namespace msgpack {
             // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
-            template<typename StreamChar>
             class write_tuple {
-                std::basic_streambuf<StreamChar> &os;
+                std::streambuf &os;
                 bool &error;
                 const msgpack_write_options &options;
 
             public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, const msgpack_write_options &options) noexcept
+                constexpr write_tuple(std::streambuf &stream, bool &error, const msgpack_write_options &options) noexcept
                     : os(stream)
                     , error(error)
                     , options(options)
@@ -414,27 +403,27 @@ namespace skate {
         {}
 
         // User object overload, skate_msgpack(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<msgpack_write_options>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_array_base<_>::value &&
-                                                                                 !is_map_base<_>::value &&
-                                                                                 !is_tuple_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        template<typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(static_cast<std::streambuf &>(std::declval<std::streambuf &>()), std::declval<const _ &>(), std::declval<msgpack_write_options>()))>::value &&
+                                                            !is_string_base<_>::value &&
+                                                            !is_array_base<_>::value &&
+                                                            !is_map_base<_>::value &&
+                                                            !is_tuple_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
             // Library user is responsible for creating valid MsgPack in the callback function
             return skate_msgpack(os, ref, options);
         }
 
-        // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        // Array overload (non-binary data)
+        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value && sizeof(decltype(*begin(std::declval<_>()))) != sizeof(char), int>::type = 0>
+        bool write(std::streambuf &os) const {
             if (ref.size() <= 15) {
-                if (os.sputc(0x90 | ref.size()) == std::char_traits<StreamChar>::eof())
+                if (os.sputc(static_cast<unsigned char>(0x90 | ref.size())) == std::char_traits<char>::eof())
                     return false;
             } else if (ref.size() <= 0xffffu) {
-                if (os.sputc(0xdc) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
+                if (os.sputc(static_cast<unsigned char>(0xdc)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
                     return false;
             } else if (ref.size() <= 0xffffffffu) {
-                if (os.sputc(0xdd) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
+                if (os.sputc(static_cast<unsigned char>(0xdd)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
                     return false;
             } else {
                 return false;
@@ -448,44 +437,68 @@ namespace skate {
             return true;
         }
 
-        // Tuple/pair overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
-                                                                                 !is_array_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            constexpr size_t size = std::tuple_size<typename std::decay<_>::type>::value;
-            bool error = false;
-
-            if (size <= 15) {
-                if (os.sputc(0x90 | size) == std::char_traits<StreamChar>::eof())
+        // Array overload (binary data)
+        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value && sizeof(decltype(*begin(std::declval<_>()))) == sizeof(char), int>::type = 0>
+        bool write(std::streambuf &os) const {
+            if (ref.size() <= 0xffu) {
+                if (os.sputc(static_cast<unsigned char>(0xc4)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint8_t(ref.size())))
                     return false;
-            } else if (size <= 0xffffu) {
-                if (os.sputc(0xdc) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(size)))
+            } else if (ref.size() <= 0xffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xc5)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
                     return false;
-            } else if (size <= 0xffffffffu) {
-                if (os.sputc(0xdd) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(size)))
+            } else if (ref.size() <= 0xffffffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xc6)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
                     return false;
             } else {
                 return false;
             }
 
-            impl::apply(impl::msgpack::write_tuple<StreamChar>(os, error, options), ref);
+            for (const auto &el: ref) {
+                if (os.sputc(el) == std::char_traits<char>::eof())
+                    return false;
+            }
+
+            return true;
+        }
+
+        // Tuple/pair overload
+        template<typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
+                                                            !is_array_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            constexpr size_t size = std::tuple_size<typename std::decay<_>::type>::value;
+            bool error = false;
+
+            if (size <= 15) {
+                if (os.sputc(static_cast<unsigned char>(0x90 | size)) == std::char_traits<char>::eof())
+                    return false;
+            } else if (size <= 0xffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xdc)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(size)))
+                    return false;
+            } else if (size <= 0xffffffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xdd)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(size)))
+                    return false;
+            } else {
+                return false;
+            }
+
+            impl::apply(impl::msgpack::write_tuple(os, error, options), ref);
 
             return !error;
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        template<typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
             if (ref.size() <= 15) {
-                if (os.sputc(0x80 | ref.size()) == std::char_traits<StreamChar>::eof())
+                if (os.sputc(static_cast<unsigned char>(0x80 | ref.size())) == std::char_traits<char>::eof())
                     return false;
             } else if (ref.size() <= 0xffffu) {
-                if (os.sputc(0xde) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
+                if (os.sputc(static_cast<unsigned char>(0xde)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(ref.size())))
                     return false;
             } else if (ref.size() <= 0xffffffffu) {
-                if (os.sputc(0xdf) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
+                if (os.sputc(static_cast<unsigned char>(0xdf)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(ref.size())))
                     return false;
             } else {
                 return false;
@@ -503,134 +516,112 @@ namespace skate {
         }
 
         // String overload
-        template<typename StreamChar,
-                 typename _ = Type,
+        template<typename _ = Type,
                  typename StringChar = typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_string_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            const size_t sz = std::distance(begin(ref), end(ref));
+        bool write(std::streambuf &os) const {
+            const auto s = utf_convert_weak<std::string>(ref);
+            const size_t sz = s.get().size();
 
             if (sz <= 31) {
-                if (os.sputc(0xa0 | sz) == std::char_traits<StreamChar>::eof())
+                if (os.sputc(static_cast<unsigned char>(0xa0 | sz)) == std::char_traits<char>::eof())
                     return false;
             } else if (sz <= 0xffu) {
-                if (os.sputc(0xd9) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint8_t(sz)))
+                if (os.sputc(static_cast<unsigned char>(0xd9)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint8_t(sz)))
                     return false;
             } else if (sz <= 0xffffu) {
-                if (os.sputc(0xda) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint16_t(sz)))
+                if (os.sputc(static_cast<unsigned char>(0xda)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(sz)))
                     return false;
             } else if (sz <= 0xffffffffu) {
-                if (os.sputc(0xdb) == std::char_traits<StreamChar>::eof() || !impl::write_big_endian(os, uint32_t(sz)))
+                if (os.sputc(static_cast<unsigned char>(0xdb)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(sz)))
                     return false;
             } else {
                 return false;
             }
 
-            for (size_t i = 0; i < sz;) {
-                // Read Unicode in from string
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
-
-                switch (codepoint.value()) {
-                    case '"':  if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('"') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\\': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('\\') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\b': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('b') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\f': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('f') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\n': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('n') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\r': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('r') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\t': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('t') == std::char_traits<StreamChar>::eof()) return false; break;
-                    default: {
-                        // Is character a control character? If so, write it out as a Unicode constant
-                        // All other ASCII characters just get passed through
-                        if (codepoint >= 32 && codepoint < 0x80) {
-                            if (os.sputc(codepoint.value()) == std::char_traits<StreamChar>::eof())
-                                return false;
-                        } else {
-                            // Then add as a \u codepoint (or two, if surrogates are needed)
-                            unsigned int hi, lo;
-
-                            switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
-                                case 2:
-                                    if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >> 12)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >>  8)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >>  4)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi      )) == std::char_traits<StreamChar>::eof())
-                                        return false;
-                                    // fallthrough
-                                case 1:
-                                    if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >> 12)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >>  8)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >>  4)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo      )) == std::char_traits<StreamChar>::eof())
-                                        return false;
-                                    break;
-                                default:
-                                    return false;
-                            }
-                        }
-
-                        break;
-                    }
-                }
-            }
-
-            return os.sputc('"') != std::char_traits<StreamChar>::eof();
+            return os.sputn(s.get().c_str(), sz) != std::char_traits<char>::eof();
         }
 
         // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
+        template<typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            return os.sputc(static_cast<unsigned char>(0xc0)) != std::char_traits<char>::eof();
         }
 
         // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            return os.sputc(0xc2 | ref) != std::char_traits<StreamChar>::eof();
+        template<typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            return os.sputc(static_cast<unsigned char>(0xc2 | ref)) != std::char_traits<char>::eof();
         }
 
         // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        template<typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
             if (ref < 0) {
-                if (ref >= -32) {
-                    // TODO
-                }
+                typename std::make_unsigned<_>::type uref = ref;
 
-                // TODO
+                if (ref >= -32)
+                    return os.sputc(static_cast<unsigned char>(0xe0 | uref)) != std::char_traits<char>::eof();
+                else if (ref >= -0x80)
+                    return os.sputc(static_cast<unsigned char>(0xd0)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint8_t(uref));
+                else if (ref >= -0x8000)
+                    return os.sputc(static_cast<unsigned char>(0xd1)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint16_t(uref));
+                else if (ref >= -0x80000000)
+                    return os.sputc(static_cast<unsigned char>(0xd2)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint32_t(uref));
+                else
+                    return os.sputc(static_cast<unsigned char>(0xd3)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint64_t(uref));
             } else { // Positive number
                 if (ref <= 0x7fu)
-                    return os.sputc(ref) != std::char_traits<StreamChar>::eof();
+                    return os.sputc(static_cast<unsigned char>(ref)) != std::char_traits<char>::eof();
                 else if (ref <= 0xffu)
-                    return os.sputc(0xcc) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint8_t(ref));
+                    return os.sputc(static_cast<unsigned char>(0xcc)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint8_t(ref));
                 else if (ref <= 0xffffu)
-                    return os.sputc(0xcd) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint16_t(ref));
+                    return os.sputc(static_cast<unsigned char>(0xcd)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint16_t(ref));
                 else if (ref <= 0xffffffffu)
-                    return os.sputc(0xce) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint32_t(ref));
+                    return os.sputc(static_cast<unsigned char>(0xce)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint32_t(ref));
                 else
-                    return os.sputc(0xcf) != std::char_traits<StreamChar>::eof() && impl::write_big_endian(os, uint64_t(ref));
+                    return os.sputc(static_cast<unsigned char>(0xcf)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint64_t(ref));
             }
         }
 
         // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            // MsgPack doesn't support infinities or NAN
-            return impl::write_float(os, ref, false, false);
+        template<typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            static_assert(std::numeric_limits<_>::is_iec559, "MsgPack doesn't support floating point numbers other than IEEE-754 at the moment");
+
+            if (std::is_same<typename std::decay<float>::type, _>::value || ref == static_cast<_>(float(ref))) { // Is float or fits in float without loss
+                uint32_t result = 0;
+                memcpy(static_cast<char *>(static_cast<void *>(&result)),
+                       static_cast<const char *>(static_cast<const void *>(&ref)),
+                       sizeof(ref));
+
+                if (os.sputc(static_cast<unsigned char>(0xca)) == std::char_traits<char>::eof())
+                    false;
+
+                return impl::write_big_endian(os, result);
+            } else { // Force into double precision
+                const double v = ref;
+                uint64_t result = 0;
+                memcpy(static_cast<char *>(static_cast<void *>(&result)),
+                       static_cast<const char *>(static_cast<const void *>(&v)),
+                       sizeof(v));
+
+                if (os.sputc(static_cast<unsigned char>(0xcd)) == std::char_traits<char>::eof())
+                    false;
+
+                return impl::write_big_endian(os, result);
+            }
         }
 
         // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<(is_shared_ptr_base<_>::value ||
-                                                                                 is_weak_ptr_base<_>::value ||
-                                                                                 is_unique_ptr_base<_>::value ||
-                                                                                 std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        template<typename _ = Type, typename std::enable_if<(is_shared_ptr_base<_>::value ||
+                                                             is_weak_ptr_base<_>::value ||
+                                                             is_unique_ptr_base<_>::value ||
+                                                             std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
             if (!ref) {
-                return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
+                return os.sputc(static_cast<unsigned char>(0xc0)) != std::char_traits<char>::eof();
             } else {
                 return msgpack(*ref, options).write(os);
             }
@@ -638,10 +629,10 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
+        template<typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
             if (!ref) {
-                return os.sputc(0xc0) != std::char_traits<StreamChar>::eof();
+                return os.sputc(static_cast<unsigned char>(0xc0)) != std::char_traits<char>::eof();
             } else {
                 return msgpack(*ref, options).write(os);
             }
@@ -790,7 +781,7 @@ namespace skate {
         basic_msgpack_value(T v) : t(msgpack_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
         basic_msgpack_value(const T &v) : t(msgpack_type::string) {
-            d.p = new String(utf_convert_weak<String>(v));
+            d.p = new String(utf_convert_weak<String>(v).get());
         }
         ~basic_msgpack_value() { clear(); }
 
@@ -862,7 +853,7 @@ namespace skate {
         uint64_t get_uint64(uint64_t default_value = 0) const { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && d.n <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
@@ -900,7 +891,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value value(const S &key, basic_msgpack_value default_value = {}) const {
-            return value(utf_convert_weak<String>(key), default_value);
+            return value(utf_convert_weak<String>(key).get(), default_value);
         }
 
         const basic_msgpack_value &operator[](const String &key) const {
@@ -919,11 +910,11 @@ namespace skate {
         basic_msgpack_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_msgpack_value &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         // ---------------------------------------------------
 
@@ -1084,7 +1075,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value<String> value(const S &key, basic_msgpack_value<String> default_value = {}) const {
-            return value(utf_convert_weak<String>(key), default_value);
+            return value(utf_convert_weak<String>(key).get(), default_value);
         }
 
         basic_msgpack_value<String> &operator[](const String &key) {
@@ -1103,11 +1094,11 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         const basic_msgpack_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
         template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
         basic_msgpack_value<String> &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key)];
+            return (*this)[utf_convert_weak<String>(key).get()];
         }
 
         void clear() noexcept { v.clear(); }
@@ -1133,7 +1124,7 @@ namespace skate {
         auto c = is.sgetc();
 
         switch (c) {
-            case std::char_traits<StreamChar>::eof(): return false;
+            case std::char_traits<char>::eof(): return false;
             case '"': return msgpack(j.string_ref()).read(is);
             case '[': return msgpack(j.array_ref()).read(is);
             case '{': return msgpack(j.object_ref()).read(is);

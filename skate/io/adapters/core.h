@@ -335,11 +335,48 @@ namespace skate {
             }
         }
 
-        // Requires that number start with digit or '-'. Leading '+' is not allowed
+        template<typename IntType>
+        bool parse_int(const char *s, IntType &ref, int base = 10, bool only_number = false) {
+            char *end = nullptr;
+
+            while (isspace(*s))
+                ++s;
+
+            if (*s == '-') {
+                errno = 0;
+                const auto v = strtoll(s, &end, base);
+                if (errno == ERANGE || v > std::numeric_limits<IntType>::max() || v < std::numeric_limits<IntType>::min())
+                    return false;
+
+                if (std::is_unsigned<IntType>::value && v < 0)
+                    return false;
+
+                ref = IntType(v);
+            } else {
+                if (*s == '+')
+                    ++s;
+
+                errno = 0;
+                const auto v = strtoull(s, &end, base);
+                if (errno == ERANGE || v > static_cast<typename std::make_unsigned<IntType>::type>(std::numeric_limits<IntType>::max()))
+                    return false;
+
+                ref = IntType(v);
+            }
+
+            if (only_number? *end != 0: end == s) { // If only_number, require entire string to be valid integer, otherwise just the beginning
+                ref = 0;
+                return false;
+            }
+
+            return true;
+        }
+
+        // Requires that number start with digit or '-'. Leading '+' is not allowed by default
         template<typename StreamChar, typename IntType>
-        bool read_int(std::basic_streambuf<StreamChar> &is, IntType &ref) {
+        bool read_int(std::basic_streambuf<StreamChar> &is, IntType &ref, bool allow_leading_plus = false) {
             auto c = is.sgetc();
-            if (!isdigit(c) && c != '-')
+            if (!isdigit(c) && c != '-' && (!allow_leading_plus || c != '+'))
                 return false;
 
             std::string temp;
@@ -354,35 +391,27 @@ namespace skate {
                 temp.push_back(char(c));
             }
 
-            char *end = nullptr;
-            if (temp[0] == '-') {
-                errno = 0;
-                const auto v = strtoll(temp.c_str(), &end, 10);
-                if (errno == ERANGE || v > std::numeric_limits<IntType>::max() || v < std::numeric_limits<IntType>::min())
-                    return false;
-
-                if (std::is_unsigned<IntType>::value && v < 0)
-                    return false;
-
-                ref = IntType(v);
-            } else {
-                errno = 0;
-                const auto v = strtoull(temp.c_str(), &end, 10);
-                if (errno == ERANGE || v > std::numeric_limits<IntType>::max())
-                    return false;
-
-                ref = IntType(v);
-            }
-
-            if (*end != 0) {
-                ref = 0;
-                return false;
-            }
-
-            return true;
+            return parse_int(temp.c_str(), ref, 10, true);
         }
 
-        // Requires that number start with digit or '-'. Leading '+' is not allowed
+        template<typename FloatType>
+        bool parse_float(const char *s, FloatType &ref, bool only_number = false) {
+            char *end = nullptr;
+
+            while (isspace(*s))
+                ++s;
+
+            if (std::is_same<FloatType, float>::value)
+                ref = strtof(s, &end);
+            else if (std::is_same<FloatType, double>::value)
+                ref = strtod(s, &end);
+            else
+                ref = strtold(s, &end);
+
+            return only_number? *end == 0: end != s; // If only_number, require entire string to be valid floating point, otherwise just the beginning
+        }
+
+        // Requires that number start with digit or '-'. Leading '+' is not allowed by default
         template<typename StreamChar, typename FloatType>
         bool read_float(std::basic_streambuf<StreamChar> &is, FloatType &ref, bool allow_leading_dot = false, bool allow_leading_plus = false) {
             static_assert(std::is_same<FloatType, float>::value ||
@@ -406,16 +435,7 @@ namespace skate {
                 temp.push_back(char(c));
             }
 
-            char *end = nullptr;
-
-            if (std::is_same<FloatType, float>::value)
-                ref = strtof(temp.c_str(), &end);
-            else if (std::is_same<FloatType, double>::value)
-                ref = strtod(temp.c_str(), &end);
-            else
-                ref = strtold(temp.c_str(), &end);
-
-            return *end == 0;
+            return parse_float(temp.c_str(), ref, true);
         }
 
         template<typename StreamChar, typename IntType>
@@ -471,14 +491,14 @@ namespace skate {
 
             // Needed because std::max isn't constexpr
             template<typename T>
-            constexpr T max(T a, T b) { return a < b? a: b; }
+            constexpr T max(T a, T b) { return a < b? b: a; }
         }
 
         template<typename StreamChar, typename FloatType>
         bool write_float(std::basic_streambuf<StreamChar> &os, FloatType v, bool allow_inf = true, bool allow_nan = true) {
-            static_assert(std::is_same<FloatType, float>::value ||
-                          std::is_same<FloatType, double>::value ||
-                          std::is_same<FloatType, long double>::value, "floating point type must be float, double, or long double");
+            static_assert(std::is_same<typename std::decay<FloatType>::type, float>::value ||
+                          std::is_same<typename std::decay<FloatType>::type, double>::value ||
+                          std::is_same<typename std::decay<FloatType>::type, long double>::value, "floating point type must be float, double, or long double");
 
             if (std::isinf(v)) {
                 if (!allow_inf)

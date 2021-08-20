@@ -963,51 +963,87 @@ namespace skate {
         return utf_convert<ToString>(s, wcslen(s), error);
     }
 
+    // An automatic reference to allow capturing any type by value
+    template<typename T, bool is_reference = std::is_lvalue_reference<T>::value>
+    class auto_reference {
+        typename std::decay<T>::type wrapper;
+
+    public:
+        template<typename U>
+        constexpr auto_reference(U &&other) : wrapper(std::forward<U>(other)) {}
+
+        constexpr const T &get() const & noexcept { return wrapper; }
+        constexpr operator const T &() const & noexcept { return wrapper; }
+
+        constexpr T &&get() && noexcept { return std::move(wrapper); }
+        constexpr operator T &&() && noexcept { return std::move(wrapper); }
+    };
+
+    // A specialized automatic reference to allow capturing any const T & by reference
+    template<typename T>
+    class auto_reference<T, true> {
+        const T &wrapper;
+
+    public:
+        constexpr auto_reference(const T &wrapper) noexcept : wrapper(wrapper) {}
+
+        constexpr const T &get() const noexcept { return wrapper; }
+        constexpr operator const T &() const noexcept { return wrapper; }
+    };
+
     // Weak conversion for UTF strings. If the string is already in a compatible representation, it isn't checked for properly-formed UTF
-    template<typename ToString>
-    ToString &&utf_convert_weak(ToString &&s) {
-        return std::forward<ToString>(s);
+    // This overload just passes RValues for identical types straight through
+    template<typename ToString, typename String, typename std::enable_if<std::is_same<typename std::decay<ToString>::type, typename std::decay<String>::type>::value, int>::type = 0>
+    auto_reference<ToString &&> utf_convert_weak(String &&s) {
+        return std::move(s);
     }
 
-    template<typename ToString, typename String>
-    ToString utf_convert_weak(const String &s) {
+    // Weak conversion for UTF strings. If the string is already in a compatible representation, it isn't checked for properly-formed UTF
+    // This overload just passes const references for identical types straight through
+    template<typename ToString, typename String, typename std::enable_if<std::is_same<typename std::decay<ToString>::type, typename std::decay<String>::type>::value, int>::type = 0>
+    auto_reference<const ToString &> utf_convert_weak(const String &s) {
+        return s;
+    }
+
+    template<typename ToString, typename String, typename std::enable_if<!std::is_same<typename std::decay<ToString>::type, typename std::decay<String>::type>::value, int>::type = 0>
+    auto_reference<ToString> utf_convert_weak(const String &s) {
         return utf_convert<ToString>(s);
     }
 
     // Weak conversion for UTF C-style strings. If the string is already in a compatible representation, it isn't checked for properly-formed UTF
     template<typename ToString, typename StringChar, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
                                                                                           StringChar>::value, int>::type = 0>
-    ToString utf_convert_weak(const StringChar *s) {
+    auto_reference<ToString> utf_convert_weak(const StringChar *s) {
         return s;
     }
 
     template<typename ToString, typename StringChar, typename std::enable_if<!std::is_same<typename std::decay<ToString>::type,
                                                                                            StringChar>::value, int>::type = 0>
-    ToString utf_convert_weak(const StringChar *s) {
+    auto_reference<ToString> utf_convert_weak(const StringChar *s) {
         return utf_convert<ToString>(s);
     }
 
     template<typename ToString, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
                                                                      char>::value, int>::type = 0>
-    ToString utf_convert_weak(const char *s) {
+    auto_reference<ToString> utf_convert_weak(const char *s) {
         return s;
     }
 
     template<typename ToString, typename std::enable_if<!std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
                                                                       char>::value, int>::type = 0>
-    ToString utf_convert_weak(const char *s) {
+    auto_reference<ToString> utf_convert_weak(const char *s) {
         return utf_convert<ToString>(s);
     }
 
     template<typename ToString, typename std::enable_if<std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
                                                                      wchar_t>::value, int>::type = 0>
-    ToString utf_convert_weak(const wchar_t *s) {
+    auto_reference<ToString> utf_convert_weak(const wchar_t *s) {
         return s;
     }
 
     template<typename ToString, typename std::enable_if<!std::is_same<typename std::decay<decltype(*std::declval<ToString>().begin())>::type,
                                                                       wchar_t>::value, int>::type = 0>
-    ToString utf_convert_weak(const wchar_t *s) {
+    auto_reference<ToString> utf_convert_weak(const wchar_t *s) {
         return utf_convert<ToString>(s);
     }
 
