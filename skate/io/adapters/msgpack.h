@@ -19,6 +19,13 @@ namespace skate {
     template<typename Type>
     msgpack_reader<Type> msgpack(Type &);
 
+    struct msgpack_ext {
+        msgpack_ext() : type(0) {}
+
+        int8_t type;
+        std::string data;
+    };
+
     namespace impl {
         namespace msgpack {
             // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
@@ -517,7 +524,7 @@ namespace skate {
 
         // String overload
         template<typename _ = Type,
-                 typename StringChar = typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_string_base<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
@@ -540,7 +547,35 @@ namespace skate {
                 return false;
             }
 
-            return os.sputn(s.get().c_str(), sz) != std::char_traits<char>::eof();
+            return os.sputn(s.get().c_str(), sz) == sz;
+        }
+
+        // Extension overload
+        template<typename _ = Type, typename std::enable_if<std::is_same<_, msgpack_ext>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            switch (ref.data.size()) {
+                case  1: if (os.sputc(static_cast<unsigned char>(0xd4)) == std::char_traits<char>::eof()) return false; break;
+                case  2: if (os.sputc(static_cast<unsigned char>(0xd5)) == std::char_traits<char>::eof()) return false; break;
+                case  4: if (os.sputc(static_cast<unsigned char>(0xd6)) == std::char_traits<char>::eof()) return false; break;
+                case  8: if (os.sputc(static_cast<unsigned char>(0xd7)) == std::char_traits<char>::eof()) return false; break;
+                case 16: if (os.sputc(static_cast<unsigned char>(0xd8)) == std::char_traits<char>::eof()) return false; break;
+                default:
+                    if (ref.data.size() <= 0xffu) {
+                        if (os.sputc(static_cast<unsigned char>(0xc7)) == std::char_traits<char>::eof() || impl::write_big_endian(os, uint8_t(ref.data.size())))
+                            return false;
+                    } else if (ref.data.size() <= 0xffffu) {
+                        if (os.sputc(static_cast<unsigned char>(0xc8)) == std::char_traits<char>::eof() || impl::write_big_endian(os, uint16_t(ref.data.size())))
+                            return false;
+                    } else if (ref.data.size() <= 0xffffffffu) {
+                        if (os.sputc(static_cast<unsigned char>(0xc9)) == std::char_traits<char>::eof() || impl::write_big_endian(os, uint16_t(ref.data.size())))
+                            return false;
+                    } else
+                        return false;
+
+                    break;
+            }
+
+            return os.sputc(ref.type) != std::char_traits<char>::eof() && os.sputn(ref.data.c_str(), ref.data.size()) == ref.data.size();
         }
 
         // Null overload
@@ -565,9 +600,9 @@ namespace skate {
                     return os.sputc(static_cast<unsigned char>(0xe0 | uref)) != std::char_traits<char>::eof();
                 else if (ref >= -0x80)
                     return os.sputc(static_cast<unsigned char>(0xd0)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint8_t(uref));
-                else if (ref >= -0x8000)
+                else if (ref >= -0x8000l)
                     return os.sputc(static_cast<unsigned char>(0xd1)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint16_t(uref));
-                else if (ref >= -0x80000000)
+                else if (ref >= -0x80000000ll)
                     return os.sputc(static_cast<unsigned char>(0xd2)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint32_t(uref));
                 else
                     return os.sputc(static_cast<unsigned char>(0xd3)) != std::char_traits<char>::eof() && impl::write_big_endian(os, uint64_t(uref));
@@ -607,7 +642,7 @@ namespace skate {
                        static_cast<const char *>(static_cast<const void *>(&v)),
                        sizeof(v));
 
-                if (os.sputc(static_cast<unsigned char>(0xcd)) == std::char_traits<char>::eof())
+                if (os.sputc(static_cast<unsigned char>(0xcb)) == std::char_traits<char>::eof())
                     false;
 
                 return impl::write_big_endian(os, result);

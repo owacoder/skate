@@ -523,7 +523,7 @@ namespace skate {
         // String overload
         template<typename StreamChar,
                  typename _ = Type,
-                 typename StringChar = typename std::remove_cv<typename std::remove_reference<decltype(*begin(std::declval<_>()))>::type>::type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
