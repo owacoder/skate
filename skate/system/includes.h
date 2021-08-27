@@ -49,7 +49,9 @@ namespace skate {
 # endif
 
 # include <winsock2.h>
-# include <windows.h>
+# if !defined(_AFX) && !defined(_AFXDLL)
+#  include <windows.h>
+# endif
 
 # if MSVC_COMPILER
 #  pragma comment(lib, "ws2_32")

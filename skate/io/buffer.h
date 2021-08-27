@@ -7,6 +7,8 @@
 #ifndef SKATE_IO_BUFFER_H
 #define SKATE_IO_BUFFER_H
 
+#include "../containers/abstract_list.h"
+
 #include <vector>
 #include <algorithm>
 #include <atomic>

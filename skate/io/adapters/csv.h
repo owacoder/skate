@@ -566,8 +566,8 @@ namespace skate {
                                                                                  is_array_base<decltype(*begin(std::declval<_>()))>::value &&
                                                                                  is_scalar_base<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            for (const auto &el: ref) {
-                if (!csv(el, options).write(os))
+            for (auto el = begin(ref); el != end(ref); ++el) {
+                if (!csv(*el, options).write(os))
                     return false;
             }
 
@@ -580,8 +580,8 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                                                  is_trivial_tuple_base<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            for (const auto &el: ref) {
-                if (!csv(el, options).write(os))
+            for (auto el = begin(ref); el != end(ref); ++el) {
+                if (!csv(*el, options).write(os))
                     return false;
             }
 
@@ -605,8 +605,8 @@ namespace skate {
             std::vector<KeyType> headers;
 
             // First gather all headers
-            for (const auto &map: ref) {
-                for (auto el = begin(map); el != end(map); ++el) {
+            for (auto map = begin(ref); map != end(ref); ++map) {
+                for (auto el = begin(*map); el != end(*map); ++el) {
                     if (header_set.find(key_of<KeyValuePair>{}(el)) == header_set.end()) {
                         header_set.insert(key_of<KeyValuePair>{}(el));
                         headers.push_back(key_of<KeyValuePair>{}(el));
@@ -620,16 +620,16 @@ namespace skate {
                 return false;
 
             // Then write each data row
-            for (const auto &el: ref) {
+            for (auto map = begin(ref); map != end(ref); ++map) {
                 size_t index = 0;
 
                 for (const auto &header: headers) {
                     if (index && !put_unicode<StreamChar>{}(os, options.separator))
                         return false;
 
-                    const auto it = el.find(header);
+                    const auto it = (*map).find(header);
 
-                    if (it != el.end()) {
+                    if (it != (*map).end()) {
                         if (!csv(value_of<KeyValuePair>{}(it), options).write(os))
                             return false;
                     } else {
@@ -650,7 +650,6 @@ namespace skate {
 
         // Object of arrays overload, writes multiple lines of CSV with header line containing all keys
         // Map contains column names mapped to column values. Since column data can be jagged, default-constructed elements are written for row items that don't have column data specified
-        // Requires that object has a find() method that returns end() if key not found
         template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
                                                          typename std::enable_if<is_map_base<_>::value && // Type must be map
                                                                                  is_scalar_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value && // Key type must be scalar
@@ -719,11 +718,11 @@ namespace skate {
         bool write(std::basic_streambuf<StreamChar> &os) const {
             size_t index = 0;
 
-            for (const auto &el: ref) {
+            for (auto el = begin(ref); el != end(ref); ++el) {
                 if (index && !put_unicode<StreamChar>{}(os, options.separator))
                     return false;
 
-                if (!csv(el, options).write(os))
+                if (!csv(*el, options).write(os))
                     return false;
 
                 ++index;
@@ -754,7 +753,6 @@ namespace skate {
         }
 
         // Object of trivial values overload, writes header line and a single data line of CSV
-        // Requires that object has a find() method that returns end() if key not found
         template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
                                                          typename std::enable_if<is_map_base<_>::value &&
                                                                                  is_scalar_base<typename is_map_pair_helper<KeyValuePair>::key_type>::value && // Key type must be scalar

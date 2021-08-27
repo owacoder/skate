@@ -34,6 +34,18 @@
 #include "../../system/includes.h"
 
 namespace skate {
+    template<typename T>
+    struct reserve_elements {
+        void operator()(T &, size_t) noexcept {}
+    };
+
+    template<typename... ContainerParams>
+    struct reserve_elements<std::vector<ContainerParams...>> {
+        void operator()(std::vector<ContainerParams...> &c, size_t s) noexcept {
+            c.reserve(s);
+        }
+    };
+
     // Determine if type is a string
     template<typename T> struct is_string : public std::false_type {};
     template<typename... ContainerParams>
@@ -456,6 +468,42 @@ namespace skate {
                 if (os.sputc(*begin) == std::char_traits<StreamChar>::eof())
                     return false;
 
+            return true;
+        }
+
+        template<typename StreamChar, typename IntType>
+        bool read_little_endian(std::basic_streambuf<StreamChar> &is, IntType &v) {
+            typedef typename std::make_unsigned<IntType>::type UIntType;
+            UIntType copy = 0;
+
+            v = 0;
+            for (size_t i = 0; i < std::numeric_limits<UIntType>::digits / 8; ++i) {
+                const auto c = is.sbumpc();
+                if (c == std::char_traits<StreamChar>::eof())
+                    return false;
+
+                copy |= UIntType(c & 0xff) << (i * 8);
+            }
+
+            v = copy;
+            return true;
+        }
+
+        template<typename StreamChar, typename IntType>
+        bool read_big_endian(std::basic_streambuf<StreamChar> &is, IntType &v) {
+            typedef typename std::make_unsigned<IntType>::type UIntType;
+            UIntType copy = 0;
+
+            v = 0;
+            for (size_t i = 0; i < std::numeric_limits<UIntType>::digits / 8; ++i) {
+                const auto c = is.sbumpc();
+                if (c == std::char_traits<StreamChar>::eof())
+                    return false;
+
+                copy = (copy << 8) | (c & 0xff);
+            }
+
+            v = copy;
             return true;
         }
 

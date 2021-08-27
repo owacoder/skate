@@ -966,17 +966,18 @@ namespace skate {
     // An automatic reference to allow capturing any type by value
     template<typename T, bool is_reference = std::is_lvalue_reference<T>::value>
     class auto_reference {
-        typename std::decay<T>::type wrapper;
+        typedef typename std::decay<T>::type wrapped;
+        wrapped wrapper;
 
     public:
         template<typename U>
         constexpr auto_reference(U &&other) : wrapper(std::forward<U>(other)) {}
 
-        constexpr const T &get() const & noexcept { return wrapper; }
-        constexpr operator const T &() const & noexcept { return wrapper; }
+        constexpr const wrapped &get() const & noexcept { return wrapper; }
+        constexpr operator const wrapped &() const & noexcept { return wrapper; }
 
-        constexpr T &&get() && noexcept { return std::move(wrapper); }
-        constexpr operator T &&() && noexcept { return std::move(wrapper); }
+        wrapped &&get() && noexcept { return std::move(wrapper); }
+        operator wrapped &&() && noexcept { return std::move(wrapper); }
     };
 
     // A specialized automatic reference to allow capturing any const T & by reference
@@ -1150,7 +1151,7 @@ namespace skate {
     }
 
     template<typename String>
-    constexpr int compare_nocase_ascii(const String &l, const String &r) {
+    int compare_nocase_ascii(const String &l, const String &r) {
         const size_t size = std::min(l.size(), r.size());
 
         for (size_t i = 0; i < size; ++i) {

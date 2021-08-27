@@ -124,6 +124,8 @@ namespace skate {
 
         // Clears the set and removes all watched descriptors
         virtual void clear(std::error_code &ec) override {
+            ec.clear();
+
             FD_ZERO(&master_read_set);
             FD_ZERO(&master_write_set);
             FD_ZERO(&master_except_set);

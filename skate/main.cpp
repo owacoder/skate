@@ -1,3 +1,6 @@
+#define NOMINMAX
+#include <afx.h>
+
 #include <iostream>
 #include "threadbuffer.h"
 #include <thread>
@@ -46,7 +49,8 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
     return os << address.to_string();
 }
 
-//#include "containers/abstract_map.h"
+#include "containers/abstract_list.h"
+#include "containers/MFC/mfc_abstract_list.h"
 #if 0
 #include <QString>
 #include <QList>
@@ -105,6 +109,51 @@ public:
     http_server_socket() {}
     virtual ~http_server_socket() {}
 };
+
+void abstract_container_test() {
+    std::initializer_list<int> il = { 0, 1, 2, 3, 4, 5 };
+
+    std::vector<int> v = il;
+    std::list<int> l = il;
+    std::forward_list<int> fl = il;
+    CArray<int, int> ca;
+    CList<int, int> cl;
+
+    namespace abstract = skate::abstract;
+
+    for (const auto el : il) {
+        abstract::push_back(ca, el);
+        abstract::push_back(cl, el);
+    }
+
+    abstract::push_back(v, 6);
+    abstract::push_back(l, 6);
+    abstract::push_back(fl, 6);
+    abstract::push_back(ca, 6);
+    abstract::push_back(cl, 6);
+    abstract::pop_front(v);
+    abstract::pop_front(l);
+    abstract::pop_front(fl);
+    abstract::pop_front(ca);
+    abstract::pop_front(cl);
+    abstract::reverse(v);
+    abstract::reverse(l);
+    abstract::reverse(fl);
+    abstract::reverse(ca);
+    abstract::reverse(cl);
+
+    std::cout << skate::json(v) << std::endl;
+    std::cout << skate::json(l) << std::endl;
+    std::cout << skate::json(fl) << std::endl;
+    std::cout << skate::json(ca) << std::endl;
+    std::cout << skate::json(cl) << std::endl;
+
+    std::cout << skate::json(abstract::element(v, 2)) << std::endl;
+    std::cout << skate::json(abstract::element(l, 2)) << std::endl;
+    std::cout << skate::json(abstract::element(fl, 2)) << std::endl;
+    std::cout << skate::json(abstract::element(ca, 2)) << std::endl;
+    std::cout << skate::json(abstract::element(cl, 2)) << std::endl;
+}
 
 void network_test() {
     skate::startup_wrapper wrapper;
@@ -198,6 +247,9 @@ namespace skate {
 
 int main()
 {
+    abstract_container_test();
+    return 0;
+
     skate::json_array s;
     skate::json_value jv;
 
@@ -205,7 +257,7 @@ int main()
 
     std::cout << jv.as_int() << '\n';
 
-    const auto msgp = skate::to_msgpack(1.23f);
+    const auto msgp = skate::to_msgpack(1.23);
 
     for (const auto &el: msgp)
         std::cout << skate::toxchar(el >> 4) << skate::toxchar(el & 0xf) << ' ';

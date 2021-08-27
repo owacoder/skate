@@ -103,7 +103,6 @@ namespace skate {
             } while (is.sbumpc() == ',');
 
             // Invalid if here, as function should have returned inside loop with valid array
-            ref.clear();
             return false;
         }
 
@@ -166,8 +165,7 @@ namespace skate {
                     return is.sbumpc() == '}';
             } while (is.sbumpc() == ',');
 
-            // Invalid if here, as function should have returned inside loop with valid array
-            ref.clear();
+            // Invalid if here, as function should have returned inside loop with valid map
             return false;
         }
 
@@ -252,7 +250,6 @@ namespace skate {
                     return false;
             }
 
-            ref.clear();
             return false;
         }
 
@@ -450,14 +447,14 @@ namespace skate {
             if (os.sputc('[') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            for (const auto &el: ref) {
+            for (auto el = begin(ref); el != end(ref); ++el) {
                 if (index && os.sputc(',') == std::char_traits<StreamChar>::eof())
                     return false;
 
                 if (options.indent && !do_indent(os, options.current_indentation + options.indent))
                     return false;
 
-                if (!json(el, options.indented()).write(os))
+                if (!json(*el, options.indented()).write(os))
                     return false;
 
                 ++index;
