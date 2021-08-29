@@ -32,6 +32,9 @@
 #include <QSet>
 
 namespace skate {
+    template<>
+    struct is_string<QString> : public std::true_type {};
+
     // ------------------------------------------------
     // Specialization for QSet<T>
     // ------------------------------------------------

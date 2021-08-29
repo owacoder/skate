@@ -21,6 +21,8 @@
  * ----------------------------------------------------------------------------------------------------
  */
 
+#include "../system/includes.h"
+
 // Basic container and string support
 #include <string>
 #include <cstring>
@@ -114,59 +116,78 @@ namespace skate {
         }
     };
 
+    // Abstract size() method for containers
+    template<typename T>
+    struct abstract_shrink_to_fit {
+        constexpr abstract_shrink_to_fit(T &c) noexcept {}
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_shrink_to_fit<std::vector<ContainerParams...>> {
+        abstract_shrink_to_fit(std::vector<ContainerParams...> &c) { c.shrink_to_fit(); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_shrink_to_fit<std::basic_string<ContainerParams...>> {
+        abstract_shrink_to_fit(std::basic_string<ContainerParams...> &c) { c.shrink_to_fit(); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_shrink_to_fit<std::deque<ContainerParams...>> {
+        abstract_shrink_to_fit(std::deque<ContainerParams...> &c) { c.shrink_to_fit(); }
+    };
+
     // Abstract front() method for containers
     template<typename T>
     struct abstract_front {
-        abstract_front(const T &c, const typename abstract_list_element_type<T>::type *&front) { front = &c.front(); }
-        abstract_front(T &c, typename abstract_list_element_type<T>::type *&front) { front = &c.front(); }
+        decltype(std::declval<const T &>().front()) operator()(const T &c) { return c.front(); }
+        decltype(std::declval<T &>().front()) operator()(T &c) { return c.front(); }
     };
 
     // Abstract back() method for containers
     template<typename T>
     struct abstract_back {
-        abstract_back(const T &c, const typename abstract_list_element_type<T>::type *&back) { back = &c.back(); }
-        abstract_back(T &c, typename abstract_list_element_type<T>::type *&back) { back = &c.back(); }
+        decltype(std::declval<const T &>().back()) operator()(const T &c) { return c.back(); }
+        decltype(std::declval<T &>().back()) operator()(T &c) { return c.back(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_back<std::forward_list<ContainerParams...>> {
-        abstract_back(const std::forward_list<ContainerParams...> &c, const typename abstract_list_element_type<std::forward_list<ContainerParams...>>::type *&back) {
+        decltype(std::declval<const std::forward_list<ContainerParams...> &>().front()) operator()(const std::forward_list<ContainerParams...> &c) {
             auto it = c.before_begin();
             for (const auto &el: c) {
                 (void) el;
                 ++it;
             }
-            back = &*it;
+            return *it;
         }
-        abstract_back(std::forward_list<ContainerParams...> &c, typename abstract_list_element_type<std::forward_list<ContainerParams...>>::type *&back) {
+        decltype(std::declval<std::forward_list<ContainerParams...> &>().front()) operator()(std::forward_list<ContainerParams...> &c) {
             auto it = c.before_begin();
             for (const auto &el: c) {
                 (void) el;
                 ++it;
             }
-            back = &*it;
+            return *it;
         }
     };
 
     // Abstract element-at method for containers
     template<typename T>
     struct abstract_element {
-        template<typename _ = T, typename std::enable_if<std::is_reference<decltype(std::declval<const _ &>()[0])>::value, int>::type = 0>
-        abstract_element(const T &c, size_t n, const typename abstract_list_element_type<T>::type *&el) { el = &c[n]; }
-        template<typename _ = T, typename std::enable_if<std::is_reference<decltype(std::declval<_ &>()[0])>::value, int>::type = 0>
-        abstract_element(T &c, size_t n, typename abstract_list_element_type<T>::type *&el) { el = &c[n]; }
+        decltype(std::declval<const T &>()[0]) operator()(const T &c, size_t n) { return c[n]; }
+        decltype(std::declval<T &>()[0]) operator()(T &c, size_t n) { return c[n]; }
     };
 
     template<typename... ContainerParams>
     struct abstract_element<std::list<ContainerParams...>> {
-        abstract_element(const std::list<ContainerParams...> &c, size_t n, const typename abstract_list_element_type<std::list<ContainerParams...>>::type *&el) { auto it = begin(c); std::advance(it, n); el = &*it; }
-        abstract_element(std::list<ContainerParams...> &c, size_t n, typename abstract_list_element_type<std::list<ContainerParams...>>::type *&el) { auto it = begin(c); std::advance(it, n); el = &*it; }
+        decltype(std::declval<const std::list<ContainerParams...> &>().front()) operator()(const std::list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
+        decltype(std::declval<std::list<ContainerParams...> &>().front()) operator()(std::list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
     };
 
     template<typename... ContainerParams>
     struct abstract_element<std::forward_list<ContainerParams...>> {
-        abstract_element(const std::forward_list<ContainerParams...> &c, size_t n, const typename abstract_list_element_type<std::forward_list<ContainerParams...>>::type *&el) { auto it = begin(c); std::advance(it, n); el = &*it; }
-        abstract_element(std::forward_list<ContainerParams...> &c, size_t n, typename abstract_list_element_type<std::forward_list<ContainerParams...>>::type *&el) { auto it = begin(c); std::advance(it, n); el = &*it; }
+        decltype(std::declval<const std::forward_list<ContainerParams...> &>().front()) operator()(const std::forward_list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
+        decltype(std::declval<std::forward_list<ContainerParams...> &>().front()) operator()(std::forward_list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
     };
 
     // Abstract reserve() method for containers
@@ -442,19 +463,19 @@ namespace skate {
         void reverse(T &c) { abstract_reverse<T>{c}; }
 
         template<typename T>
-        const typename abstract_list_element_type<T>::type &front(const T &c) { const typename abstract_list_element_type<T>::type *ref = nullptr; abstract_front<T>{c, ref}; return *ref; }
+        auto front(const T &c) -> decltype(abstract_front<T>{}(c)) { return abstract_front<T>{}(c); }
         template<typename T>
-        typename abstract_list_element_type<T>::type &front(T &c) { typename abstract_list_element_type<T>::type *ref = nullptr; abstract_front<T>{c, ref}; return *ref; }
+        auto front(T &c) -> decltype(abstract_front<T>{}(c)) { return abstract_front<T>{}(c); }
 
         template<typename T>
-        const typename abstract_list_element_type<T>::type &back(const T &c) { const typename abstract_list_element_type<T>::type *ref = nullptr; abstract_back<T>{c, ref}; return *ref; }
+        auto back(const T &c) -> decltype(abstract_back<T>{}(c)) { return abstract_back<T>{}(c); }
         template<typename T>
-        typename abstract_list_element_type<T>::type &back(T &c) { typename abstract_list_element_type<T>::type *ref = nullptr; abstract_back<T>{c, ref}; return *ref; }
+        auto back(T &c) -> decltype(abstract_back<T>{}(c)) { return abstract_back<T>{}(c); }
 
         template<typename T>
-        const typename abstract_list_element_type<T>::type &element(const T &c, size_t n) { const typename abstract_list_element_type<T>::type *ref = nullptr; abstract_element<T>{c, n, ref}; return *ref; }
+        auto element(const T &c, size_t n) -> decltype(abstract_element<T>{}(c, n)) { return abstract_element<T>{}(c, n); }
         template<typename T>
-        typename abstract_list_element_type<T>::type &element(T &c, size_t n) { typename abstract_list_element_type<T>::type *ref = nullptr; abstract_element<T>{c, n, ref}; return *ref; }
+        auto element(T &c, size_t n) -> decltype(abstract_element<T>{}(c, n)) { return abstract_element<T>{}(c, n); }
 
         template<typename T>
         abstract_front_insert_iterator<T> front_inserter(T &c) { return abstract_front_insert_iterator<T>{c}; }
