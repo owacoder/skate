@@ -180,8 +180,20 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_element<std::list<ContainerParams...>> {
-        decltype(std::declval<const std::list<ContainerParams...> &>().front()) operator()(const std::list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
-        decltype(std::declval<std::list<ContainerParams...> &>().front()) operator()(std::list<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
+        decltype(std::declval<const std::list<ContainerParams...> &>().front()) operator()(const std::list<ContainerParams...> &c, size_t n) { 
+            if (n < c.size() / 2) {
+                auto it = begin(c); std::advance(it, n); return *it;
+            } else {
+                auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.size())); return *it;
+            }
+        }
+        decltype(std::declval<std::list<ContainerParams...> &>().front()) operator()(std::list<ContainerParams...> &c, size_t n) { 
+            if (n < c.size() / 2) {
+                auto it = begin(c); std::advance(it, n); return *it;
+            } else {
+                auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.size())); return *it;
+            }
+        }
     };
 
     template<typename... ContainerParams>

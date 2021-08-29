@@ -410,8 +410,20 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_element<CList<ContainerParams...>> {
-        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
-        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c, size_t n) { auto it = begin(c); std::advance(it, n); return *it; }
+        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c, size_t n) { 
+            if (n < size_t(c.GetSize()) / 2) {
+                auto it = begin(c); std::advance(it, n); return *it;
+            } else {
+                auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.GetSize())); return *it;
+            }
+        }
+        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c, size_t n) { 
+            if (n < size_t(c.GetSize()) / 2) {
+                auto it = begin(c); std::advance(it, n); return *it;
+            } else {
+                auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.GetSize())); return *it;
+            }
+        }
     };
 
     template<typename... ContainerParams>
