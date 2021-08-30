@@ -1,5 +1,5 @@
 TEMPLATE = app
-CONFIG += console c++11
+CONFIG += console c++17
 CONFIG -= app_bundle
 CONFIG -= qt
 
@@ -14,6 +14,7 @@ HEADERS += \
     containers/abstract_list.h \
     containers/abstract_map.h \
     containers/split_join.h \
+    containers/utf.h \
     io/adapters/csv.h \
     containers/tree.h \
     io/adapters/msgpack.h \
@@ -23,7 +24,6 @@ HEADERS += \
     socket/wsaasyncselect.h \
     system/benchmark.h \
     system/time.h \
-    system/utf.h \
     threadbuffer.h \
     system/includes.h \
     system/environment.h \

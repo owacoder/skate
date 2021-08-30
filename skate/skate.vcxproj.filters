@@ -43,13 +43,10 @@
     <ClInclude Include="socket\address.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="benchmark.h">
+    <ClInclude Include="system\benchmark.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="io\buffer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="containers\common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="socket\common.h">
@@ -79,7 +76,13 @@
     <ClInclude Include="socket\kqueue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="io\logger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="containers\MFC\mfc_abstract_list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="io\adapters\msgpack.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="containers\POCO\poco_abstract_list.h">
@@ -98,6 +101,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="socket\socket.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="containers\split_join.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="threadbuffer.h">

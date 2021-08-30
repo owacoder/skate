@@ -170,14 +170,15 @@ namespace skate {
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os, bool is_tag = false) const {
-            const size_t sz = std::distance(begin(ref), end(ref));
+            bool start = true;
 
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
+            const auto end_iterator = end(ref);
+            for (auto it = begin(ref); it != end_iterator; start = false) {
+                const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
 
                 // Check if it's a valid tag character
                 if (is_tag) {
-                    const bool valid_tag_char = i == 0? impl::xml_is_name_start_char(codepoint): impl::xml_is_name_char(codepoint);
+                    const bool valid_tag_char = start? impl::xml_is_name_start_char(codepoint): impl::xml_is_name_char(codepoint);
 
                     if (!valid_tag_char)
                         return false;

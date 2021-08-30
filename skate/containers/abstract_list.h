@@ -8,10 +8,7 @@
 #define SKATE_ABSTRACT_LIST_H
 
 /* ----------------------------------------------------------------------------------------------------
- * Abstract wrappers allow iteration, copy-assign, copy-append, move-assign, and move-append operations
- *
- * One limitation is that non-range abstract lists cannot be assigned to other non-range abstract lists
- * of a different type
+ * Abstract wrappers allow operations to be performed on types that don't match STL naming conventions
  *
  * Desired compatibility:
  *   - STL
@@ -20,8 +17,6 @@
  *   - POCO
  * ----------------------------------------------------------------------------------------------------
  */
-
-#include "../system/includes.h"
 
 // Basic container and string support
 #include <string>
@@ -54,12 +49,14 @@
  * std::unordered_multiset<T, ...>
  * std::valarray<T>
  *
- * Basic generic iterator ranges are supported in this header
- * Basic pointer ranges are supported in this header as well
- *
  */
 
 namespace skate {
+    using std::begin;
+    using std::end;
+
+    template<typename T> struct type_exists : public std::true_type { typedef int type; };
+
     // Extract an element's type from parameter pack
     template<size_t element, typename T, typename... Types>
     struct parameter_pack_element_type {
@@ -223,6 +220,11 @@ namespace skate {
         abstract_reserve(std::unordered_set<ContainerParams...> &c, size_t s) { c.reserve(s); }
     };
 
+    template<typename... ContainerParams>
+    struct abstract_reserve<std::unordered_multiset<ContainerParams...>> {
+        abstract_reserve(std::unordered_multiset<ContainerParams...> &c, size_t s) { c.reserve(s); }
+    };
+
     // Abstract resize() method for containers
     template<typename T>
     struct abstract_resize {
@@ -269,7 +271,7 @@ namespace skate {
 
     // Abstract push_back() iterators for containers
     template<typename T>
-    class abstract_back_insert_iterator : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_back_insert_iterator {
         T *c; // MSVC complains about a reference and thinks that back_inserters must be copyable
 
     public:
@@ -284,7 +286,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_back_insert_iterator<std::forward_list<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_back_insert_iterator<std::forward_list<ContainerParams...>> {
         std::forward_list<ContainerParams...> *c;
         typename std::forward_list<ContainerParams...>::iterator last;
 
@@ -305,7 +307,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_back_insert_iterator<std::set<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_back_insert_iterator<std::set<ContainerParams...>> {
         std::set<ContainerParams...> *c;
 
     public:
@@ -320,7 +322,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_back_insert_iterator<std::unordered_set<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_back_insert_iterator<std::unordered_set<ContainerParams...>> {
         std::unordered_set<ContainerParams...> *c;
 
     public:
@@ -334,9 +336,39 @@ namespace skate {
         abstract_back_insert_iterator &operator++(int) { return *this; }
     };
 
+    template<typename... ContainerParams>
+    class abstract_back_insert_iterator<std::multiset<ContainerParams...>> {
+        std::multiset<ContainerParams...> *c;
+
+    public:
+        constexpr abstract_back_insert_iterator(std::multiset<ContainerParams...> &c) : c(&c) {}
+
+        template<typename R>
+        abstract_back_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
+
+        abstract_back_insert_iterator &operator*() { return *this; }
+        abstract_back_insert_iterator &operator++() { return *this; }
+        abstract_back_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<typename... ContainerParams>
+    class abstract_back_insert_iterator<std::unordered_multiset<ContainerParams...>> {
+        std::unordered_multiset<ContainerParams...> *c;
+
+    public:
+        constexpr abstract_back_insert_iterator(std::unordered_multiset<ContainerParams...> &c) : c(&c) {}
+
+        template<typename R>
+        abstract_back_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
+
+        abstract_back_insert_iterator &operator*() { return *this; }
+        abstract_back_insert_iterator &operator++() { return *this; }
+        abstract_back_insert_iterator &operator++(int) { return *this; }
+    };
+
     // Abstract push_front() iterators for containers
     template<typename T>
-    class abstract_front_insert_iterator : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_front_insert_iterator {
         T *c; // MSVC complains about a reference and thinks that front_inserters must be copyable
 
     public:
@@ -351,7 +383,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_front_insert_iterator<std::vector<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_front_insert_iterator<std::vector<ContainerParams...>> {
         std::vector<ContainerParams...> *c;
 
     public:
@@ -366,7 +398,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_front_insert_iterator<std::basic_string<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_front_insert_iterator<std::basic_string<ContainerParams...>> {
         std::basic_string<ContainerParams...> *c;
 
     public:
@@ -381,7 +413,7 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_front_insert_iterator<std::set<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_front_insert_iterator<std::set<ContainerParams...>> {
         std::set<ContainerParams...> *c;
 
     public:
@@ -396,11 +428,41 @@ namespace skate {
     };
 
     template<typename... ContainerParams>
-    class abstract_front_insert_iterator<std::unordered_set<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
+    class abstract_front_insert_iterator<std::unordered_set<ContainerParams...>> {
         std::unordered_set<ContainerParams...> *c;
 
     public:
         constexpr abstract_front_insert_iterator(std::unordered_set<ContainerParams...> &c) : c(&c) {}
+
+        template<typename R>
+        abstract_front_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
+
+        abstract_front_insert_iterator &operator*() { return *this; }
+        abstract_front_insert_iterator &operator++() { return *this; }
+        abstract_front_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<typename... ContainerParams>
+    class abstract_front_insert_iterator<std::multiset<ContainerParams...>> {
+        std::multiset<ContainerParams...> *c;
+
+    public:
+        constexpr abstract_front_insert_iterator(std::multiset<ContainerParams...> &c) : c(&c) {}
+
+        template<typename R>
+        abstract_front_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
+
+        abstract_front_insert_iterator &operator*() { return *this; }
+        abstract_front_insert_iterator &operator++() { return *this; }
+        abstract_front_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<typename... ContainerParams>
+    class abstract_front_insert_iterator<std::unordered_multiset<ContainerParams...>> {
+        std::unordered_multiset<ContainerParams...> *c;
+
+    public:
+        constexpr abstract_front_insert_iterator(std::unordered_multiset<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
         abstract_front_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }

@@ -9,8 +9,6 @@
 
 #include "core.h"
 
-#include <unordered_set>
-
 namespace skate {
     // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
     // with the following exceptions:
@@ -107,7 +105,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
 
             while (is.sgetc() != std::char_traits<StreamChar>::eof()) {
                 Element el;
@@ -115,7 +113,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                ref.push_back(std::move(el));
+                abstract::push_back(ref, std::move(el));
             }
 
             return true;
@@ -130,7 +128,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
 
             while (is.sgetc() != std::char_traits<StreamChar>::eof()) {
                 Element el;
@@ -138,7 +136,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                ref.push_back(std::move(el));
+                abstract::push_back(ref, std::move(el));
             }
 
             return true;
@@ -159,7 +157,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -186,7 +184,7 @@ namespace skate {
                             return false;
 
                         if (index < keys.size())
-                            ref[keys[index++]].push_back(std::move(el));
+                            abstract::push_back(ref[keys[index++]], std::move(el));
 
                         if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
                             break;
@@ -210,7 +208,7 @@ namespace skate {
 
                 // Fill blank elements as needed
                 while (index < keys.size())
-                    ref[keys[index++]].push_back(ValueType{});
+                    abstract::push_back(ref[keys[index++]], ValueType{});
             }
 
             return false;
@@ -231,7 +229,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -282,7 +280,7 @@ namespace skate {
                     }
                 }
 
-                ref.push_back(std::move(object));
+                abstract::push_back(ref, std::move(object));
             }
 
             return false;
@@ -302,7 +300,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -355,7 +353,8 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
+
             switch (is.sgetc()) {
                 case '\r': return is.snextc() != '\n' || is.sbumpc() == '\n';
                 case '\n': return is.snextc() != '\r' || is.sbumpc() == '\r';
@@ -370,7 +369,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                ref.push_back(std::move(el));
+                abstract::push_back(ref, std::move(el));
 
                 if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
                     return true;
@@ -425,7 +424,7 @@ namespace skate {
             // Underlying char type of string
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
 
-            ref.clear();
+            abstract::clear(ref);
 
             bool in_quotes = false;
             bool only_whitespace = true;
@@ -447,7 +446,7 @@ namespace skate {
                     return is.sungetc() != std::char_traits<StreamChar>::eof();
                 } else if (c == options.quote && only_whitespace) {
                     in_quotes = true;
-                    ref.clear();
+                    abstract::clear(ref);
                     continue;
                 } else if (c == options.separator) {
                     return get_unicode<StreamChar>{}.unget(is, c);
@@ -805,8 +804,9 @@ namespace skate {
             // Check for needing quotes first
             bool needs_quotes = sz && (isspace(ref[0]) || isspace(ref[sz-1]));
 
-            for (size_t i = 0; !needs_quotes && i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
+            const auto end_iterator = end(ref);
+            for (auto it = begin(ref); !needs_quotes && it != end_iterator; ) {
+                const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
 
                 if (codepoint == '\n' ||
                     codepoint == '\r' ||
@@ -819,8 +819,8 @@ namespace skate {
                 return false;
 
             // Then write out the actual string, escaping quotes
-            for (size_t i = 0; i < sz; ) {
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
+            for (auto it = begin(ref); it != end_iterator; ) {
+                const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
 
                 if (codepoint == options.quote && !put_unicode<StreamChar>{}(os, codepoint))
                     return false;

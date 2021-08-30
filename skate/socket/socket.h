@@ -573,11 +573,11 @@ namespace skate {
             if (written_from_new_buffer != len)
                 write_buffer.write(data + written_from_new_buffer, data + len);
         }
-        void write(std::error_code &ec, const char *s) {
-            write(ec, s, strlen(s));
+        void write(std::error_code &ec, const char *str) {
+            write(ec, str, strlen(str));
         }
-        void write(std::error_code &ec, const std::string &s) {
-            write(ec, s.c_str(), s.size());
+        void write(std::error_code &ec, const std::string &str) {
+            write(ec, str.c_str(), str.size());
         }
         void put(std::error_code &ec, char c) {
             write(ec, &c, 1);
@@ -993,7 +993,7 @@ namespace skate {
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::tcp; }
 
-        virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool blocking) { return std::unique_ptr<socket>{new tcp_socket(desc, current_state, blocking)}; }
+        virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool is_blocking) { return std::unique_ptr<socket>{new tcp_socket(desc, current_state, is_blocking)}; }
     };
 
     class udp_socket : public datagram_socket {

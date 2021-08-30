@@ -76,7 +76,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read start char
             if (!impl::skipws(is) || is.sbumpc() != '[')
@@ -94,7 +94,7 @@ namespace skate {
                 if (!json(element).read(is))
                     return false;
 
-                ref.push_back(std::move(element));
+                abstract::push_back(ref, std::move(element));
 
                 if (!impl::skipws(is))
                     return false;
@@ -128,7 +128,7 @@ namespace skate {
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read start char
             if (!impl::skipws(is) || is.sbumpc() != '{')
@@ -181,7 +181,7 @@ namespace skate {
 
             unicode_codepoint codepoint;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read start char
             if (!impl::skipws(is) || is.sbumpc() != '"')
@@ -524,14 +524,13 @@ namespace skate {
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_string_base<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            const size_t sz = std::distance(begin(ref), end(ref));
-
             if (os.sputc('"') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            for (size_t i = 0; i < sz;) {
+            const auto end_iterator = end(ref);
+            for (auto it = begin(ref); it != end_iterator; ) {
                 // Read Unicode in from string
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(ref, sz, i);
+                const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
 
                 switch (codepoint.value()) {
                     case '"':  if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('"') == std::char_traits<StreamChar>::eof()) return false; break;
@@ -545,7 +544,7 @@ namespace skate {
                         // Is character a control character? If so, write it out as a Unicode constant
                         // All other ASCII characters just get passed through
                         if (codepoint >= 32 && codepoint < 0x80) {
-                            if (os.sputc(codepoint.value()) == std::char_traits<StreamChar>::eof())
+                            if (os.sputc(StreamChar(codepoint.value())) == std::char_traits<StreamChar>::eof())
                                 return false;
                         } else {
                             // Then add as a \u codepoint (or two, if surrogates are needed)
@@ -727,7 +726,8 @@ namespace skate {
         typedef basic_json_object<String> object;
 
         basic_json_value() : t(json_type::null) { d.p = nullptr; }
-        basic_json_value(const basic_json_value &other) : t(json_type::null) {
+        basic_json_value(std::nullptr_t) : t(json_type::null) { d.p = nullptr; }
+        basic_json_value(const basic_json_value &other) : t(other.t) {
             switch (other.t) {
                 default: break;
                 case json_type::boolean:    // fallthrough
@@ -738,8 +738,6 @@ namespace skate {
                 case json_type::array:      d.p = new array(*other.internal_array());   break;
                 case json_type::object:     d.p = new object(*other.internal_object()); break;
             }
-
-            t = other.t;
         }
         basic_json_value(basic_json_value &&other) noexcept : t(other.t) {
             d = other.d;
@@ -1098,13 +1096,13 @@ namespace skate {
         const object *internal_object() const noexcept { return static_cast<const object *>(d.p); }
         object *internal_object() noexcept { return static_cast<object *>(d.p); }
 
-        void create(json_type t) {
-            if (t == this->t)
+        void create(json_type type) {
+            if (type == t)
                 return;
 
             clear();
 
-            switch (t) {
+            switch (type) {
                 default: break;
                 case json_type::boolean:     d.b = false; break;
                 case json_type::floating:    d.n = 0.0; break;
@@ -1115,7 +1113,7 @@ namespace skate {
                 case json_type::object:      d.p = new object(); break;
             }
 
-            this->t = t;
+            t = type;
         }
 
         json_type t;
@@ -1270,7 +1268,7 @@ namespace skate {
                 bool floating = false;
 
                 do {
-                    temp.push_back(c);
+                    temp.push_back(char(c));
                     floating |= c == '.' || c == 'e' || c == 'E';
 
                     c = is.snextc();

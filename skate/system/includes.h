@@ -8,14 +8,7 @@
 #define SKATE_SYSTEM_INCLUDES_H
 
 #include "environment.h"
-#include "utf.h"
-
-namespace skate {
-    using std::begin;
-    using std::end;
-
-    template<typename T> struct type_exists : public std::true_type { typedef int type; };
-}
+#include "../containers/utf.h"
 
 #include <stdexcept>
 #include <system_error>

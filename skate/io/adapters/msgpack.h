@@ -103,7 +103,7 @@ namespace skate {
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -138,7 +138,7 @@ namespace skate {
                 if (!msgpack(element).read(is))
                     return false;
 
-                ref.push_back(std::move(element));
+                abstract::push_back(ref, std::move(element));
             }
 
             return true;
@@ -151,7 +151,7 @@ namespace skate {
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            ref.clear();
+            abstract::clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -186,7 +186,7 @@ namespace skate {
                 if (!msgpack(element).read(is))
                     return false;
 
-                ref.push_back(std::move(element));
+                abstract::push_back(ref, std::move(element));
             }
 
             return true;
@@ -240,7 +240,7 @@ namespace skate {
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
 
-            ref.clear();
+            abstract::clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -295,7 +295,7 @@ namespace skate {
 
             unicode_codepoint codepoint;
 
-            ref.clear();
+            abstract::clear(ref);
 
             // Read start char
             if (!impl::skipws(is) || is.sbumpc() != '"')
@@ -364,7 +364,6 @@ namespace skate {
                     return false;
             }
 
-            ref.clear();
             return false;
         }
 

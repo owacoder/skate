@@ -1,5 +1,5 @@
 #define NOMINMAX
-#include <afx.h>
+//#include <afx.h>
 
 #include <iostream>
 #include "threadbuffer.h"
@@ -50,7 +50,7 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 }
 
 #include "containers/abstract_list.h"
-#include "containers/MFC/mfc_abstract_list.h"
+//#include "containers/MFC/mfc_abstract_list.h"
 #if 0
 #include <QString>
 #include <QList>
@@ -82,8 +82,8 @@ protected:
         : tcp_socket(desc, current_state, blocking)
     {}
 
-    virtual std::unique_ptr<skate::socket> create(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking) {
-        return std::unique_ptr<skate::socket>{new http_server_socket(desc, current_state, blocking)};
+    virtual std::unique_ptr<skate::socket> create(skate::system_socket_descriptor desc, skate::socket_state current_state, bool is_blocking) {
+        return std::unique_ptr<skate::socket>{new http_server_socket(desc, current_state, is_blocking)};
     }
 
     virtual void ready_read(std::error_code &ec) override {
@@ -116,50 +116,50 @@ void abstract_container_test() {
     std::vector<int> v = il;
     std::list<int> l = il;
     std::forward_list<int> fl = il;
-    CArray<int, int> ca;
-    CList<int, int> cl;
-    CString s;
+    // CArray<int, int> ca;
+    // CList<int, int> cl;
+    // CString s;
 
     namespace abstract = skate::abstract;
 
-    for (const auto el : il) {
-        abstract::push_back(ca, el);
-        abstract::push_back(cl, el);
-    }
+    //for (const auto el : il) {
+    //    abstract::push_back(ca, el);
+    //    abstract::push_back(cl, el);
+    //}
 
     abstract::push_back(v, 6);
     abstract::push_back(l, 6);
     abstract::push_back(fl, 6);
-    abstract::push_back(ca, 6);
-    abstract::push_back(cl, 6);
+    //abstract::push_back(ca, 6);
+    //abstract::push_back(cl, 6);
     abstract::pop_front(v);
     abstract::pop_front(l);
     abstract::pop_front(fl);
-    abstract::pop_front(ca);
-    abstract::pop_front(cl);
+    //abstract::pop_front(ca);
+    //abstract::pop_front(cl);
     abstract::reverse(v);
     abstract::reverse(l);
     abstract::reverse(fl);
-    abstract::reverse(ca);
-    abstract::reverse(cl);
+    //abstract::reverse(ca);
+    //abstract::reverse(cl);
 
-    for (const auto &el: "CString test")
-        abstract::push_back(s, el);
-    abstract::element(s, 0) = 0;
-    abstract::reverse(s);
+    //for (const auto &el: "CString test")
+    //    abstract::push_back(s, el);
+    //abstract::element(s, 0) = 0;
+    //abstract::reverse(s);
 
     std::cout << skate::json(v) << std::endl;
     std::cout << skate::json(l) << std::endl;
     std::cout << skate::json(fl) << std::endl;
-    std::cout << skate::json(ca) << std::endl;
-    std::cout << skate::json(cl) << std::endl;
-    std::cout << skate::json(s) << std::endl;
+    //std::cout << skate::json(ca) << std::endl;
+    //std::cout << skate::json(cl) << std::endl;
+    //std::cout << skate::json(s) << std::endl;
 
     std::cout << skate::json(abstract::element(v, 5)) << std::endl;
     std::cout << skate::json(abstract::element(l, 5)) << std::endl;
     std::cout << skate::json(abstract::element(fl, 5)) << std::endl;
-    std::cout << skate::json(abstract::element(ca, 5)) << std::endl;
-    std::cout << skate::json(abstract::element(cl, 5)) << std::endl;
+    //std::cout << skate::json(abstract::element(ca, 5)) << std::endl;
+    //std::cout << skate::json(abstract::element(cl, 5)) << std::endl;
     //std::cout << skate::json(abstract::back(s)) << std::endl;
 }
 
@@ -255,6 +255,65 @@ namespace skate {
 
 int main()
 {
+#if 1
+    std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
+    std::unordered_map<std::string, skate::json_value> map;
+
+    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[\"string\\ud83c\\udf0d\", 1000, null, true]}");
+    for (skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
+        std::cout << "Codepoint: " << cp.character() << '\n';
+    }
+
+    std::cout << '\n';
+
+    skate::json_value js;
+    std::string js_text;
+
+    const size_t count = 20;
+    if (count) {
+        skate::benchmark([&js]() {
+            js.resize(200000);
+            for (size_t i = 0; i < js.size(); ++i) {
+                skate::json_value temp;
+
+                temp["1st"] = rand();
+                temp["2nd"] = std::nullptr_t{}; //rand() * 0.00000000000001;
+                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
+
+                js[i] = std::move(temp);
+            }
+        }, "JSON build");
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        skate::benchmark_throughput([&js_text, &js]() {
+            js_text = skate::to_json(js);
+            return js_text.size();
+        }, "JSON write " + std::to_string(i));
+    }
+
+    std::cout << js_text.substr(0, 1000) << '\n';
+
+    for (size_t i = 0; i < count; ++i) {
+        skate::benchmark_throughput([&js_text, &js]() {
+            js = skate::from_json<typename std::remove_reference<decltype(js)>::type>(js_text);
+            return js_text.size();
+        }, "JSON read " + std::to_string(i));
+    }
+
+    std::cout << js_text.size() << std::endl;
+
+    jstream.clear();
+    jstream.seekg(0);
+    if (jstream >> skate::json(map))
+        std::cout << skate::json(map) << '\n';
+    else
+        std::cout << "An error occurred\n";
+
+    std::cout << skate::json(Point(), { 2 });
+#endif
+
     abstract_container_test();
     return 0;
 
@@ -418,69 +477,10 @@ int main()
     std::cout << "Branches: " << t.branch_count() << std::endl;
 #endif
 
-    std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
-    std::unordered_map<std::string, skate::json_value> map;
-
     // map["default\xf0\x9f\x8c\x8d"] = {};
     // map["test"] = {};
 
     //std::cout << typeid(decltype(map)).name() << std::endl;
-
-#if 1
-    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[\"string\\ud83c\\udf0d\", 1000, null, true]}");
-    for (skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
-        std::cout << "Codepoint: " << cp.character() << '\n';
-    }
-
-    std::cout << '\n';
-
-    skate::json_value js;
-    std::string js_text;
-
-    const size_t count = 20;
-    if (count) {
-        skate::benchmark([&js]() {
-            js.resize(200000);
-            for (size_t i = 0; i < js.size(); ++i) {
-                skate::json_value temp;
-
-                temp["1st"] = rand();
-                temp["2nd"] = rand() * 0.00000000000001;
-                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
-                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
-
-                js[i] = std::move(temp);
-            }
-        }, "JSON build");
-    }
-
-    for (size_t i = 0; i < count; ++i) {
-        skate::benchmark_throughput([&js_text, &js]() {
-            js_text = skate::to_json(js);
-            return js_text.size();
-        }, "JSON write " + std::to_string(i));
-    }
-
-    std::cout << js_text.substr(0, 1000) << '\n';
-
-    for (size_t i = 0; i < count; ++i) {
-        skate::benchmark_throughput([&js_text, &js]() {
-            js = skate::from_json<typename std::remove_reference<decltype(js)>::type>(js_text);
-            return js_text.size();
-        }, "JSON read " + std::to_string(i));
-    }
-
-    std::cout << js_text.size() << std::endl;
-
-    jstream.clear();
-    jstream.seekg(0);
-    if (jstream >> skate::json(map))
-        std::cout << skate::json(map) << '\n';
-    else
-        std::cout << "An error occurred\n";
-
-    std::cout << skate::json(Point(), { 2 });
-#endif
 
     //skate::put_unicode<char>{}(std::cout, 127757);
     //std::cout << Skate::impl::is_map<int>::value << std::endl;
@@ -562,104 +562,6 @@ int main()
     std::cout << '\n' << skate::asctime(t) << '\n';
 
     return 0;
-
-#if 0
-    std::array<char, 16> arr;
-    std::vector<int> vec;
-    std::list<char> lst = {'A', 'B', 'C'};
-    std::forward_list<char> slst;
-    std::set<char> set;
-    std::string test_string;
-    std::pair<char, int> pair;
-    std::pair<char, char> pair2;
-    std::tuple<char, char, int> tuple;
-    std::bitset<4> bitset;
-    std::valarray<int> valarray;
-    std::map<std::string, std::string> map;
-    std::multimap<std::string, std::string> mmap;
-
-    auto abstract_map = Skate::AbstractMap(map);
-    abstract_map["A"] = "1";
-    abstract_map["B"] = "2";
-    abstract_map["C"] = "3";
-    Skate::AbstractMap(mmap) += abstract_map;
-
-    Skate::AbstractMap(mmap).values().apply([](const auto &el) {std::cout << "Map element: " << el << std::endl;});
-
-    bitset[0] = false;
-    bitset[1] = true;
-    bitset[2] = true;
-    bitset[3] = true;
-
-    // TODO:
-    // pair = tuple
-    // tuple = pair
-    // pair = other pair
-    // tuple = other tuple
-
-    Skate::AbstractList(pair) = Skate::AbstractList("JKL");
-    Skate::AbstractList(tuple) = Skate::AbstractList("JKL");
-    Skate::AbstractList(vec) = Skate::AbstractList(tuple);
-    //Skate::AbstractList(slst) = Skate::AbstractList("Wahoo!") + Skate::AbstractList(tuple);
-    Skate::AbstractList(slst) += Skate::AbstractList(tuple);
-    Skate::AbstractList(vec) = Skate::AbstractList(pair);
-    Skate::AbstractList(test_string) = Skate::AbstractList(lst);
-    Skate::AbstractList(test_string) += Skate::AbstractList(test_string);
-
-    Skate::AbstractList(vec) = Skate::AbstractList(test_string);
-    Skate::AbstractList(arr) = Skate::AbstractList(tuple);
-    Skate::AbstractList(set) = Skate::AbstractList({'!', '@', '#'});
-    Skate::AbstractList(set) += Skate::AbstractList(tuple);
-    Skate::AbstractList(test_string) += Skate::AbstractList(set);
-    Skate::AbstractList(vec) = Skate::AbstractList(bitset);
-    Skate::AbstractList(bitset) = Skate::AbstractList(vec);
-    Skate::AbstractList(valarray) << Skate::AbstractList(vec);
-    //Skate::AbstractList(vec) = Skate::AbstractList(valarray);
-
-    std::cout << "  pair: " << pair.first << "," << pair.second << "\n";
-
-    std::cout << " tuple: ";
-    Skate::AbstractList(tuple).apply([](const auto &el) { std::cout << el << ",";});
-    std::cout << std::endl;
-
-    std::cout << "valarr: ";
-    Skate::AbstractList(valarray).apply([](const int &el) {std::cout << el << ",";});
-    std::cout << std::endl;
-
-    std::cout << "   arr: ";
-    for (const auto &element : arr) {
-        std::cout << (element ? element: '.');
-    }
-    std::cout << "|" << std::endl;
-
-    std::cout << "   set: ";
-    for (const auto &element : set) {
-        std::cout << element;
-    }
-    std::cout << std::endl;
-
-    std::cout << "   lst: ";
-    for (const auto &element : lst) {
-        std::cout << element;
-    }
-    std::cout << std::endl;
-
-    std::cout << "  slst: ";
-    for (const auto &element : slst) {
-        std::cout << element;
-    }
-    std::cout << std::endl;
-
-    std::cout << "vector: ";
-    for (const auto &element : vec) {
-        std::cout << element;
-    }
-    std::cout << std::endl;
-
-    std::cout << "string: " << test_string << std::endl;
-
-    return 0;
-#endif
 
     try {
         skate::startup_wrapper wrapper;

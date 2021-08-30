@@ -30,22 +30,10 @@
 # include <format>
 #endif
 
-#include "../../system/utf.h"
-#include "../../system/includes.h"
+#include "../../containers/utf.h"
+#include "../../containers/abstract_list.h"
 
 namespace skate {
-    template<typename T>
-    struct reserve_elements {
-        void operator()(T &, size_t) noexcept {}
-    };
-
-    template<typename... ContainerParams>
-    struct reserve_elements<std::vector<ContainerParams...>> {
-        void operator()(std::vector<ContainerParams...> &c, size_t s) noexcept {
-            c.reserve(s);
-        }
-    };
-
     // Determine if type is a string
     template<typename T> struct is_string : public std::false_type {};
     template<typename... ContainerParams>
@@ -387,12 +375,12 @@ namespace skate {
         // Requires that number start with digit or '-'. Leading '+' is not allowed by default
         template<typename StreamChar, typename IntType>
         bool read_int(std::basic_streambuf<StreamChar> &is, IntType &ref, bool allow_leading_plus = false) {
-            auto c = is.sgetc();
-            if (!isdigit(c) && c != '-' && (!allow_leading_plus || c != '+'))
+            auto first = is.sgetc();
+            if (!isdigit(first) && first != '-' && (!allow_leading_plus || first != '+'))
                 return false;
 
             std::string temp;
-            temp.push_back(char(c));
+            temp.push_back(char(first));
 
             while (true) {
                 const auto c = is.snextc();
@@ -413,12 +401,12 @@ namespace skate {
             while (isspace(*s))
                 ++s;
 
-            if (std::is_same<FloatType, float>::value)
-                ref = strtof(s, &end);
-            else if (std::is_same<FloatType, double>::value)
-                ref = strtod(s, &end);
+            if (std::is_same<typename std::decay<FloatType>::type, float>::value)
+                ref = FloatType(strtof(s, &end));
+            else if (std::is_same<typename std::decay<FloatType>::type, double>::value)
+                ref = FloatType(strtod(s, &end));
             else
-                ref = strtold(s, &end);
+                ref = FloatType(strtold(s, &end));
 
             return only_number? *end == 0: end != s; // If only_number, require entire string to be valid floating point, otherwise just the beginning
         }
@@ -431,12 +419,12 @@ namespace skate {
                           std::is_same<FloatType, long double>::value, "floating point type must be float, double, or long double");
 
             ref = 0.0;
-            auto c = is.sgetc();
-            if (!isdigit(c) && c != '-' && (!allow_leading_dot || c != '.') && (!allow_leading_plus || c != '+'))
+            auto first = is.sgetc();
+            if (!isdigit(first) && first != '-' && (!allow_leading_dot || first != '.') && (!allow_leading_plus || first != '+'))
                 return false;
 
             std::string temp;
-            temp.push_back(char(c));
+            temp.push_back(char(first));
 
             while (true) {
                 const auto c = is.snextc();

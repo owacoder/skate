@@ -17,6 +17,8 @@
 #include <iostream>
 #include <cstring>
 
+#include "abstract_list.h"
+
 namespace skate {
 #else // C only
 #include <string.h>
@@ -461,37 +463,43 @@ namespace skate {
      *    This constant allows detection of error by performing `result > UTF8_MAX`,
      *    and providing the Unicode replacement character 0xfffd if masked with UTF8_MASK.
      */
-    template<typename String>
-    unicode_codepoint utf8next(const String &utf8, size_t len, size_t &current) {
-        const size_t remaining = len - current;
-        const size_t start = current++;
-        const unsigned int bytesInCode = utf8high5bitstobytecount(utf8[start]);
-        unsigned long codepoint = 0;
+    template<typename It>
+    unicode_codepoint utf8next(It &utf8, It end) {
+        unsigned char byte_value = *utf8++;
+        const auto after = utf8;
 
-        if (bytesInCode == 1) /* Shortcut for single byte, since there's no way to fail */
-            return utf8[start];
-        else if (bytesInCode == 0 || bytesInCode > remaining) /* Some sort of error or not enough characters left in string */
+        if (byte_value < 0x80) /* Shortcut for single byte, since there's no way to fail */
+            return byte_value;
+
+        const unsigned int bytes_in_code = utf8high5bitstobytecount(byte_value);
+
+        if (bytes_in_code == 0) /* Unexpected value */
             return UTF_ERROR;
 
         /* Shift out high byte-length bits and begin result */
-        codepoint = (unsigned char) utf8[start] & (0xff >> bytesInCode);
+        unsigned long codepoint = byte_value & (0xff >> bytes_in_code);
 
         /* Obtain continuation bytes */
-        for (unsigned i = 1; i < bytesInCode; ++i) {
-            if ((utf8[start + i] & 0xC0) != 0x80) /* Invalid continuation byte (note this handles a terminating NUL just fine) */
+        for (unsigned i = 1; i < bytes_in_code; ++i) {
+            if (utf8 == end) {
+                utf8 = after;
+                return UTF_ERROR;
+            }
+
+            byte_value = *utf8++;
+
+            if ((byte_value & 0xC0) != 0x80) /* Invalid continuation byte (note this handles a terminating NUL just fine) */
                 return UTF_ERROR;
 
-            codepoint = (codepoint << 6) | (utf8[start + i] & 0x3f);
+            codepoint = (codepoint << 6) | (byte_value & 0x3f);
         }
 
         /* Syntax is good, now check for overlong encoding and invalid values */
-        if (utf8size(codepoint) != bytesInCode || /* Overlong encoding or too large of a codepoint (codepoint > UTF_MAX will compare 0 to bytesInCode, which cannot be zero here) */
+        if (utf8size(codepoint) != bytes_in_code || /* Overlong encoding or too large of a codepoint (codepoint > UTF_MAX will compare 0 to bytesInCode, which cannot be zero here) */
                 utf16surrogate(codepoint)) /* Not supposed to allow UTF-16 surrogates */
             return UTF_ERROR;
 
         /* Finished without error */
-        current = start + bytesInCode;
-
         return codepoint;
     }
 
@@ -504,7 +512,7 @@ namespace skate {
     template<typename String>
     inline bool utf8append(String &utf8, unicode_codepoint codepoint) {
         if (codepoint.value() < 0x80) { // Shortcut for speed, not strictly necessary
-            utf8.push_back(codepoint.value());
+            abstract::push_back(utf8, codepoint.value());
             return true;
         } else if (!codepoint.valid())
             return false;
@@ -520,10 +528,10 @@ namespace skate {
         const size_t bytesInCode = utf8size(codepoint.value());
         const size_t continuationBytesInCode = bytesInCode - 1;
 
-        utf8.push_back(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6)));
+        abstract::push_back(utf8, headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6)));
 
         for (size_t i = continuationBytesInCode; i > 0; --i) {
-            utf8.push_back(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6))));
+            abstract::push_back(utf8, 0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6))));
         }
 
         return true;
@@ -533,10 +541,9 @@ namespace skate {
     template<typename StringChar> struct get_unicode;
 
     template<> struct get_unicode<char> {
-        // Generic string type only requires operator[](size_t index) to be defined, with the value convertible to char
-        template<typename String>
-        unicode_codepoint operator()(const String &utf8, size_t len, size_t &current) {
-            return utf8next(utf8, len, current);
+        template<typename It>
+        unicode_codepoint operator()(It &utf8, It end) {
+            return utf8next(utf8, end);
         }
 
         bool operator()(std::basic_streambuf<char> &is, unicode_codepoint &codepoint) {
@@ -580,8 +587,8 @@ namespace skate {
     template<> struct get_unicode<char8_t> {
         // Generic string type only requires operator[](size_t index) to be defined, with the value convertible to char
         template<typename String>
-        unicode_codepoint operator()(const String &utf8, size_t len, size_t &current) {
-            return utf8next(utf8, len, current);
+        unicode_codepoint operator()(It &utf8, It end) {
+            return utf8next(utf8, end);
         }
 
         bool operator()(std::basic_streambuf<char> &is, unicode_codepoint &codepoint) {
@@ -622,18 +629,17 @@ namespace skate {
 #endif
 
     template<> struct get_unicode<char16_t> {
-        // Generic string type only requires operator[](size_t index) to be defined, with the value convertible to char16_t
-        template<typename String>
-        unicode_codepoint operator()(const String &utf16, size_t len, size_t &current) {
-            unsigned long codepoint = utf16[current++];
+        template<typename It>
+        unicode_codepoint operator()(It &utf16, It end) {
+            unsigned long codepoint = *utf16++;
 
             if (utf16surrogate(codepoint)) {
-                if (current == len)
+                if (utf16 == end)
                     codepoint = UTF_ERROR;
                 else {
-                    codepoint = utf16codepoint(codepoint, utf16[current]);
+                    codepoint = utf16codepoint(codepoint, *utf16);
                     if (codepoint <= UTF_MAX)
-                        ++current;
+                        ++utf16;
                 }
             }
 
@@ -676,10 +682,9 @@ namespace skate {
     };
 
     template<> struct get_unicode<char32_t> {
-        // Generic string type only requires operator[](size_t index) to be defined, with the value convertible to char32_t
-        template<typename String>
-        unicode_codepoint operator()(const String &utf32, size_t /*len*/, size_t &current) {
-            return utf32[current++];
+        template<typename It>
+        unicode_codepoint operator()(It &utf32, It) {
+            return *utf32++;
         }
 
         bool operator()(std::basic_streambuf<char32_t> &is, unicode_codepoint &codepoint) {
@@ -706,13 +711,12 @@ namespace skate {
     };
 
     template<> struct get_unicode<wchar_t> {
-        // Generic string type only requires operator[](size_t index) to be defined, with the value convertible to wchar_t
-        template<typename String>
-        unicode_codepoint operator()(const String &utf, size_t len, size_t &current) {
+        template<typename It>
+        unicode_codepoint operator()(It &utf, It end) {
             static_assert(sizeof(wchar_t) == sizeof(char16_t) ||
                           sizeof(wchar_t) == sizeof(char32_t), "wchar_t must be either 16 or 32-bits to use get_unicode");
 
-            return get_unicode<typename std::conditional<sizeof(wchar_t) == sizeof(char16_t), char16_t, char32_t>::type>{}(utf, len, current);
+            return get_unicode<typename std::conditional<sizeof(wchar_t) == sizeof(char16_t), char16_t, char32_t>::type>{}(utf, end);
         }
 
         bool operator()(std::basic_streambuf<wchar_t> &is, unicode_codepoint &codepoint) {
@@ -822,8 +826,8 @@ namespace skate {
             unsigned int hi = 0, lo = 0;
 
             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
-                case 2: s.push_back(hi); // fallthrough
-                case 1: s.push_back(lo); break;
+                case 2: abstract::push_back(s, hi); // fallthrough
+                case 1: abstract::push_back(s, lo); break;
                 default: return false;
             }
 
@@ -848,7 +852,7 @@ namespace skate {
             if (!codepoint.valid())
                 return false;
 
-            s.push_back(codepoint.value());
+            abstract::push_back(s, codepoint.value());
 
             return true;
         }
@@ -898,8 +902,9 @@ namespace skate {
             *error = false;
 
         ToString result;
-        for (size_t i = 0; i < s.size(); ) {
-            const unicode_codepoint c = get_unicode<FromStringChar>{}(s, s.size(), i);
+        const auto end_iterator = end(s);
+        for (auto it = begin(s); it != end_iterator; ) {
+            const unicode_codepoint c = get_unicode<FromStringChar>{}(it, end_iterator);
 
             if (!c.valid() && error)
                 *error = true;
@@ -924,8 +929,9 @@ namespace skate {
             *error = false;
 
         ToString result;
-        for (size_t i = 0; i < size; ) {
-            const unicode_codepoint c = get_unicode<FromStringChar>{}(s, size, i);
+        const auto end_iterator = s + size;
+        for (auto it = s; it != end_iterator; ) {
+            const unicode_codepoint c = get_unicode<FromStringChar>{}(it, end_iterator);
 
             if (!c.valid() && error)
                 *error = true;
