@@ -132,6 +132,8 @@ namespace skate {
                 }
             }
 
+            abstract::reserve(ref, size);
+
             for (uint_fast32_t i = 0; i < size; ++i) {
                 Element element;
 
@@ -179,6 +181,8 @@ namespace skate {
                     break;
                 }
             }
+
+            abstract::reserve(ref, size);
 
             for (uint_fast32_t i = 0; i < size; ++i) {
                 Element element;
@@ -397,7 +401,6 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
             ref = 0;
-
 
             if (!impl::skipws(is))
                 return false;
