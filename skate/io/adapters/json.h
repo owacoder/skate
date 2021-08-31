@@ -170,15 +170,15 @@ namespace skate {
         }
 
         // String overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_base<_>::value &&
-                                                                                 type_exists<decltype(
-                                                                                             // Only if put_unicode is available
-                                                                                             std::declval<put_unicode<typename std::decay<decltype(*begin(std::declval<_>()))>::type>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
-                                                                                             )>::value, int>::type = 0>
+        template<typename StreamChar,
+                 typename _ = Type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<is_string_base<_>::value &&
+                                         type_exists<decltype(
+                                                     // Only if put_unicode is available
+                                                     std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
+                                                     )>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            // Underlying char type of string
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
-
             unicode_codepoint codepoint;
 
             abstract::clear(ref);

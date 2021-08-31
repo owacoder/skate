@@ -99,7 +99,7 @@ namespace skate {
         // Array overload
         template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                             !is_tuple_base<_>::value &&
-                                                            !std::is_convertible<typename std::decay<decltype(*begin(std::declval<_>()))>::type, char>::value, int>::type = 0>
+                                                            !is_convertible_from_char<typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
@@ -149,7 +149,7 @@ namespace skate {
         // Array overload (allows binary data)
         template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                             !is_tuple_base<_>::value &&
-                                                            std::is_convertible<unsigned char, typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
+                                                            is_convertible_from_char<typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
@@ -323,16 +323,16 @@ namespace skate {
             return true;
         }
 
-        // String overload (TODO)
-        template<typename _ = Type, typename std::enable_if<is_string_base<_>::value &&
-                                                            type_exists<decltype(
-                                                                        // Only if put_unicode is available
-                                                                        std::declval<put_unicode<typename std::decay<decltype(*begin(std::declval<_>()))>::type>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
-                                                                        )>::value, int>::type = 0>
+        // String overload (byte characters)
+        template<typename _ = Type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<is_string_base<_>::value &&
+                                         is_convertible_from_char<StringChar>::value &&
+                                         type_exists<decltype(
+                                                     // Only if put_unicode is available
+                                                     std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
+                                                     )>::value, int>::type = 0>
         bool read(std::streambuf &is) {
-            // Underlying char type of string
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
-
             abstract::clear(ref);
 
             const int c = sbump_byte(is);
@@ -369,74 +369,36 @@ namespace skate {
                 }
             }
 
-            // Read start char
-            if (!impl::skipws(is) || is.sbumpc() != '"')
-                return false;
+            for (uint_fast32_t i = 0; i < size; ++i) {
+                const int ch = sbump_byte(is);
 
-            while (get_unicode<char>{}(is, codepoint)) {
-                // End of string?
-                if (codepoint == '"') {
-                    return true;
-                }
-                // Escaped character sequence?
-                else if (codepoint == '\\') {
-                    const auto c = is.sbumpc();
-
-                    switch (c) {
-                        case std::char_traits<char>::eof(): return false;
-                        case '"':
-                        case '\\':
-                        case 'b':
-                        case 'f':
-                        case 'n':
-                        case 'r':
-                        case 't': codepoint = c; break;
-                        case 'u': {
-                            char digits[4] = { 0 };
-                            unsigned int hi = 0;
-
-                            if (is.sgetn(digits, 4) != 4)
-                                return false;
-
-                            for (size_t i = 0; i < 4; ++i) {
-                                const int digit = toxdigit(digits[i]);
-                                if (digit < 0)
-                                    return false;
-
-                                hi = (hi << 4) | digit;
-                            }
-
-                            if (utf16surrogate(hi)) {
-                                unsigned int lo = 0;
-
-                                if ((is.sbumpc() != '\\') ||
-                                    (is.sbumpc() != 'u') ||
-                                    is.sgetn(digits, 4) != 4)
-                                    return false;
-
-                                for (size_t i = 0; i < 4; ++i) {
-                                    const int digit = toxdigit(digits[i]);
-                                    if (digit < 0)
-                                        return false;
-
-                                    lo = (lo << 4) | digit;
-                                }
-
-                                codepoint = utf16codepoint(hi, lo);
-                            } else
-                                codepoint = hi;
-
-                            break;
-                        }
-                        default: return false;
-                    }
-                }
-
-                if (!put_unicode<StringChar>{}(ref, codepoint))
+                if (ch < 0)
                     return false;
+
+                abstract::push_back(ref, char(ch));
             }
 
-            return false;
+            return true;
+        }
+
+        // String overload (non-byte characters)
+        template<typename _ = Type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<is_string_base<_>::value &&
+                                         !is_convertible_from_char<StringChar>::value &&
+                                         type_exists<decltype(
+                                                     // Only if put_unicode is available
+                                                     std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
+                                                     )>::value, int>::type = 0>
+        bool read(std::streambuf &is) {
+            std::string temp;
+
+            if (!msgpack(temp, options).read(is))
+                return false;
+
+            ref = utf_convert_weak<_>(temp);
+
+            return true;
         }
 
         // Null overload
@@ -568,8 +530,7 @@ namespace skate {
                  typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<is_array_base<_>::value &&
                                          !is_tuple_base<_>::value &&
-                                         !(std::is_convertible<Element, char>::value &&
-                                          (std::is_class<Element>::value || sizeof(Element) == 1)), int>::type = 0>
+                                         !is_convertible_to_char<Element>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 15) {
                 if (os.sputc(static_cast<unsigned char>(0x90 | ref.size())) == std::char_traits<char>::eof())
@@ -597,8 +558,7 @@ namespace skate {
                  typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<is_array_base<_>::value &&
                                          !is_tuple_base<_>::value &&
-                                         std::is_convertible<Element, char>::value &&
-                                         (std::is_class<Element>::value || sizeof(Element) == 1), int>::type = 0>
+                                         is_convertible_to_char<Element>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 0xffu) {
                 if (os.sputc(static_cast<unsigned char>(0xc4)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint8_t(ref.size())))
@@ -675,10 +635,44 @@ namespace skate {
             return true;
         }
 
-        // String overload
+        // String overload (byte characters)
         template<typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
+                                         is_convertible_to_char<StringChar>::value &&
+                                         is_string_base<_>::value, int>::type = 0>
+        bool write(std::streambuf &os) const {
+            const size_t sz = abstract::size(ref);
+
+            if (sz <= 31) {
+                if (os.sputc(static_cast<unsigned char>(0xa0 | sz)) == std::char_traits<char>::eof())
+                    return false;
+            } else if (sz <= 0xffu) {
+                if (os.sputc(static_cast<unsigned char>(0xd9)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint8_t(sz)))
+                    return false;
+            } else if (sz <= 0xffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xda)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint16_t(sz)))
+                    return false;
+            } else if (sz <= 0xffffffffu) {
+                if (os.sputc(static_cast<unsigned char>(0xdb)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint32_t(sz)))
+                    return false;
+            } else {
+                return false;
+            }
+
+            for (auto el = begin(ref); el != end(ref); ++el) {
+                if (os.sputc(*el) == std::char_traits<char>::eof())
+                    return false;
+            }
+
+            return true;
+        }
+
+        // String overload (non-byte characters)
+        template<typename _ = Type,
+                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
+                                         !is_convertible_to_char<StringChar>::value &&
                                          is_string_base<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             const auto s = utf_convert_weak<std::string>(ref);

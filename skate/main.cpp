@@ -255,7 +255,7 @@ namespace skate {
 
 int main()
 {
-#if 1
+#if 0
     std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
     std::unordered_map<std::string, skate::json_value> map;
 
@@ -314,26 +314,18 @@ int main()
     std::cout << skate::json(Point(), { 2 });
 #endif
 
+#if 0
     abstract_container_test();
     return 0;
+#endif
 
-    skate::json_array s;
-    skate::json_value jv;
+    std::string text {'U', 'T', 'F'};
 
-    jv = "01233";
-
-    std::cout << jv.as_int() << '\n';
-
-    const auto msgp = skate::to_msgpack(1.23);
+    const auto msgp = skate::to_msgpack(text);
 
     for (const auto &el: msgp)
         std::cout << skate::toxchar(el >> 4) << skate::toxchar(el & 0xf) << ' ';
     std::cout << '\n';
-
-    skate::benchmark([&]() {
-        for (size_t i = 0; i < 10000000; ++i)
-            s.push_back(jv.as_int());
-    });
 
     return 0;
 

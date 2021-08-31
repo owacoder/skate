@@ -57,6 +57,14 @@ namespace skate {
 
     template<typename T> struct type_exists : public std::true_type { typedef int type; };
 
+    // Test if type is losslessly convertible to char
+    template<typename T> struct is_convertible_to_char : public std::integral_constant<bool, std::is_convertible<T, char>::value &&
+                                                                                             (std::is_class<T>::value || sizeof(T) == 1)> {};
+
+    // Test if type is losslessly convertible from char
+    template<typename T> struct is_convertible_from_char : public std::integral_constant<bool, std::is_convertible<char, T>::value &&
+                                                                                               !std::is_class<T>::value && sizeof(T) == 1> {};
+
     // Extract an element's type from parameter pack
     template<size_t element, typename T, typename... Types>
     struct parameter_pack_element_type {
