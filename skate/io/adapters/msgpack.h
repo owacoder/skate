@@ -149,7 +149,7 @@ namespace skate {
         // Array overload (allows binary data)
         template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
                                                             !is_tuple_base<_>::value &&
-                                                            std::is_convertible<typename std::decay<decltype(*begin(std::declval<_>()))>::type, char>::value, int>::type = 0>
+                                                            std::is_convertible<unsigned char, typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
@@ -157,8 +157,33 @@ namespace skate {
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
+            bool is_binary = false;
 
             switch (c) {
+                case 0xc4: { /* 1-byte size binary */
+                    uint8_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    is_binary = true;
+                    break;
+                }
+                case 0xc5: { /* 2-byte size binary */
+                    uint16_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    is_binary = true;
+                    break;
+                }
+                case 0xc6: { /* 4-byte size binary */
+                    uint32_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    is_binary = true;
+                    break;
+                }
                 case 0xdc: { /* 2-byte size array */
                     uint16_t n = 0;
                     if (!impl::read_big_endian(is, n))
@@ -184,13 +209,24 @@ namespace skate {
 
             abstract::reserve(ref, size);
 
-            for (uint_fast32_t i = 0; i < size; ++i) {
-                Element element;
+            if (is_binary) {
+                for (uint_fast32_t i = 0; i < size; ++i) {
+                    const int element = sget_byte(is);
 
-                if (!msgpack(element).read(is))
-                    return false;
+                    if (element == std::char_traits<char>::eof())
+                        return false;
 
-                abstract::push_back(ref, std::move(element));
+                    abstract::push_back(ref, static_cast<unsigned char>(element));
+                }
+            } else {
+                for (uint_fast32_t i = 0; i < size; ++i) {
+                    Element element;
+
+                    if (!msgpack(element).read(is))
+                        return false;
+
+                    abstract::push_back(ref, std::move(element));
+                }
             }
 
             return true;
@@ -297,9 +333,41 @@ namespace skate {
             // Underlying char type of string
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
 
-            unicode_codepoint codepoint;
-
             abstract::clear(ref);
+
+            const int c = sbump_byte(is);
+            uint_fast32_t size = 0;
+
+            switch (c) {
+                case 0xd9: { /* 1-byte size string */
+                    uint8_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                case 0xda: { /* 2-byte size string */
+                    uint16_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                case 0xdb: { /* 4-byte size string */
+                    uint32_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                default: { /* Embedded-size string? */
+                    if (c >= 0 && (c & 0xe0) == 0xa0)
+                        size = c & 0x1f;
+                    else
+                        return false;
+                    break;
+                }
+            }
 
             // Read start char
             if (!impl::skipws(is) || is.sbumpc() != '"')
@@ -496,9 +564,12 @@ namespace skate {
         }
 
         // Array overload (non-binary data)
-        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                            !is_tuple_base<_>::value &&
-                                                            !std::is_convertible<typename std::decay<decltype(*begin(std::declval<_>()))>::type, char>::value, int>::type = 0>
+        template<typename _ = Type,
+                 typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<is_array_base<_>::value &&
+                                         !is_tuple_base<_>::value &&
+                                         !(std::is_convertible<Element, char>::value &&
+                                          (std::is_class<Element>::value || sizeof(Element) == 1)), int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 15) {
                 if (os.sputc(static_cast<unsigned char>(0x90 | ref.size())) == std::char_traits<char>::eof())
@@ -522,9 +593,12 @@ namespace skate {
         }
 
         // Array overload (binary data)
-        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                            !is_tuple_base<_>::value &&
-                                                            std::is_convertible<typename std::decay<decltype(*begin(std::declval<_>()))>::type, char>::value, int>::type = 0>
+        template<typename _ = Type,
+                 typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
+                 typename std::enable_if<is_array_base<_>::value &&
+                                         !is_tuple_base<_>::value &&
+                                         std::is_convertible<Element, char>::value &&
+                                         (std::is_class<Element>::value || sizeof(Element) == 1), int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 0xffu) {
                 if (os.sputc(static_cast<unsigned char>(0xc4)) == std::char_traits<char>::eof() || !impl::write_big_endian(os, uint8_t(ref.size())))
