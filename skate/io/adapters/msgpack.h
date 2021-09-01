@@ -369,6 +369,8 @@ namespace skate {
                 }
             }
 
+            abstract::reserve(ref, size);
+
             for (uint_fast32_t i = 0; i < size; ++i) {
                 const int ch = sbump_byte(is);
 
@@ -418,9 +420,10 @@ namespace skate {
         }
 
         // Integer overload (TODO)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
+        template<typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
+        bool read(std::streambuf &is) const {
             ref = 0;
+
             if (!impl::skipws(is))
                 return false;
 
@@ -428,8 +431,8 @@ namespace skate {
         }
 
         // Floating point overload (TODO)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
+        template<typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
+        bool read(std::streambuf &is) const {
             ref = 0;
 
             if (!impl::skipws(is))
@@ -439,9 +442,9 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_shared_ptr_base<_>::value ||
+        template<typename _ = Type, typename std::enable_if<is_shared_ptr_base<_>::value ||
                                                                                  is_unique_ptr_base<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
+        bool read(std::streambuf &is) const {
             ref.reset();
 
             if (sget_byte(is) == 0xc0)
@@ -455,8 +458,8 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
+        template<typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        bool read(std::streambuf &is) const {
             ref.reset();
 
             if (sget_byte(is) == 0xc0)
@@ -625,10 +628,8 @@ namespace skate {
             }
 
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (!msgpack(key_of<KeyValuePair>{}(el), options).write(os))
-                    return false;
-
-                if (!msgpack(value_of<KeyValuePair>{}(el), options).write(os))
+                if (!msgpack(key_of<KeyValuePair>{}(el), options).write(os) ||
+                    !msgpack(value_of<KeyValuePair>{}(el), options).write(os))
                     return false;
             }
 
@@ -873,19 +874,19 @@ namespace skate {
     template<typename Type>
     msgpack_writer<Type> msgpack(const Type &value, msgpack_options options) { return msgpack_writer<Type>(value, options); }
 
-    template<typename StreamChar, typename Type>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, msgpack_reader<Type> value) {
+    template<typename Type>
+    std::istream &operator>>(std::istream &is, msgpack_reader<Type> value) {
         if (!is.rdbuf() || !value.read(*is.rdbuf()))
             is.setstate(std::ios_base::failbit);
         return is;
     }
 
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, msgpack_reader<Type> value) {
+    template<typename Type>
+    std::ostream &operator<<(std::ostream &os, msgpack_reader<Type> value) {
         return os << msgpack_writer<Type>(value);
     }
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, msgpack_writer<Type> value) {
+    template<typename Type>
+    std::ostream &operator<<(std::ostream &os, msgpack_writer<Type> value) {
         if (!os.rdbuf() || !value.write(*os.rdbuf()))
             os.setstate(std::ios_base::failbit);
         return os;
@@ -1343,8 +1344,8 @@ namespace skate {
     typedef basic_msgpack_object<std::wstring> msgpack_wobject;
     typedef basic_msgpack_value<std::wstring> msgpack_wvalue;
 
-    template<typename StreamChar, typename String>
-    bool skate_msgpack(std::basic_streambuf<StreamChar> &is, basic_msgpack_value<String> &j) {
+    template<typename String>
+    bool skate_msgpack(std::streambuf &is, basic_msgpack_value<String> &j) {
         if (!impl::skipws(is))
             return false;
 
@@ -1401,8 +1402,8 @@ namespace skate {
         }
     }
 
-    template<typename StreamChar, typename String>
-    bool skate_msgpack(std::basic_streambuf<StreamChar> &os, const basic_msgpack_value<String> &j, msgpack_options options) {
+    template<typename String>
+    bool skate_msgpack(std::streambuf &os, const basic_msgpack_value<String> &j, msgpack_options options) {
         switch (j.current_type()) {
             default:                         return msgpack(nullptr, options).write(os);
             case msgpack_type::null:         return msgpack(j.unsafe_get_null(), options).write(os);
@@ -1416,28 +1417,26 @@ namespace skate {
         }
     }
 
-    template<typename StreamChar, typename String>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_msgpack_value<String> &j) {
+    template<typename String>
+    std::istream &operator>>(std::istream &is, basic_msgpack_value<String> &j) {
         return is >> msgpack(j);
     }
 
-    template<typename StreamChar, typename String>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_msgpack_value<String> &j) {
+    template<typename String>
+    std::ostream &operator<<(std::ostream &os, const basic_msgpack_value<String> &j) {
         return os << msgpack(j);
     }
 
     // Qt helpers
 #ifdef QT_VERSION
-    template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_msgpack(std::basic_istream<StreamChar> &is, QString &str) {
+    std::istream &skate_msgpack(std::istream &is, QString &str) {
         std::wstring wstr;
         is >> skate::msgpack(wstr);
         str = QString::fromStdWString(wstr);
         return is;
     }
 
-    template<typename StreamChar>
-    std::basic_ostream<StreamChar> &skate_msgpack(std::basic_ostream<StreamChar> &os, const QString &str) {
+    std::ostream &skate_msgpack(std::ostream &os, const QString &str) {
         return os << skate::msgpack(str.toStdWString());
     }
 #endif
