@@ -95,19 +95,19 @@ namespace skate {
     // Abstract clear() method for containers
     template<typename T>
     struct abstract_clear {
-        abstract_clear(T &c) { c.clear(); }
+        void operator()(T &c) { c.clear(); }
     };
 
     // Abstract empty() method for containers
     template<typename T>
     struct abstract_empty {
-        abstract_empty(const T &c, bool &empty) { empty = c.empty(); }
+        bool operator()(const T &c) { return c.empty(); }
     };
 
     // Abstract size() method for containers
     template<typename T>
     struct abstract_size {
-        abstract_size(const T &c, size_t &size) { size = c.size(); }
+        size_t operator()(const T &c) { return c.size(); }
     };
 
     template<typename... ContainerParams>
@@ -210,71 +210,71 @@ namespace skate {
     // Abstract reserve() method for containers
     template<typename T>
     struct abstract_reserve {
-        constexpr abstract_reserve(T &, size_t) noexcept {}
+        constexpr void operator()(T &, size_t) noexcept {}
     };
 
     template<typename... ContainerParams>
     struct abstract_reserve<std::vector<ContainerParams...>> {
-        abstract_reserve(std::vector<ContainerParams...> &c, size_t s) { c.reserve(s); }
+        void operator()(std::vector<ContainerParams...> &c, size_t s) { c.reserve(s); }
     };
 
     template<typename... ContainerParams>
     struct abstract_reserve<std::basic_string<ContainerParams...>> {
-        abstract_reserve(std::basic_string<ContainerParams...> &c, size_t s) { c.reserve(s); }
+        void operator()(std::basic_string<ContainerParams...> &c, size_t s) { c.reserve(s); }
     };
 
     template<typename... ContainerParams>
     struct abstract_reserve<std::unordered_set<ContainerParams...>> {
-        abstract_reserve(std::unordered_set<ContainerParams...> &c, size_t s) { c.reserve(s); }
+        void operator()(std::unordered_set<ContainerParams...> &c, size_t s) { c.reserve(s); }
     };
 
     template<typename... ContainerParams>
     struct abstract_reserve<std::unordered_multiset<ContainerParams...>> {
-        abstract_reserve(std::unordered_multiset<ContainerParams...> &c, size_t s) { c.reserve(s); }
+        void operator()(std::unordered_multiset<ContainerParams...> &c, size_t s) { c.reserve(s); }
     };
 
     // Abstract resize() method for containers
     template<typename T>
     struct abstract_resize {
-        abstract_resize(T &c, size_t s) { c.resize(s); }
+        void operator()(T &c, size_t s) { c.resize(s); }
     };
 
     // Abstract sort() method for containers
     template<typename T>
     struct abstract_sort {
-        abstract_sort(T &c) { if (!abstract_empty<T>(c)) std::sort(begin(c), end(c)); }
+        void operator()(T &c) { if (!abstract_empty<T>{}(c)) std::sort(begin(c), end(c)); }
         template<typename Compare>
-        abstract_sort(T &c, Compare comp) { if (!abstract_empty<T>(c)) std::sort(begin(c), end(c), comp); }
+        void operator()(T &c, Compare comp) { if (!abstract_empty<T>{}(c)) std::sort(begin(c), end(c), comp); }
     };
 
     template<typename... ContainerParams>
     struct abstract_sort<std::list<ContainerParams...>> {
-        abstract_sort(std::list<ContainerParams...> &c) { c.sort(); }
+        void operator()(std::list<ContainerParams...> &c) { c.sort(); }
         template<typename Compare>
-        abstract_sort(std::list<ContainerParams...> &c, Compare comp) { c.sort(comp); }
+        void operator()(std::list<ContainerParams...> &c, Compare comp) { c.sort(comp); }
     };
 
     template<typename... ContainerParams>
     struct abstract_sort<std::forward_list<ContainerParams...>> {
-        abstract_sort(std::forward_list<ContainerParams...> &c) { c.sort(); }
+        void operator()(std::forward_list<ContainerParams...> &c) { c.sort(); }
         template<typename Compare>
-        abstract_sort(std::forward_list<ContainerParams...> &c, Compare comp) { c.sort(comp); }
+        void operator()(std::forward_list<ContainerParams...> &c, Compare comp) { c.sort(comp); }
     };
 
     // Abstract reverse() method for containers
     template<typename T>
     struct abstract_reverse {
-        abstract_reverse(T &c) { std::reverse(begin(c), end(c)); }
+        void operator()(T &c) { std::reverse(begin(c), end(c)); }
     };
 
     template<typename... ContainerParams>
     struct abstract_reverse<std::list<ContainerParams...>> {
-        abstract_reverse(std::list<ContainerParams...> &c) noexcept { c.reverse(); }
+        void operator()(std::list<ContainerParams...> &c) noexcept { c.reverse(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_reverse<std::forward_list<ContainerParams...>> {
-        abstract_reverse(std::forward_list<ContainerParams...> &c) noexcept { c.reverse(); }
+        void operator()(std::forward_list<ContainerParams...> &c) noexcept { c.reverse(); }
     };
 
     // Abstract push_back() iterators for containers
@@ -483,12 +483,12 @@ namespace skate {
     // Abstract pop_back() method for containers (not available for set as it doesn't make sense semantically)
     template<typename T>
     struct abstract_pop_back {
-        abstract_pop_back(T &c) { c.pop_back(); }
+        void operator()(T &c) { c.pop_back(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_back<std::forward_list<ContainerParams...>> {
-        abstract_pop_back(std::forward_list<ContainerParams...> &c) {
+        void operator()(std::forward_list<ContainerParams...> &c) {
             auto current = begin(c);
             auto before_current = c.before_begin();
             for (const auto &el: c) {
@@ -507,42 +507,42 @@ namespace skate {
     // Abstract pop_front() method for containers (not available for set as it doesn't make sense semantically)
     template<typename T>
     struct abstract_pop_front {
-        abstract_pop_front(T &c) { c.pop_front(); }
+        void operator()(T &c) { c.pop_front(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<std::vector<ContainerParams...>> {
-        abstract_pop_front(std::vector<ContainerParams...> &c) { c.erase(begin(c)); }
+        void operator()(std::vector<ContainerParams...> &c) { c.erase(begin(c)); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<std::basic_string<ContainerParams...>> {
-        abstract_pop_front(std::basic_string<ContainerParams...> &c) { c.erase(begin(c)); }
+        void operator()(std::basic_string<ContainerParams...> &c) { c.erase(begin(c)); }
     };
 
     namespace abstract {
         template<typename T>
-        void clear(T &c) { abstract_clear<T>{c}; }
+        void clear(T &c) { abstract_clear<T>{}(c); }
 
         template<typename T>
-        bool empty(const T &c) { bool empty = false; abstract_empty<T>{c, empty}; return empty; }
+        bool empty(const T &c) { return abstract_empty<T>{}(c); }
 
         template<typename T>
-        size_t size(const T &c) { size_t size = 0; abstract_size<T>{c, size}; return size; }
+        size_t size(const T &c) { return abstract_size<T>{}(c); }
 
         template<typename T>
-        void reserve(T &c, size_t size) { abstract_reserve<T>{c, size}; }
+        void reserve(T &c, size_t size) { abstract_reserve<T>{}(c, size); }
 
         template<typename T>
-        void resize(T &c, size_t size) { abstract_resize<T>{c, size}; }
+        void resize(T &c, size_t size) { abstract_resize<T>{}(c, size); }
 
         template<typename T>
-        void sort(T &c) { abstract_sort<T>{c}; }
+        void sort(T &c) { abstract_sort<T>{}(c); }
         template<typename T, typename Compare>
-        void sort(T &c, Compare comp) { abstract_sort<T>{c, comp}; }
+        void sort(T &c, Compare comp) { abstract_sort<T>{}(c, comp); }
 
         template<typename T>
-        void reverse(T &c) { abstract_reverse<T>{c}; }
+        void reverse(T &c) { abstract_reverse<T>{}(c); }
 
         template<typename T>
         auto front(const T &c) -> decltype(abstract_front<T>{}(c)) { return abstract_front<T>{}(c); }
@@ -572,10 +572,10 @@ namespace skate {
         void push_front(T &c, V &&v) { *abstract::front_inserter<T>(c)++ = std::forward<V>(v); }
 
         template<typename T>
-        void pop_back(T &c) { abstract_pop_back<T>{c}; }
+        void pop_back(T &c) { abstract_pop_back<T>{}(c); }
 
         template<typename T>
-        void pop_front(T &c) { abstract_pop_front<T>{c}; }
+        void pop_front(T &c) { abstract_pop_front<T>{}(c); }
     }
 }
 

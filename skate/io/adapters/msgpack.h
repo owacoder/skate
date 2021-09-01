@@ -806,7 +806,7 @@ namespace skate {
             }
         }
 
-        // tm overload, uses localtime
+        // tm overload
         template<typename _ = Type, typename std::enable_if<std::is_same<_, struct tm>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             struct tm tim = ref;

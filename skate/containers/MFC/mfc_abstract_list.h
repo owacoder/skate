@@ -193,17 +193,17 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_clear<CStringT<ContainerParams...>> {
-        abstract_clear(CStringT<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CStringT<ContainerParams...> &c) { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CStringT<ContainerParams...>> {
-        abstract_empty(const CStringT<ContainerParams...> &c, bool &empty) { empty = c.IsEmpty(); }
+        bool operator()(const CStringT<ContainerParams...> &c) { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CStringT<ContainerParams...>> {
-        abstract_size(const CStringT<ContainerParams...> &c, size_t &size) { size = size_t(c.GetLength()); }
+        size_t operator()(const CStringT<ContainerParams...> &c) { return size_t(c.GetLength()); }
     };
 
     template<typename... ContainerParams>
@@ -231,7 +231,7 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_reserve<CStringT<ContainerParams...>> {
-        abstract_reserve(CStringT<ContainerParams...> &c, size_t s) { 
+        void operator()(CStringT<ContainerParams...> &c, size_t s) {
             if (s > size_t(c.GetLength())) 
                 c.Preallocate(std::min<size_t>(s + 1, std::numeric_limits<int>::max()));
         }
@@ -239,7 +239,7 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_resize<CStringT<ContainerParams...>> {
-        abstract_resize(CStringT<ContainerParams...> &c, size_t s) { 
+        void operator()(CStringT<ContainerParams...> &c, size_t s) {
             abstract::reserve(c, s);
 
             while (s > abstract::size(c))
@@ -252,12 +252,12 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CStringT<ContainerParams...>> {
-        abstract_pop_back(CStringT<ContainerParams...> &c) { c.Truncate(c.GetLength() - 1); }
+        void operator()(CStringT<ContainerParams...> &c) { c.Truncate(c.GetLength() - 1); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CStringT<ContainerParams...>> {
-        abstract_pop_front(CStringT<ContainerParams...> &c) { c.Delete(0); }
+        void operator()(CStringT<ContainerParams...> &c) { c.Delete(0); }
     };
 
     template<typename... ContainerParams>
@@ -295,17 +295,17 @@ namespace skate {
     // ------------------------------------------------
     template<typename... ContainerParams>
     struct abstract_clear<CArray<ContainerParams...>> {
-        abstract_clear(CArray<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CArray<ContainerParams...> &c) { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CArray<ContainerParams...>> {
-        abstract_empty(const CArray<ContainerParams...> &c, bool &empty) { empty = c.IsEmpty(); }
+        bool operator()(const CArray<ContainerParams...> &c) { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CArray<ContainerParams...>> {
-        abstract_size(const CArray<ContainerParams...> &c, size_t &size) { size = size_t(c.GetSize()); }
+        size_t operator()(const CArray<ContainerParams...> &c) { return size_t(c.GetSize()); }
     };
 
     template<typename... ContainerParams>
@@ -327,17 +327,17 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_resize<CArray<ContainerParams...>> {
-        abstract_resize(CArray<ContainerParams...> &c, size_t s) { c.SetSize((INT_PTR) std::min<uintmax_t>(s, std::numeric_limits<INT_PTR>::max())); }
+        void operator()(CArray<ContainerParams...> &c, size_t s) { c.SetSize((INT_PTR) std::min<uintmax_t>(s, std::numeric_limits<INT_PTR>::max())); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CArray<ContainerParams...>> {
-        abstract_pop_back(CArray<ContainerParams...> &c) { c.RemoveAt(c.GetSize() - 1); }
+        void operator()(CArray<ContainerParams...> &c) { c.RemoveAt(c.GetSize() - 1); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CArray<ContainerParams...>> {
-        abstract_pop_front(CArray<ContainerParams...> &c) { c.RemoveAt(0); }
+        void operator()(CArray<ContainerParams...> &c) { c.RemoveAt(0); }
     };
 
     template<typename... ContainerParams>
@@ -383,17 +383,17 @@ namespace skate {
     // ------------------------------------------------
     template<typename... ContainerParams>
     struct abstract_clear<CList<ContainerParams...>> {
-        abstract_clear(CList<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CList<ContainerParams...> &c) { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CList<ContainerParams...>> {
-        abstract_empty(const CList<ContainerParams...> &c, bool &empty) { empty = c.IsEmpty(); }
+        bool operator()(const CList<ContainerParams...> &c) { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CList<ContainerParams...>> {
-        abstract_size(const CList<ContainerParams...> &c, size_t &size) { size = size_t(c.GetSize()); }
+        size_t operator()(const CList<ContainerParams...> &c) { return size_t(c.GetSize()); }
     };
 
     template<typename... ContainerParams>
@@ -428,7 +428,7 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_resize<CList<ContainerParams...>> {
-        abstract_resize(CList<ContainerParams...> &c, size_t s) {
+        void operator()(CList<ContainerParams...> &c, size_t s) {
             while (size_t(c.GetSize()) < s)
                 abstract::push_back(c, {});
 
@@ -439,12 +439,12 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CList<ContainerParams...>> {
-        abstract_pop_back(CList<ContainerParams...> &c) { c.RemoveTail(); }
+        void operator()(CList<ContainerParams...> &c) { c.RemoveTail(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CList<ContainerParams...>> {
-        abstract_pop_front(CList<ContainerParams...> &c) { c.RemoveHead(); }
+        void operator()(CList<ContainerParams...> &c) { c.RemoveHead(); }
     };
 
     template<typename... ContainerParams>
