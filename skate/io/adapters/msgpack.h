@@ -695,7 +695,7 @@ namespace skate {
                 return false;
             }
 
-            return os.sputn(s.get().c_str(), sz) == sz;
+            return os.sputn(s.get().c_str(), sz) == std::streamsize(sz);
         }
 
         // Extension overload
@@ -723,7 +723,7 @@ namespace skate {
                     break;
             }
 
-            return os.sputc(ref.type) != std::char_traits<char>::eof() && os.sputn(ref.data.c_str(), ref.data.size()) == ref.data.size();
+            return os.sputc(ref.type) != std::char_traits<char>::eof() && os.sputn(ref.data.c_str(), ref.data.size()) == std::streamsize(ref.data.size());
         }
 
         // Null overload
@@ -806,17 +806,18 @@ namespace skate {
             }
         }
 
-        // time_t overload
-        template<typename _ = Type, typename std::enable_if<std::is_same<_, time_t>::value, int>::type = 0>
+        // tm overload, uses localtime
+        template<typename _ = Type, typename std::enable_if<std::is_same<_, struct tm>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
-            struct tm tim;
+            struct tm tim = ref;
+            struct tm epoch;
 
-            memset(&tim, 0, sizeof(tim));
-            tim.tm_mday = 1;
-            tim.tm_year = 70;
-            tim.tm_isdst = -1;
+            memset(&epoch, 0, sizeof(epoch));
+            epoch.tm_mday = 1;
+            epoch.tm_year = 70;
+            epoch.tm_isdst = -1;
 
-            const double diff = difftime(ref, mktime(&tim));
+            const double diff = difftime(mktime(&tim), mktime(&epoch));
 
             const int64_t seconds = int64_t(std::floor(diff));
             const uint32_t nanoseconds = uint32_t(std::trunc((diff - std::floor(diff)) * 1000000000));

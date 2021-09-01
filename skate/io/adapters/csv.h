@@ -957,7 +957,7 @@ namespace skate {
             }
 
             const size_t len = strlen(fmt);
-            return os.sputn(fmt, len) == len;
+            return os.sputn(fmt, len) == std::streamsize(len);
         }
 
         // Integer overload
