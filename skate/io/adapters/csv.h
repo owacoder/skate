@@ -20,18 +20,33 @@ namespace skate {
     template<typename Type>
     class csv_writer;
 
+    enum class csv_bool_type {
+        numeric, // 1/0
+        truefalse, // true/false
+        TrueFalse, // True/False
+        TRUEFALSE, // TRUE/FALSE
+        TF, // T/F
+        yesno, // yes/no
+        YesNo, // Yes/No
+        YESNO, // YES/NO
+        YN, // Y/N
+        onoff, // on/off
+        OnOff, // On/Off
+        ONOFF, // ON/OFF
+    };
+
     struct csv_options {
-        constexpr csv_options(unicode_codepoint separator = ',', unicode_codepoint quote = '"', bool crlf_line_endings = true, bool numeric_bool = true) noexcept
+        constexpr csv_options(unicode_codepoint separator = ',', unicode_codepoint quote = '"', bool crlf_line_endings = true, csv_bool_type bool_fmt = csv_bool_type::numeric) noexcept
             : separator(separator)
             , quote(quote)
             , crlf_line_endings(crlf_line_endings)
-            , numeric_bool(numeric_bool)
+            , bool_fmt(bool_fmt)
         {}
 
         unicode_codepoint separator; // Supports Unicode characters as separator
-        unicode_codepoint quote;     // Supports Unicode characters as separator
+        unicode_codepoint quote;     // Supports Unicode characters as quote
         bool crlf_line_endings;      // Whether to write line endings as CRLF (1) or just LF (0)
-        bool numeric_bool;           // Whether booleans are numeric "1/0" or alphabetical "true/false"
+        csv_bool_type bool_fmt;      // Format of booleans when writing (any bool is matched when reading)
     };
 
     template<typename Type>
@@ -437,7 +452,7 @@ namespace skate {
                             return true;
                         else if (!get_unicode<StreamChar>{}(is, c))             // Failed to read next character
                             return false;
-                        else if (isspace_or_tab(c))                       // End of quoted string, just eat whitespace
+                        else if (isspace_or_tab(c))                             // End of quoted string, just eat whitespace
                             return impl::skip_spaces_and_tabs(is);
                         else if (c != options.quote)                            // Not an escaped quote, end of string
                             return get_unicode<StreamChar>{}.unget(is, c);
@@ -463,13 +478,95 @@ namespace skate {
 
         // Null overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &) { return true; }
+        bool read(std::basic_streambuf<StreamChar> &is) { return impl::skip_spaces_and_tabs(is); }
 
         // Boolean overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            // TODO
-            return false;
+            ref = false;
+
+            if (!impl::skip_spaces_and_tabs(is))
+                return false;
+
+            switch (is.sbumpc()) {
+                default: return false;
+                case '1': // fallthrough
+                case '2': // fallthrough
+                case '3': // fallthrough
+                case '4': // fallthrough
+                case '5': // fallthrough
+                case '6': // fallthrough
+                case '7': // fallthrough
+                case '8': // fallthrough
+                case '9': ref = true;       break;
+                case '0': ref = false;      break;
+                case 'T': // fallthrough
+                case 't': {
+                    if (tolower(is.sgetc()) == 'r') {
+                        const char *rest = "rue";
+
+                        for (size_t i = 0; i < 3; ++i) {
+                            if (tolower(is.sbumpc()) != rest[i])
+                                return false;
+                        }
+                    }
+
+                    ref = true;
+                    break;
+                }
+                case 'F': // fallthrough
+                case 'f': {
+                    if (tolower(is.sgetc()) == 'a') {
+                        const char *rest = "alse";
+
+                        for (size_t i = 0; i < 4; ++i) {
+                            if (tolower(is.sbumpc()) != rest[i])
+                                return false;
+                        }
+                    }
+
+                    ref = false;
+                    break;
+                }
+                case 'O': // fallthrough
+                case 'o': {
+                    switch (tolower(is.sbumpc())) {
+                        case 'n': ref = true; break;
+                        case 'f':
+                            ref = false;
+                            if (tolower(is.sbumpc()) != 'f')
+                                return false;
+                            break;
+                        default: return false;
+                    }
+
+                    break;
+                }
+                case 'Y': // fallthrough
+                case 'y': {
+                    if (tolower(is.sgetc()) == 'e') {
+                        const char *rest = "es";
+
+                        for (size_t i = 0; i < 2; ++i) {
+                            if (tolower(is.sbumpc()) != rest[i])
+                                return false;
+                        }
+                    }
+
+                    ref = true;
+                    break;
+                }
+                case 'N': // fallthrough
+                case 'n': {
+                    if (tolower(is.sgetc()) == 'o' && tolower(is.sbumpc()) != 'o')
+                        return false;
+
+                    ref = false;
+                    break;
+                }
+            }
+
+            return impl::skip_spaces_and_tabs(is);
         }
 
         // Integer overload
@@ -842,17 +939,25 @@ namespace skate {
         // Boolean overload
         template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (options.numeric_bool) {
-                return os.sputc('0' + ref) != std::char_traits<StreamChar>::eof();
-            } else {
-                if (ref) {
-                    const StreamChar true_array[] = {'t', 'r', 'u', 'e'};
-                    return os.sputn(true_array, 4) == 4;
-                } else {
-                    const StreamChar false_array[] = {'f', 'a', 'l', 's', 'e'};
-                    return os.sputn(false_array, 5) == 5;
-                }
+            const char *fmt = nullptr;
+
+            switch (options.bool_fmt) {
+                default:                        fmt = ref? "1": "0"; break;
+                case csv_bool_type::onoff:      fmt = ref? "on": "off"; break;
+                case csv_bool_type::OnOff:      fmt = ref? "On": "Off"; break;
+                case csv_bool_type::ONOFF:      fmt = ref? "ON": "OFF"; break;
+                case csv_bool_type::truefalse:  fmt = ref? "true": "false"; break;
+                case csv_bool_type::TrueFalse:  fmt = ref? "True": "False"; break;
+                case csv_bool_type::TRUEFALSE:  fmt = ref? "TRUE": "FALSE"; break;
+                case csv_bool_type::TF:         fmt = ref? "T": "F"; break;
+                case csv_bool_type::yesno:      fmt = ref? "yes": "no"; break;
+                case csv_bool_type::YesNo:      fmt = ref? "Yes": "No"; break;
+                case csv_bool_type::YESNO:      fmt = ref? "YES": "NO"; break;
+                case csv_bool_type::YN:         fmt = ref? "Y": "N"; break;
             }
+
+            const size_t len = strlen(fmt);
+            return os.sputn(fmt, len) == len;
         }
 
         // Integer overload

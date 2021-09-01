@@ -319,8 +319,9 @@ int main()
     return 0;
 #endif
 
-    std::string text {'U', 'T', 'F'};
+    std::string text = "1, no";
 
+    std::cout << skate::from_csv<bool>(text) << std::endl;
     const auto msgp = skate::to_msgpack(text);
 
     for (const auto &el: msgp)
