@@ -120,21 +120,21 @@ namespace skate {
             s->did_write = false;
 
             if (!s->is_listening()) { // Ignore read/write events on accept()ing socket
-                if (flags & WatchRead) {
-                    std::error_code ec;
-                    s->do_server_read(ec);
-                    if (!ec)
-                        ready_read(s, ec);
-
-                    if (ec)
-                        error(s, ec);
-                }
-
                 if (flags & WatchWrite) {
                     std::error_code ec;
                     s->do_server_write(ec);
                     if (!ec)
                         ready_write(s, ec);
+
+                    if (ec)
+                        error(s, ec);
+                }
+
+                if (flags & WatchRead && !s->is_null()) {
+                    std::error_code ec;
+                    s->do_server_read(ec);
+                    if (!ec)
+                        ready_read(s, ec);
 
                     if (ec)
                         error(s, ec);

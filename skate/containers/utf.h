@@ -1227,6 +1227,32 @@ namespace skate {
         for (size_t i = 0; i < len; ++i)
             s[i] = tolower(s[i]);
     }
+
+    template<typename IntType, typename std::enable_if<std::is_unsigned<IntType>::value, int>::type = 0>
+    std::string to_string_hex(IntType i, bool uppercase = false, size_t minimum = 0) {
+        using namespace std;
+
+        std::string result;
+
+        if (i == 0) {
+            result.resize(max(minimum, size_t(1)));
+            std::fill(result.begin(), result.end(), '0');
+        } else {
+            for (; i; i >>= 4) {
+                result.push_back(toxchar(i, uppercase));
+            }
+
+            const auto digits = result.size();
+            if (minimum > digits) {
+                result.resize(minimum);
+                std::fill(result.begin() + digits, result.end(), '0');
+            }
+
+            std::reverse(result.begin(), result.end());
+        }
+
+        return result;
+    }
 }
 
 #endif // __cplusplus

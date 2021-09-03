@@ -69,47 +69,6 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include <array>
 #include "system/benchmark.h"
 
-struct http_request {
-    std::string method;
-    unsigned char httpMajor, httpMinor;
-};
-
-class http_server_socket : public skate::tcp_socket {
-    std::string request;
-
-protected:
-    http_server_socket(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking)
-        : tcp_socket(desc, current_state, blocking)
-    {}
-
-    virtual std::unique_ptr<skate::socket> create(skate::system_socket_descriptor desc, skate::socket_state current_state, bool is_blocking) {
-        return std::unique_ptr<skate::socket>{new http_server_socket(desc, current_state, is_blocking)};
-    }
-
-    virtual void ready_read(std::error_code &ec) override {
-        request += read_all(ec);
-
-        if (request.find("\r\n\r\n") == request.npos)
-            return;
-
-
-    }
-
-    virtual void ready_write(std::error_code &ec) override {
-        write(ec, "HTTP/1.1 200 OK\r\n\r\nText");
-        if (!ec)
-            disconnect(ec);
-    }
-
-    virtual void error(std::error_code ec) override {
-        std::cout << ec.message() << std::endl;
-    }
-
-public:
-    http_server_socket() {}
-    virtual ~http_server_socket() {}
-};
-
 void abstract_container_test() {
     std::initializer_list<int> il = { 0, 1, 2, 3, 4, 5 };
 
@@ -163,22 +122,31 @@ void abstract_container_test() {
     //std::cout << skate::json(abstract::back(s)) << std::endl;
 }
 
+#include "socket/protocol/http.h"
+
 void network_test() {
     skate::startup_wrapper wrapper;
     skate::socket_server<> server;
-    http_server_socket tcp;
+    skate::http_client_socket http;
     std::error_code ec;
 
-    auto resolved = tcp.resolve(ec, {"localhost", 8100});
+    skate::http_request req;
+    req.url.set_hostname("territory.ddns.net");
+
+    auto resolved = http.resolve(ec, { req.url.get_host(skate::url::encoding::raw), req.url.get_port(80) });
     if (resolved.size())
-        tcp.bind(ec, resolved);
+        http.connect_sync(ec, resolved);
 
     auto save = ec;
-    tcp.set_blocking(ec, false);
+    std::cout << skate::json(resolved) << save.message() << std::endl;
+    http.set_blocking(ec, false);
+    ec = http.write_http_request(std::move(req));
 
-    tcp.listen(ec);
+    std::cout << http.read_all(ec) << std::endl;
+
+    // http.listen(ec);
     std::cout << save.message() << " " << ec.message() << std::endl;
-    server.serve_socket(&tcp);
+    server.serve_socket(&http);
     std::cout << "server running" << std::endl;
     server.run();
 }
@@ -255,6 +223,21 @@ namespace skate {
 
 int main()
 {
+    network_test();
+    return 0;
+
+    std::cout << skate::to_string_hex(0xffff0u, true, 8) << std::endl;
+
+    std::map<std::string, std::string, skate::impl::less_case_insensitive> headers;
+
+    headers["Content-Length"] = "100";
+    headers["content-length"] = "200";
+    headers["Host"] = "hostname";
+
+    std::cout << skate::json(headers, skate::json_write_options(4)) << std::endl;
+
+    return 0;
+
 #if 0
     std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
     std::unordered_map<std::string, skate::json_value> map;

@@ -21,6 +21,7 @@ HEADERS += \
     io/buffer.h \
     io/logger.h \
     socket/iocp.h \
+    socket/protocol/http.h \
     socket/wsaasyncselect.h \
     system/benchmark.h \
     system/time.h \

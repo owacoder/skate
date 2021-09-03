@@ -193,71 +193,71 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_clear<CStringT<ContainerParams...>> {
-        void operator()(CStringT<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CStringT<ContainerParams...> &c) const { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CStringT<ContainerParams...>> {
-        bool operator()(const CStringT<ContainerParams...> &c) { return c.IsEmpty(); }
+        bool operator()(const CStringT<ContainerParams...> &c) const { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CStringT<ContainerParams...>> {
-        size_t operator()(const CStringT<ContainerParams...> &c) { return size_t(c.GetLength()); }
+        int operator()(const CStringT<ContainerParams...> &c) const { return c.GetLength(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_shrink_to_fit<CStringT<ContainerParams...>> {
-        abstract_shrink_to_fit(CStringT<ContainerParams...> &c) { c.FreeExtra(); }
+        void operator()(CStringT<ContainerParams...> &c) const { c.FreeExtra(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_front<CStringT<ContainerParams...>> {
         decltype(std::declval<const CStringT<ContainerParams...> &>()[0]) operator()(const CStringT<ContainerParams...> &c) { return c[0]; }
-        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) { return {c, 0}; }
+        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) const { return {c, 0}; }
     };
 
     template<typename... ContainerParams>
     struct abstract_back<CStringT<ContainerParams...>> {
         decltype(std::declval<const CStringT<ContainerParams...> &>()[0]) operator()(const CStringT<ContainerParams...> &c) { return c[c.GetLength() - 1]; }
-        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) { return { c, c.GetLength() - 1 }; }
+        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) const { return { c, c.GetLength() - 1 }; }
     };
 
     template<typename... ContainerParams>
     struct abstract_element<CStringT<ContainerParams...>> {
-        decltype(std::declval<const CStringT<ContainerParams...> &>()[0]) operator()(const CStringT<ContainerParams...> &c, size_t n) { return c[int(n)]; }
-        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c, size_t n) { return { c, int(n) }; }
+        decltype(std::declval<const CStringT<ContainerParams...> &>()[0]) operator()(const CStringT<ContainerParams...> &c, int n) { return c[n]; }
+        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c, int n) const { return { c, n }; }
     };
 
     template<typename... ContainerParams>
     struct abstract_reserve<CStringT<ContainerParams...>> {
-        void operator()(CStringT<ContainerParams...> &c, size_t s) {
-            if (s > size_t(c.GetLength())) 
-                c.Preallocate(std::min<size_t>(s + 1, std::numeric_limits<int>::max()));
+        void operator()(CStringT<ContainerParams...> &c, int s) const {
+            if (s > c.GetLength())
+                c.Preallocate(s);
         }
     };
 
     template<typename... ContainerParams>
     struct abstract_resize<CStringT<ContainerParams...>> {
-        void operator()(CStringT<ContainerParams...> &c, size_t s) {
+        void operator()(CStringT<ContainerParams...> &c, int s) const {
             abstract::reserve(c, s);
 
             while (s > abstract::size(c))
                 abstract::push_back(c, 0);
         
             if (s < abstract::size(c))
-                c.Truncate(std::min<size_t>(s, std::numeric_limits<int>::max()));
+                c.Truncate(s);
         }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CStringT<ContainerParams...>> {
-        void operator()(CStringT<ContainerParams...> &c) { c.Truncate(c.GetLength() - 1); }
+        void operator()(CStringT<ContainerParams...> &c) const { c.Truncate(c.GetLength() - 1); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CStringT<ContainerParams...>> {
-        void operator()(CStringT<ContainerParams...> &c) { c.Delete(0); }
+        void operator()(CStringT<ContainerParams...> &c) const { c.Delete(0); }
     };
 
     template<typename... ContainerParams>
@@ -265,6 +265,12 @@ namespace skate {
         CStringT<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_front_insert_iterator(CStringT<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
@@ -280,6 +286,12 @@ namespace skate {
         CStringT<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_back_insert_iterator(CStringT<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
@@ -295,49 +307,49 @@ namespace skate {
     // ------------------------------------------------
     template<typename... ContainerParams>
     struct abstract_clear<CArray<ContainerParams...>> {
-        void operator()(CArray<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CArray<ContainerParams...> &c) const { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CArray<ContainerParams...>> {
-        bool operator()(const CArray<ContainerParams...> &c) { return c.IsEmpty(); }
+        bool operator()(const CArray<ContainerParams...> &c) const { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CArray<ContainerParams...>> {
-        size_t operator()(const CArray<ContainerParams...> &c) { return size_t(c.GetSize()); }
+        INT_PTR operator()(const CArray<ContainerParams...> &c) const { return c.GetSize(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_shrink_to_fit<CArray<ContainerParams...>> {
-        abstract_shrink_to_fit(CArray<ContainerParams...> &c) { c.FreeExtra(); }
+        void operator()(CArray<ContainerParams...> &c) const { c.FreeExtra(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_front<CArray<ContainerParams...>> {
-        decltype(std::declval<const CArray<ContainerParams...> &>()[0]) operator()(const CArray<ContainerParams...> &c) { return c[0]; }
-        decltype(std::declval<CArray<ContainerParams...> &>()[0]) operator()(CArray<ContainerParams...> &c) { return c[0]; }
+        decltype(std::declval<const CArray<ContainerParams...> &>()[0]) operator()(const CArray<ContainerParams...> &c) const { return c[0]; }
+        decltype(std::declval<CArray<ContainerParams...> &>()[0]) operator()(CArray<ContainerParams...> &c) const { return c[0]; }
     };
 
     template<typename... ContainerParams>
     struct abstract_back<CArray<ContainerParams...>> {
-        decltype(std::declval<const CArray<ContainerParams...> &>()[0]) operator()(const CArray<ContainerParams...> &c) { return c[c.GetSize() - 1]; }
-        decltype(std::declval<CArray<ContainerParams...> &>()[0]) operator()(CArray<ContainerParams...> &c) { return c[c.GetSize() - 1]; }
+        decltype(std::declval<const CArray<ContainerParams...> &>()[0]) operator()(const CArray<ContainerParams...> &c) const { return c[c.GetSize() - 1]; }
+        decltype(std::declval<CArray<ContainerParams...> &>()[0]) operator()(CArray<ContainerParams...> &c) const { return c[c.GetSize() - 1]; }
     };
 
     template<typename... ContainerParams>
     struct abstract_resize<CArray<ContainerParams...>> {
-        void operator()(CArray<ContainerParams...> &c, size_t s) { c.SetSize((INT_PTR) std::min<uintmax_t>(s, std::numeric_limits<INT_PTR>::max())); }
+        void operator()(CArray<ContainerParams...> &c, INT_PTR s) const { c.SetSize(s); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CArray<ContainerParams...>> {
-        void operator()(CArray<ContainerParams...> &c) { c.RemoveAt(c.GetSize() - 1); }
+        void operator()(CArray<ContainerParams...> &c) const { c.RemoveAt(c.GetSize() - 1); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CArray<ContainerParams...>> {
-        void operator()(CArray<ContainerParams...> &c) { c.RemoveAt(0); }
+        void operator()(CArray<ContainerParams...> &c) const { c.RemoveAt(0); }
     };
 
     template<typename... ContainerParams>
@@ -345,6 +357,12 @@ namespace skate {
         CArray<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_front_insert_iterator(CArray<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
@@ -364,6 +382,12 @@ namespace skate {
         CArray<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_back_insert_iterator(CArray<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
@@ -383,42 +407,42 @@ namespace skate {
     // ------------------------------------------------
     template<typename... ContainerParams>
     struct abstract_clear<CList<ContainerParams...>> {
-        void operator()(CList<ContainerParams...> &c) { c.RemoveAll(); }
+        void operator()(CList<ContainerParams...> &c) const { c.RemoveAll(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_empty<CList<ContainerParams...>> {
-        bool operator()(const CList<ContainerParams...> &c) { return c.IsEmpty(); }
+        bool operator()(const CList<ContainerParams...> &c) const { return c.IsEmpty(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_size<CList<ContainerParams...>> {
-        size_t operator()(const CList<ContainerParams...> &c) { return size_t(c.GetSize()); }
+        INT_PTR operator()(const CList<ContainerParams...> &c) const { return c.GetSize(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_front<CList<ContainerParams...>> {
-        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c) { return c.GetHead(); }
-        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c) { return c.GetHead(); }
+        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c) const { return c.GetHead(); }
+        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c) const { return c.GetHead(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_back<CList<ContainerParams...>> {
-        decltype(std::declval<const CList<ContainerParams...> &>().GetTail()) operator()(const CList<ContainerParams...> &c) { return c.GetTail(); }
-        decltype(std::declval<CList<ContainerParams...> &>().GetTail()) operator()(CList<ContainerParams...> &c) { return c.GetTail(); }
+        decltype(std::declval<const CList<ContainerParams...> &>().GetTail()) operator()(const CList<ContainerParams...> &c) const { return c.GetTail(); }
+        decltype(std::declval<CList<ContainerParams...> &>().GetTail()) operator()(CList<ContainerParams...> &c) const { return c.GetTail(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_element<CList<ContainerParams...>> {
-        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c, size_t n) { 
-            if (n < size_t(c.GetSize()) / 2) {
+        decltype(std::declval<const CList<ContainerParams...> &>().GetHead()) operator()(const CList<ContainerParams...> &c, INT_PTR n) const {
+            if (n < c.GetSize() / 2) {
                 auto it = begin(c); std::advance(it, n); return *it;
             } else {
                 auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.GetSize())); return *it;
             }
         }
-        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c, size_t n) { 
-            if (n < size_t(c.GetSize()) / 2) {
+        decltype(std::declval<CList<ContainerParams...> &>().GetHead()) operator()(CList<ContainerParams...> &c, INT_PTR n) {
+            if (n < c.GetSize() / 2) {
                 auto it = begin(c); std::advance(it, n); return *it;
             } else {
                 auto it = end(c); std::advance(it, ptrdiff_t(n) - ptrdiff_t(c.GetSize())); return *it;
@@ -428,23 +452,27 @@ namespace skate {
 
     template<typename... ContainerParams>
     struct abstract_resize<CList<ContainerParams...>> {
-        void operator()(CList<ContainerParams...> &c, size_t s) {
-            while (size_t(c.GetSize()) < s)
+        void operator()(CList<ContainerParams...> &c, INT_PTR s) const {
+            using namespace std;
+
+            s = max(s, INT_PTR(0));
+
+            while (c.GetSize() < s)
                 abstract::push_back(c, {});
 
-            while (size_t(c.GetSize()) > s)
+            while (c.GetSize() > s)
                 abstract::pop_back(c);
         }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_back<CList<ContainerParams...>> {
-        void operator()(CList<ContainerParams...> &c) { c.RemoveTail(); }
+        void operator()(CList<ContainerParams...> &c) const { c.RemoveTail(); }
     };
 
     template<typename... ContainerParams>
     struct abstract_pop_front<CList<ContainerParams...>> {
-        void operator()(CList<ContainerParams...> &c) { c.RemoveHead(); }
+        void operator()(CList<ContainerParams...> &c) const { c.RemoveHead(); }
     };
 
     template<typename... ContainerParams>
@@ -452,6 +480,12 @@ namespace skate {
         CList<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_front_insert_iterator(CList<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
@@ -467,6 +501,12 @@ namespace skate {
         CList<ContainerParams...> *c;
 
     public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
         constexpr abstract_back_insert_iterator(CList<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>

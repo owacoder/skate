@@ -40,6 +40,43 @@
  *
  */
 
+namespace skate {
+    template<typename T>
+    struct abstract_map_insert {
+        template<typename K, typename V>
+        void operator()(T &c, K &&key, V &&value) const { c.insert({ std::forward<K>(key), std::forward<V>(value) }); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_contains<std::map<ContainerParams...>> {
+        template<typename K>
+        bool operator()(const std::map<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_contains<std::multimap<ContainerParams...>> {
+        template<typename K>
+        bool operator()(const std::multimap<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_contains<std::unordered_map<ContainerParams...>> {
+        template<typename K>
+        bool operator()(const std::unordered_map<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_contains<std::unordered_multimap<ContainerParams...>> {
+        template<typename K>
+        bool operator()(const std::unordered_multimap<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
+    };
+
+    namespace abstract {
+        template<typename T, typename K, typename V>
+        map_insert(T &c, K &&key, V &&value) { abstract_map_insert{}(c, std::forward<K>(key), std::forward<V>(value)); }
+    }
+}
+
 #define SKATE_IMPL_ABSTRACT_MAP_WRAPPER                             \
     private:                                                        \
         template<typename, typename, typename> friend class AbstractMapWrapperConst; \

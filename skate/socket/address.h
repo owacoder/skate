@@ -268,7 +268,7 @@ namespace skate {
         }
 
         socket_address with_port(uint16_t port) const noexcept { return socket_address(*this).set_port(port); }
-        uint16_t port() const noexcept { return port_shadow; }
+        uint16_t port(uint16_t default_port = 0) const noexcept { return port_shadow? port_shadow: default_port; }
 
         socket_address &set_port(uint16_t port) noexcept {
             port_shadow = port;
@@ -474,7 +474,7 @@ namespace skate {
         socket_address address() const noexcept { return addr; }
 
         network_address with_port(uint16_t port) const { return network_address(*this).set_port(port); }
-        uint16_t port() const noexcept { return addr.port(); }
+        uint16_t port(uint16_t default_port = 0) const noexcept { return addr.port(default_port); }
         network_address &set_port(uint16_t port) {
             addr.set_port(port);
             return *this;
@@ -504,6 +504,13 @@ namespace skate {
     // TODO: not fully implemented yet
     // https://datatracker.ietf.org/doc/html/rfc3986
     class url {
+    public:
+        enum class encoding {
+            raw,
+            percent
+        };
+
+    private:
         constexpr static const char *gendelims = ":/?#[]@";
         constexpr static const char *subdelims = "!$&'()*+,;=";
         constexpr static const char *pathdelims = "!$&'()*+,;=:@";
@@ -537,6 +544,133 @@ namespace skate {
             }
         }
 
+        void append_scheme(std::string &append_to) const {
+            append_to += m_scheme;
+        }
+
+        void append_username(std::string &append_to, encoding fmt) const {
+            switch (fmt) {
+                default:                append_to += m_username; break;
+                case encoding::percent: to_percent_encoded(append_to, m_username, subdelims); break;
+            }
+        }
+
+        void append_password(std::string &append_to, encoding fmt) const {
+            switch (fmt) {
+                default:                append_to += m_password; break;
+                case encoding::percent: to_percent_encoded(append_to, m_password, subdelims); break;
+            }
+        }
+
+        // Userinfo is user:password
+        void append_userinfo(std::string &append_to, encoding fmt) const {
+            if (m_username.size() || m_password.size()) {
+                append_username(append_to, fmt);
+                append_to += ':';
+                append_password(append_to, fmt);
+            }
+        }
+
+        void append_host(std::string &append_to, encoding fmt) const {
+            if (m_host.is_resolved())                       // Resolved IP address
+                append_to += m_host.to_string(false, true); // Automatically adds port to resolved name by default
+            else {                                          // Unresolved IP address or hostname
+                switch (fmt) {
+                    default:                append_to += m_host.to_string(false); break;
+                    case encoding::percent: to_percent_encoded(append_to, m_host.to_string(false), subdelims); break;
+                }
+            }
+        }
+
+        void append_port(std::string &append_to) const {
+            if (m_host.port()) {
+                append_to += ':';
+                append_to += std::to_string(m_host.port());
+            }
+        }
+
+        // Hostname is host [:port]
+        void append_hostname(std::string &append_to, encoding fmt) const {
+            append_host(append_to, fmt);
+            append_port(append_to);
+        }
+
+        // Authority is [userinfo@] hostname
+        void append_authority(std::string &append_to, encoding fmt) const {
+            if (m_username.size() || m_password.size()) {
+                append_username(append_to, fmt);
+                append_to += ':';
+                append_password(append_to, fmt);
+                append_to += '@';
+            }
+
+            append_hostname(append_to, fmt);
+        }
+
+        void append_path(std::string &append_to, encoding fmt) const {
+            if (m_pathlist.size()) {
+                join_append(append_to, m_pathlist, "/", [fmt](std::string &append_to, const std::string &path_element) {
+                    switch (fmt) {
+                        default:                append_to += path_element; break;
+                        case encoding::percent: to_percent_encoded(append_to, path_element, pathdelims); break;
+                    }
+                });
+            } else {
+                switch (fmt) {
+                    default:                append_to += m_path; break;
+                    case encoding::percent: to_percent_encoded(append_to, m_path, pathdelimswithslash); break;
+                }
+            }
+        }
+
+        void append_query(std::string &append_to, encoding fmt) const {
+            if (m_querymap.size()) {
+                join_append(append_to, m_querymap, "&", [fmt](std::string &append_to_element, const std::pair<std::string, std::string> &query_element) {
+                    switch (fmt) {
+                        default:                append_to_element += query_element.first; break;
+                        case encoding::percent: to_percent_encoded(append_to_element, query_element.first, querymapdelims); break;
+                    }
+                    append_to_element += '=';
+                    switch (fmt) {
+                        default:                append_to_element += query_element.second; break;
+                        case encoding::percent: to_percent_encoded(append_to_element, query_element.second, querymapdelims); break;
+                    }
+                });
+            } else if (m_query.size()) {
+                switch (fmt) {
+                    default:                append_to += m_query; break;
+                    case encoding::percent: to_percent_encoded(append_to, m_query, queryfragmentdelims); break;
+                }
+            }
+        }
+
+        void append_fragment(std::string &append_to, encoding fmt) const {
+            switch (fmt) {
+                default:                append_to += m_fragment; break;
+                case encoding::percent: to_percent_encoded(append_to, m_fragment, queryfragmentdelims); break;
+            }
+        }
+
+        // Consists of path?query, or whatever exists
+        void append_path_and_query(std::string &append_to, encoding fmt) const {
+            append_path(append_to, fmt);
+
+            if (has_query()) {
+                append_to += '?';
+                append_query(append_to, fmt);
+            }
+        }
+
+        // Consists of path?query#fragment, or whatever exists
+        void append_path_and_query_and_fragment(std::string &append_to, encoding fmt) const {
+            append_path_and_query(append_to, fmt);
+
+            if (has_fragment()) {
+                append_to += '#';
+                append_fragment(append_to, fmt);
+            }
+        }
+
     public:
         url() {}
 
@@ -562,6 +696,20 @@ namespace skate {
         bool has_hostname() const noexcept { return has_host() || has_port(); }
         bool has_userinfo() const noexcept { return has_username() || has_password(); }
         bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
+
+        std::string get_host(encoding fmt) const { std::string result; append_host(result, fmt); return result; }
+        uint16_t get_port(uint16_t default_port = 0) const noexcept { return m_host.port(default_port); }
+        std::string get_hostname(encoding fmt) const { std::string result; append_hostname(result, fmt); return result; }
+        std::string get_username(encoding fmt) const { std::string result; append_username(result, fmt); return result; }
+        std::string get_password(encoding fmt) const { std::string result; append_password(result, fmt); return result; }
+        std::string get_userinfo(encoding fmt) const { std::string result; append_userinfo(result, fmt); return result; }
+        std::string get_authority(encoding fmt) const { std::string result; append_authority(result, fmt); return result; }
+        std::string get_scheme() const { std::string result; append_scheme(result); return result; }
+        std::string get_path(encoding fmt) const { std::string result; append_path(result, fmt); return result; }
+        std::string get_query(encoding fmt) const { std::string result; append_query(result, fmt); return result; }
+        std::string get_fragment(encoding fmt) const { std::string result; append_fragment(result, fmt); return result; }
+        std::string get_path_and_query(encoding fmt) const { std::string result; append_path_and_query(result, fmt); return result; }
+        std::string get_path_and_query_and_fragment(encoding fmt) const { std::string result; append_path_and_query_and_fragment(result, fmt); return result; }
 
         size_t path_elements() const {
             if (m_path.size()) {
@@ -618,8 +766,19 @@ namespace skate {
         }
         url &clear_queries() { return set_query(std::string{}); }
         url &set_query(std::string key, std::string value) {
-            if (m_query.size()) { // TODO: Transfer from string query
+            if (m_query.size()) {
+                std::vector<std::string> queries = split(m_query, "&");
 
+                for (const auto &query: queries) {
+                    const auto equals = query.find('=');
+
+                    if (equals == query.npos) { // Not a valid key/value pair, assume that the rest are not valid too
+                        m_querymap.clear();
+                        break;
+                    }
+
+                    m_querymap[query.substr(0, equals)] = query.substr(equals + 1);
+                }
             }
 
             m_querymap[std::move(key)] = std::move(value);
@@ -631,7 +790,7 @@ namespace skate {
         }
 
         // Creates a string with the stored URL, but doesn't verify its validity
-        std::string to_string() const {
+        std::string to_string(encoding fmt = encoding::percent) const {
             std::string result;
 
             if (m_scheme.size()) {
@@ -641,47 +800,10 @@ namespace skate {
 
             if (has_authority()) {
                 result += "//";
-
-                if (m_username.size() || m_password.size()) {
-                    to_percent_encoded(result, m_username, subdelims);
-                    result += ':';
-                    to_percent_encoded(result, m_password, subdelims);
-                    result += '@';
-                }
-
-                if (m_host.is_resolved())                   // Resolved IP address
-                    result += m_host.to_string(true, true); // Automatically adds port to resolved name by default
-                else {                                      // Unresolved IP address or hostname
-                    to_percent_encoded(result, m_host.to_string(false), subdelims);
-                    if (m_host.port()) {
-                        result += ':';
-                        result += std::to_string(m_host.port());
-                    }
-                }
+                append_authority(result, fmt);
             }
 
-            if (m_pathlist.size()) {
-                join_append(result, m_pathlist, "/", [](std::string &append_to, const std::string &path_element) { to_percent_encoded(append_to, path_element, pathdelims); });
-            } else {
-                to_percent_encoded(result, m_path, pathdelimswithslash);
-            }
-
-            if (m_querymap.size()) {
-                result += '?';
-                join_append(result, m_querymap, "&", [](std::string &append_to, const std::pair<std::string, std::string> &query_element) {
-                    to_percent_encoded(append_to, query_element.first, querymapdelims);
-                    append_to += '=';
-                    to_percent_encoded(append_to, query_element.second, querymapdelims);
-                });
-            } else if (m_query.size()) {
-                result += '?';
-                to_percent_encoded(result, m_query, queryfragmentdelims);
-            }
-
-            if (m_fragment.size()) {
-                result += '#';
-                to_percent_encoded(result, m_fragment, queryfragmentdelims);
-            }
+            append_path_and_query_and_fragment(result, fmt);
 
             return result;
         }

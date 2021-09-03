@@ -184,7 +184,7 @@ namespace skate {
 
     // A base socket class
     // Subclasses must do the following:
-    //   - Set socket::did_write to true immediately when the socket object is written to.
+    //   - Set socket::did_write to true immediately when the socket object is written to, whether or not the write actually succeeded
     //   - Reimplement all pure virtual functions
     class socket {
         socket(const socket &) = delete;
@@ -220,7 +220,7 @@ namespace skate {
             , blocking(is_blocking)
         {}
 
-        bool did_write; // Subclasses must set to true immediately when the socket object is written to.
+        bool did_write; // Subclasses must set to true immediately when the socket object is written to (whether or not the write actually succeeded. stream_socket and datagram_socket already do this)
 
         virtual void ready_read(std::error_code &) {}
         virtual void ready_write(std::error_code &) {}
@@ -588,7 +588,7 @@ namespace skate {
             write(ec, nullptr, 0);
         }
 
-        virtual bool async_pending_write() const { return write_buffer.size(); }
+        virtual bool async_pending_write() const override { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
@@ -837,7 +837,7 @@ namespace skate {
                 ec.clear();
         }
 
-        virtual bool async_pending_write() const { return write_buffer.size(); }
+        virtual bool async_pending_write() const override { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
@@ -993,7 +993,7 @@ namespace skate {
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::tcp; }
 
-        virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool is_blocking) { return std::unique_ptr<socket>{new tcp_socket(desc, current_state, is_blocking)}; }
+        virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool is_blocking) override { return std::unique_ptr<socket>{new tcp_socket(desc, current_state, is_blocking)}; }
     };
 
     class udp_socket : public datagram_socket {
@@ -1002,7 +1002,7 @@ namespace skate {
 
         virtual socket_protocol protocol() const noexcept override { return socket_protocol::udp; }
 
-        virtual std::unique_ptr<socket> create(system_socket_descriptor, socket_state, bool) { return {}; }
+        virtual std::unique_ptr<socket> create(system_socket_descriptor, socket_state, bool) override { return {}; }
     };
 }
 

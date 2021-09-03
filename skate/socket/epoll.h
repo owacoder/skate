@@ -44,7 +44,8 @@ namespace skate {
 
         epoll_socket_watcher() : queue(::epoll_create1(0)) {}
         virtual ~epoll_socket_watcher() {
-            close(queue);
+            if (queue >= 0)
+                ::close(queue);
         }
 
         virtual socket_watch_flags watching(system_socket_descriptor) const override {
