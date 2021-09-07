@@ -743,18 +743,15 @@ namespace skate {
             d = other.d;
             other.t = json_type::null;
         }
-        basic_json_value(array a) : t(json_type::null) {
+        basic_json_value(array a) : t(json_type::array) {
             d.p = new array(std::move(a));
-            t = json_type::array;
         }
-        basic_json_value(object o) : t(json_type::null) {
+        basic_json_value(object o) : t(json_type::object) {
             d.p = new object(std::move(o));
-            t = json_type::object;
         }
         basic_json_value(bool b) : t(json_type::boolean) { d.b = b; }
-        basic_json_value(String s) : t(json_type::null) {
+        basic_json_value(String s) : t(json_type::string) {
             d.p = new String(std::move(s));
-            t = json_type::string;
         }
         basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(json_type::string) {
             d.p = new String(s);
@@ -851,7 +848,7 @@ namespace skate {
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
         bool get_bool(bool default_value = false) const noexcept { return is_bool()? d.b: default_value; }
         template<typename FloatType = double>
-        FloatType get_number(FloatType default_value = 0.0) const noexcept { return is_number()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
+        FloatType get_number(FloatType default_value = 0.0) const noexcept { return is_floating()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
         int64_t get_int64(int64_t default_value = 0) const noexcept { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && std::trunc(d.n) >= INT64_MIN && std::trunc(d.n) <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
         uint64_t get_uint64(uint64_t default_value = 0) const noexcept { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && std::trunc(d.n) <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
         template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
@@ -1185,7 +1182,7 @@ namespace skate {
         const_iterator find(const String &key) const { return v.find(key); }
         void erase(const String &key) { v.erase(key); }
         template<typename K, typename V>
-        void insert(K &&key, V &&value) { v.insert(std::forward<K>(key), std::forward<V>(value)); }
+        void insert(K &&key, V &&value) { v.insert({ std::forward<K>(key), std::forward<V>(value) }); }
 
         basic_json_value<String> value(const String &key, basic_json_value<String> default_value = {}) const {
             const auto it = v.find(key);

@@ -223,22 +223,7 @@ namespace skate {
 
 int main()
 {
-    network_test();
-    return 0;
-
-    std::cout << skate::to_string_hex(0xffff0u, true, 8) << std::endl;
-
-    std::map<std::string, std::string, skate::impl::less_case_insensitive> headers;
-
-    headers["Content-Length"] = "100";
-    headers["content-length"] = "200";
-    headers["Host"] = "hostname";
-
-    std::cout << skate::json(headers, skate::json_write_options(4)) << std::endl;
-
-    return 0;
-
-#if 0
+#if 1
     std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
     std::unordered_map<std::string, skate::json_value> map;
 
@@ -294,7 +279,43 @@ int main()
     else
         std::cout << "An error occurred\n";
 
-    std::cout << skate::json(Point(), { 2 });
+    skate::msgpack_value ms;
+    std::string ms_text;
+
+    const size_t mcount = 20;
+    if (mcount) {
+        skate::benchmark([&ms]() {
+            ms.resize(200000);
+            for (size_t i = 0; i < ms.size(); ++i) {
+                skate::msgpack_value temp;
+
+                temp["1st"] = rand();
+                temp["2nd"] = std::nullptr_t{}; //rand() * 0.00000000000001;
+                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
+
+                ms[i] = std::move(temp);
+            }
+        }, "MsgPack build");
+    }
+
+    for (size_t i = 0; i < mcount; ++i) {
+        skate::benchmark_throughput([&ms_text, &ms]() {
+            ms_text = skate::to_msgpack(ms);
+            return ms_text.size();
+        }, "MsgPack write " + std::to_string(i));
+    }
+
+    std::cout << ms_text.substr(0, 1000) << '\n';
+
+    for (size_t i = 0; i < mcount; ++i) {
+        skate::benchmark_throughput([&ms_text, &ms]() {
+            ms = skate::from_msgpack<typename std::remove_reference<decltype(ms)>::type>(ms_text);
+            return ms_text.size();
+        }, "MsgPack read " + std::to_string(i));
+    }
+
+    std::cout << ms_text.size() << std::endl;
 #endif
 
 #if 0

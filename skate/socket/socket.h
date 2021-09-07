@@ -107,20 +107,18 @@ namespace skate {
 
         inline size_t socket_pending_read_bytes(std::error_code &ec, system_socket_descriptor sock) noexcept {
             int bytes = 0;
-            if (::ioctl(sock, FIONREAD, &bytes) < 0)
+            if (!ec && ::ioctl(sock, FIONREAD, &bytes) < 0)
                 ec = socket_error();
-            else
-                ec.clear();
 
             return size_t(bytes);
         }
 
         inline void socket_set_blocking(std::error_code &ec, system_socket_descriptor sock, bool b) noexcept {
-            const int flags = ::fcntl(sock, F_GETFL);
-            if (flags < 0 || ::fcntl(sock, F_SETFL, b? (flags & ~O_NONBLOCK): (flags | O_NONBLOCK)) < 0)
-                ec = socket_error();
-            else
-                ec.clear();
+            if (!ec) {
+                const int flags = ::fcntl(sock, F_GETFL);
+                if (flags < 0 || ::fcntl(sock, F_SETFL, b? (flags & ~O_NONBLOCK): (flags | O_NONBLOCK)) < 0)
+                    ec = socket_error();
+            }
         }
     }
 
@@ -155,10 +153,8 @@ namespace skate {
 
         inline size_t socket_pending_read_bytes(std::error_code &ec, system_socket_descriptor sock) noexcept {
             ULONG bytes = 0;
-            if (::ioctlsocket(sock, FIONREAD, &bytes) < 0)
+            if (!ec && ::ioctlsocket(sock, FIONREAD, &bytes) < 0)
                 ec = socket_error();
-            else
-                ec.clear();
 
             return bytes;
         }
@@ -166,10 +162,8 @@ namespace skate {
         // Sets whether this socket is blocking or asynchronous
         inline void socket_set_blocking(std::error_code &ec, system_socket_descriptor sock, bool b) noexcept {
             u_long opt = !b;
-            if (::ioctlsocket(sock, FIONBIO, &opt) < 0)
+            if (!ec && ::ioctlsocket(sock, FIONBIO, &opt) < 0)
                 ec = socket_error();
-            else
-                ec.clear();
         }
     }
 
@@ -248,6 +242,9 @@ namespace skate {
         // Returns remote address information (only if connected)
         // port is in native byte order, and is indeterminate if an error occurs
         socket_address remote_address(std::error_code &ec) const {
+            if (ec)
+                return {};
+
             if (!is_connected())
                 throw std::logic_error("Socket can only use remote_address() if connected");
 
@@ -267,6 +264,9 @@ namespace skate {
         // Returns local address information (only if connected or bound)
         // port is in native byte order, and is indeterminate if an error occurs
         socket_address local_address(std::error_code &ec) const {
+            if (ec)
+                return {};
+
             if (!is_connected() && !is_bound())
                 throw std::logic_error("Socket can only use local_address() if connected or bound");
 
@@ -285,6 +285,9 @@ namespace skate {
 
         // Starts socket listening for connections
         void listen(std::error_code &ec, int backlog = SOMAXCONN) {
+            if (ec)
+                return;
+
             if (state() != socket_state::bound)
                 throw std::logic_error("Socket can only use listen() if bound to an address");
 
@@ -295,6 +298,9 @@ namespace skate {
 
         // Shuts down either the read part of the socket, the write part, or both
         void shutdown(std::error_code &ec, socket_shutdown type = socket_shutdown::both) {
+            if (ec)
+                return;
+
             if (!is_connected() && !is_bound())
                 throw std::logic_error("Socket can only use shutdown() if connected or bound to an address");
 
@@ -303,19 +309,20 @@ namespace skate {
 
         // Closes the socket and ensures the socket is in an invalid state
         void disconnect(std::error_code &ec) {
-            if (sock != impl::system_invalid_socket_value) {
+            if (!ec && sock != impl::system_invalid_socket_value) {
                 ec = impl::close_socket(sock);
                 sock = impl::system_invalid_socket_value;
                 s = socket_state::invalid;
-            } else
-                ec.clear();
+            }
         }
 
         // Sets whether the socket is blocking (true) or asynchronous (false)
         void set_blocking(std::error_code &ec, bool b) noexcept {
+            if (ec)
+                return;
+
             if (sock == impl::system_invalid_socket_value) {
                 blocking = b;
-                ec.clear();
             } else {
                 impl::socket_set_blocking(ec, sock, b);
                 if (!ec)
@@ -325,7 +332,9 @@ namespace skate {
 
         // Connect synchronously to any specified address
         void connect_sync(std::error_code &ec, const std::vector<socket_address> &remote) {
-            if (remote.empty()) {
+            if (ec)
+                return;
+            else if (remote.empty()) {
                 ec = std::make_error_code(std::errc::invalid_argument);
                 return;
             }
@@ -334,12 +343,15 @@ namespace skate {
                 connect_sync(ec, address);
                 if (!ec)
                     return; // Success!
+                ec.clear();
             }
         }
 
         // Bind to any specified address
         void bind(std::error_code &ec, const std::vector<socket_address> &local) {
-            if (local.empty()) {
+            if (ec)
+                return;
+            else if (local.empty()) {
                 ec = std::make_error_code(std::errc::invalid_argument);
                 return;
             }
@@ -348,6 +360,7 @@ namespace skate {
                 bind(ec, address);
                 if (!ec)
                     return; // Success!
+                ec.clear();
             }
         }
 
@@ -374,6 +387,9 @@ namespace skate {
 
         // Synchronous name resolution
         std::vector<socket_address> resolve(std::error_code &ec, const network_address &address, address_type addrtype = address_type::ip_address_unspecified) const {
+            if (ec)
+                return {};
+
             std::vector<socket_address> result;
 
             struct addrinfo hints;
@@ -401,7 +417,6 @@ namespace skate {
                 return result;
             }
 
-            ec.clear();
             try {
                 for (ptr = addresses; ptr; ptr = ptr->ai_next) {
                     switch (ptr->ai_family) {
@@ -457,6 +472,9 @@ namespace skate {
         // Reads any data that was buffered in the socket first, then reads directly from the socket
         // The error code is set to success if the socket couldn't provide more data immediately
         size_t read(std::error_code &ec, char *data, size_t max) {
+            if (ec)
+                return 0;
+
             size_t bytes_read = read_buffer.read(max, [&](const char *d, size_t l) {
                 memcpy(data, d, l);
                 data += l;
@@ -467,8 +485,6 @@ namespace skate {
             // data and max are now updated for direct reading if more needs to be read
             if (max)
                 bytes_read += direct_read(ec, data, max);
-            else
-                ec.clear();
 
             return bytes_read;
         }
@@ -479,6 +495,9 @@ namespace skate {
         // The error code is set to success if the socket couldn't provide more data immediately
         template<typename Container>
         size_t read(std::error_code &ec, Container &c, size_t max) {
+            if (ec)
+                return 0;
+
             // First read from read buffer and reduce remaining max
             size_t total_bytes_read = read_buffer.read_into(max, abstract::back_inserter(c));
             max -= total_bytes_read;
@@ -496,8 +515,7 @@ namespace skate {
                     total_bytes_read += bytes_read;
                     max -= bytes_read;
                 } while (bytes_read == buf.size() && !ec); // If everything was read and no error, try again
-            } else
-                ec.clear();
+            }
 
             return total_bytes_read;
         }
@@ -535,10 +553,8 @@ namespace skate {
 
         // Attempts to fill the read buffer with as much data as is available on the socket
         virtual void async_fill_read_buffer(std::error_code &ec) override {
-            if (is_blocking()) {
-                ec.clear();
+            if (ec || is_blocking())
                 return;
-            }
 
             // Read directly from the socket into a temporary buffer
             std::array<char, READ_BUFFER_SIZE> buf;
@@ -555,10 +571,12 @@ namespace skate {
         // The data is buffered for writing later if an error occurs or if the socket is asynchronous and couldn't accept more data immediately
         // The error code is set to success if the socket couldn't accept more data immediately
         void write(std::error_code &ec, const char *data, size_t len) {
+            if (ec)
+                return;
+
             const size_t buffered = write_buffer.size();
             size_t written_from_new_buffer = 0;
 
-            ec.clear();
             socket::did_write = true;
 
             // Did all of write_buffer get sent?
@@ -592,6 +610,9 @@ namespace skate {
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
+            if (ec)
+                return;
+
             if (!is_null() && !is_bound())
                 throw std::logic_error("Socket can only be connected when null or bound to a local socket");
 
@@ -600,6 +621,9 @@ namespace skate {
 
         using socket::bind; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void bind(std::error_code &ec, socket_address local) override {
+            if (ec)
+                return;
+
             if (!is_null())
                 throw std::logic_error("Socket can only be bound when null");
 
@@ -748,26 +772,20 @@ namespace skate {
         void set_read_limit(size_t packets) noexcept { read_buffer.set_max_size(packets); }
 
         socket_datagram read_datagram(std::error_code &ec) {
+            if (ec)
+                return {};
+
             socket_datagram result;
 
-            ec.clear();
-
-            read_buffer.read(1, [&](const socket_datagram *datagrams, size_t) {
-                result = datagrams[0];
-                return 1;
-            });
-
-            if (!result.is_valid())
+            if (!read_buffer.read(result))
                 result = direct_read(ec);
 
             return result;
         }
 
         virtual void async_fill_read_buffer(std::error_code &ec) override {
-            if (is_blocking()) {
-                ec.clear();
+            if (ec || is_blocking())
                 return;
-            }
 
             // Read directly from the socket into a temporary buffer
             do {
@@ -782,6 +800,9 @@ namespace skate {
         }
 
         void write_datagram(std::error_code &ec, std::string datagram, bool queue_on_error = true) {
+            if (ec)
+                return;
+
             socket::did_write = true;
             async_flush_write_buffer(ec);
 
@@ -793,13 +814,16 @@ namespace skate {
 
             if (queue_on_error || impl::socket_would_block(ec)) {
                 write_buffer.write(socket_datagram(std::move(datagram), socket_address{}));
-            }
 
-            if (impl::socket_would_block(ec))
-                ec.clear();
+                if (impl::socket_would_block(ec))
+                    ec.clear();
+            }
         }
 
         void write_datagram(std::error_code &ec, const socket_address &remote, std::string datagram, bool queue_on_error = true) {
+            if (ec)
+                return;
+
             socket::did_write = true;
             async_flush_write_buffer(ec);
 
@@ -809,15 +833,17 @@ namespace skate {
                     return;
             }
 
-            if (queue_on_error || impl::socket_would_block(ec))
+            if (queue_on_error || impl::socket_would_block(ec)) {
                 write_buffer.write(socket_datagram(std::move(datagram), remote));
 
-            if (impl::socket_would_block(ec))
-                ec.clear();
+                if (impl::socket_would_block(ec))
+                    ec.clear();
+            }
         }
 
         virtual void async_flush_write_buffer(std::error_code &ec) override {
-            ec.clear();
+            if (ec)
+                return;
 
             write_buffer.read_all([&](const socket_datagram *datagrams, size_t total_datagrams) {
                 for (size_t i = 0; i < total_datagrams; ++i) {
@@ -841,6 +867,9 @@ namespace skate {
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
+            if (ec)
+                return;
+
             if (!is_null() && !is_bound())
                 throw std::logic_error("Socket can only be connected when null or bound to a local socket");
 
@@ -849,6 +878,9 @@ namespace skate {
 
         using socket::bind; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void bind(std::error_code &ec, socket_address local) override {
+            if (ec)
+                return;
+
             if (!is_null())
                 throw std::logic_error("Socket can only be bound when null");
 

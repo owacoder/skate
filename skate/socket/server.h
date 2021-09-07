@@ -123,8 +123,6 @@ namespace skate {
                 if (flags & WatchWrite) {
                     std::error_code ec;
                     s->do_server_write(ec);
-                    if (!ec)
-                        ready_write(s, ec);
 
                     if (ec)
                         error(s, ec);
@@ -133,8 +131,6 @@ namespace skate {
                 if (flags & WatchRead && !s->is_null()) {
                     std::error_code ec;
                     s->do_server_read(ec);
-                    if (!ec)
-                        ready_read(s, ec);
 
                     if (ec)
                         error(s, ec);

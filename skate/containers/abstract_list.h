@@ -64,6 +64,11 @@ namespace skate {
 
     template<typename T> struct type_exists : public std::true_type { typedef int type; };
 
+    template<typename U, typename I = typename std::make_signed<U>::type>
+    I unsigned_as_twos_complement(U value) {
+        return value <= std::numeric_limits<I>::max()? static_cast<I>(value): -static_cast<I>(std::numeric_limits<U>::max() - value) - 1;
+    }
+
     // Test if type is losslessly convertible to char
     template<typename T> struct is_convertible_to_char : public std::integral_constant<bool, std::is_convertible<T, char>::value &&
                                                                                              (std::is_class<T>::value || sizeof(T) == 1)> {};

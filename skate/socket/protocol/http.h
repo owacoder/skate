@@ -10,8 +10,8 @@ namespace skate {
                 using namespace std;
 
                 for (size_t i = 0; i < min(lhs.size(), rhs.size()); ++i) {
-                    const auto l = tolower(lhs[i]);
-                    const auto r = tolower(rhs[i]);
+                    const auto l = skate::tolower(lhs[i]);
+                    const auto r = skate::tolower(rhs[i]);
 
                     if (l != r)
                         return l < r;
@@ -40,7 +40,7 @@ namespace skate {
 
         std::map<std::string, std::string, impl::less_case_insensitive> headers;
 
-        // Only one of the following is used: datastream if non-null, data otherwise
+        // Only one of the following is used: bodystream if non-null, body otherwise
         std::streambuf *bodystream;
         std::string body;
     };
@@ -102,7 +102,7 @@ namespace skate {
 
         // Write callback handles chunked writing of a request datastream
         virtual void ready_write(std::error_code &ec) override {
-            if (current_request.bodystream) {
+            if (!is_blocking() && current_request.bodystream) {
                 char buffer[4096];
 
                 const size_t read = current_request.bodystream->sgetn(buffer, sizeof(buffer));

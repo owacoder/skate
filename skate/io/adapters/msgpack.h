@@ -14,8 +14,13 @@ namespace skate {
     struct msgpack_ext {
         msgpack_ext() : type(0) {}
 
+        bool operator==(const msgpack_ext &other) const {
+            return type == other.type && data == other.data;
+        }
+        bool operator!=(const msgpack_ext &other) const { return !(*this == other); }
+
         int8_t type;
-        std::string data;
+        std::vector<uint8_t> data;
     };
 
     struct msgpack_options {
@@ -67,14 +72,14 @@ namespace skate {
 
         template<typename> friend class msgpack_writer;
 
-        int sbump_byte(std::streambuf &is) {
+        int sbump_byte(std::streambuf &is) const {
             const auto c = is.sbumpc();
             if (c == std::char_traits<char>::eof())
                 return -1;
 
             return static_cast<unsigned char>(c);
         }
-        int sget_byte(std::streambuf &is) {
+        int sget_byte(std::streambuf &is) const {
             const auto c = is.sgetc();
             if (c == std::char_traits<char>::eof())
                 return -1;
@@ -274,7 +279,7 @@ namespace skate {
         }
 
         // Map overload
-        template<typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_map_base<_>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
             typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
@@ -419,26 +424,149 @@ namespace skate {
             }
         }
 
-        // Integer overload (TODO)
+        // Integer overload
         template<typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             ref = 0;
 
-            if (!impl::skipws(is))
-                return false;
+            const int byte = sbump_byte(is);
+            const typename std::make_signed<_>::type minimum = unsigned_as_twos_complement(std::numeric_limits<_>::min());
 
-            return impl::read_int(is, ref);
+            switch (byte) {
+                case 0xcc: { // Unsigned 8-bit
+                    uint8_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        i > std::numeric_limits<_>::max())
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xcd: { // Unsigned 16-bit
+                    uint16_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        i > std::numeric_limits<_>::max())
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xce: { // Unsigned 32-bit
+                    uint32_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        i > std::numeric_limits<_>::max())
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xcf: { // Unsigned 64-bit
+                    uint64_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        i > std::numeric_limits<_>::max())
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xd0: { // Signed 8-bit
+                    uint8_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        unsigned_as_twos_complement(i) < minimum ||
+                        (unsigned_as_twos_complement(i) > 0 && i > std::numeric_limits<_>::max()))
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xd1: { // Signed 16-bit
+                    uint16_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        unsigned_as_twos_complement(i) < minimum ||
+                        (unsigned_as_twos_complement(i) > 0 && i > std::numeric_limits<_>::max()))
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xd2: { // Signed 32-bit
+                    uint32_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        unsigned_as_twos_complement(i) < minimum ||
+                        (unsigned_as_twos_complement(i) > 0 && i > std::numeric_limits<_>::max()))
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                case 0xd3: { // Signed 64-bit
+                    uint64_t i = 0;
+                    if (!impl::read_big_endian(is, i) ||
+                        unsigned_as_twos_complement(i) < minimum ||
+                        (unsigned_as_twos_complement(i) > 0 && i > std::numeric_limits<_>::max()))
+                        return false;
+
+                    ref = static_cast<_>(i);
+
+                    break;
+                }
+                default:
+                    if (byte < 0x80)
+                        ref = static_cast<_>(byte);
+                    else if (std::is_signed<_>::value && byte >= 0xe0)
+                        ref = -static_cast<_>(static_cast<unsigned char>(~byte) + 1);
+                    else
+                        return false;
+            }
+
+            return true;
         }
 
-        // Floating point overload (TODO)
+        // Floating point overload
         template<typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             ref = 0;
 
-            if (!impl::skipws(is))
-                return false;
+            switch (sbump_byte(is)) {
+                case 0xca: {
+                    uint32_t i = 0;
+                    float result = 0.0f;
+                    if (!impl::read_big_endian(is, i))
+                        return false;
 
-            return impl::read_float(is, ref, false, false);
+                    memcpy(static_cast<char *>(static_cast<void *>(&result)),
+                           static_cast<const char *>(static_cast<const void *>(&i)),
+                           sizeof(result));
+
+                    ref = result;
+
+                    break;
+                }
+                case 0xcb: {
+                    uint64_t i = 0;
+                    double result = 0.0;
+                    if (!impl::read_big_endian(is, i))
+                        return false;
+
+                    memcpy(static_cast<char *>(static_cast<void *>(&result)),
+                           static_cast<const char *>(static_cast<const void *>(&i)),
+                           sizeof(result));
+
+                    ref = static_cast<_>(result);
+
+                    break;
+                }
+                default: return false;
+            }
+
+            return true;
         }
 
         // Smart pointer overload
@@ -610,7 +738,7 @@ namespace skate {
         }
 
         // Map overload
-        template<typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_map_base<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
@@ -723,7 +851,7 @@ namespace skate {
                     break;
             }
 
-            return os.sputc(ref.type) != std::char_traits<char>::eof() && os.sputn(ref.data.c_str(), ref.data.size()) == std::streamsize(ref.data.size());
+            return os.sputc(ref.type) != std::char_traits<char>::eof() && os.sputn(reinterpret_cast<const char *>(ref.data.data()), ref.data.size()) == std::streamsize(ref.data.size());
         }
 
         // Null overload
@@ -941,18 +1069,24 @@ namespace skate {
         int64,
         uint64,
         string,
+        binary,
         array,
-        object
+        object,
+        extension
     };
 
+    // The basic_msgpack_value class holds a generic MsgPack value. Strings are expected to be stored as UTF-formatted strings, but this is not required.
     template<typename String>
     class basic_msgpack_value {
     public:
         typedef basic_msgpack_array<String> array;
         typedef basic_msgpack_object<String> object;
+        typedef std::vector<uint8_t> binary;
+        typedef msgpack_ext extension;
 
         basic_msgpack_value() : t(msgpack_type::null) { d.p = nullptr; }
-        basic_msgpack_value(const basic_msgpack_value &other) : t(msgpack_type::null) {
+        basic_msgpack_value(std::nullptr_t) : t(msgpack_type::null) { d.p = nullptr; }
+        basic_msgpack_value(const basic_msgpack_value &other) : t(other.t) {
             switch (other.t) {
                 default: break;
                 case msgpack_type::boolean:    // fallthrough
@@ -961,27 +1095,30 @@ namespace skate {
                 case msgpack_type::uint64:     d = other.d; break;
                 case msgpack_type::string:     d.p = new String(*other.internal_string()); break;
                 case msgpack_type::array:      d.p = new array(*other.internal_array());   break;
+                case msgpack_type::binary:     d.p = new binary(*other.internal_binary()); break;
+                case msgpack_type::extension:  d.p = new extension(*other.internal_extension()); break;
                 case msgpack_type::object:     d.p = new object(*other.internal_object()); break;
             }
-
-            t = other.t;
         }
         basic_msgpack_value(basic_msgpack_value &&other) noexcept : t(other.t) {
             d = other.d;
             other.t = msgpack_type::null;
         }
-        basic_msgpack_value(array a) : t(msgpack_type::null) {
-            d.p = new array(std::move(a));
-            t = msgpack_type::array;
+        basic_msgpack_value(binary b) : t(msgpack_type::binary) {
+            d.p = new binary(std::move(b));
         }
-        basic_msgpack_value(object o) : t(msgpack_type::null) {
+        basic_msgpack_value(extension e) : t(msgpack_type::extension) {
+            d.p = new extension(std::move(e));
+        }
+        basic_msgpack_value(array a) : t(msgpack_type::array) {
+            d.p = new array(std::move(a));
+        }
+        basic_msgpack_value(object o) : t(msgpack_type::object) {
             d.p = new object(std::move(o));
-            t = msgpack_type::object;
         }
         basic_msgpack_value(bool b) : t(msgpack_type::boolean) { d.b = b; }
-        basic_msgpack_value(String s) : t(msgpack_type::null) {
+        basic_msgpack_value(String s) : t(msgpack_type::string) {
             d.p = new String(std::move(s));
-            t = msgpack_type::string;
         }
         basic_msgpack_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(msgpack_type::string) {
             d.p = new String(s);
@@ -991,18 +1128,7 @@ namespace skate {
         }
         template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
         basic_msgpack_value(T v) : t(msgpack_type::floating) {
-            if (std::trunc(v) == v) {
-                // Convert to integer if at all possible, since its waaaay faster
-                if (v >= INT64_MIN && v <= INT64_MAX) {
-                    t = msgpack_type::int64;
-                    d.i = int64_t(v);
-                } else if (v >= 0 && v <= UINT64_MAX) {
-                    t = msgpack_type::uint64;
-                    d.u = uint64_t(v);
-                } else
-                    d.n = v;
-            } else
-                d.n = v;
+            d.n = v;
         }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_signed<T>::value, int>::type = 0>
         basic_msgpack_value(T v) : t(msgpack_type::int64) { d.i = v; }
@@ -1027,6 +1153,8 @@ namespace skate {
                 case msgpack_type::int64:       // fallthrough
                 case msgpack_type::uint64:      d = other.d; break;
                 case msgpack_type::string:      *internal_string() = *other.internal_string(); break;
+                case msgpack_type::binary:      *internal_binary() = *other.internal_binary(); break;
+                case msgpack_type::extension:   *internal_extension() = *other.internal_extension(); break;
                 case msgpack_type::array:       *internal_array() = *other.internal_array();  break;
                 case msgpack_type::object:      *internal_object() = *other.internal_object(); break;
             }
@@ -1051,6 +1179,9 @@ namespace skate {
         bool is_int64() const noexcept { return t == msgpack_type::int64; }
         bool is_uint64() const noexcept { return t == msgpack_type::uint64; }
         bool is_string() const noexcept { return t == msgpack_type::string; }
+        bool is_binary() const noexcept { return t == msgpack_type::binary; }
+        bool is_extension() const noexcept { return t == msgpack_type::extension; }
+        bool is_extension(int8_t type) const noexcept { return t == msgpack_type::extension && unsafe_get_extension().type == type; }
         bool is_array() const noexcept { return t == msgpack_type::array; }
         bool is_object() const noexcept { return t == msgpack_type::object; }
 
@@ -1062,6 +1193,8 @@ namespace skate {
         int64_t unsafe_get_int64() const noexcept { return d.i; }
         uint64_t unsafe_get_uint64() const noexcept { return d.u; }
         const String &unsafe_get_string() const noexcept { return *internal_string(); }
+        const binary &unsafe_get_binary() const noexcept { return *internal_binary(); }
+        const extension &unsafe_get_extension() const noexcept { return *internal_extension(); }
         const array &unsafe_get_array() const noexcept { return *internal_array(); }
         const object &unsafe_get_object() const noexcept { return *internal_object(); }
         // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1072,24 +1205,153 @@ namespace skate {
         int64_t &int64_ref() { create(msgpack_type::int64); return d.i; }
         uint64_t &uint64_ref() { create(msgpack_type::uint64); return d.u; }
         String &string_ref() { create(msgpack_type::string); return *internal_string(); }
+        binary &binary_ref() { create(msgpack_type::binary); return *internal_binary(); }
+        extension &extension_ref() { create(msgpack_type::extension); return *internal_extension(); }
         array &array_ref() { create(msgpack_type::array); return *internal_array(); }
         object &object_ref() { create(msgpack_type::object); return *internal_object(); }
 
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
-        bool get_bool(bool default_value = false) const { return is_bool()? d.b: default_value; }
-        double get_number(double default_value = 0.0) const { return is_number()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
-        int64_t get_int64(int64_t default_value = 0) const { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && d.n >= INT64_MIN && d.n <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
-        uint64_t get_uint64(uint64_t default_value = 0) const { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && d.n <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
+        bool get_bool(bool default_value = false) const noexcept { return is_bool()? d.b: default_value; }
+        template<typename FloatType = double>
+        FloatType get_number(FloatType default_value = 0.0) const noexcept { return is_floating()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
+        int64_t get_int64(int64_t default_value = 0) const noexcept { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && std::trunc(d.n) >= INT64_MIN && std::trunc(d.n) <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
+        uint64_t get_uint64(uint64_t default_value = 0) const noexcept { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && std::trunc(d.n) <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
+        template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I get_int(I default_value = 0) const noexcept {
+            const int64_t i = get_int64(default_value);
+
+            if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return default_value;
+        }
+        template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I get_uint(I default_value = 0) const noexcept {
+            const uint64_t i = get_uint64(default_value);
+
+            if (i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return default_value;
+        }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
         S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
+        binary get_binary(binary default_value = {}) const { return is_binary()? unsafe_get_binary(): default_value; }
+        extension get_extension(extension default_value = {}) const { return is_extension()? unsafe_get_extension(): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
+
+        // Conversion routines, all follow JavaScript conversion rules as closely as possible for converting types (as_int routines can't return NAN though, and return error_value instead)
+        bool as_bool() const noexcept {
+            switch (current_type()) {
+                default:                       return false;
+                case msgpack_type::boolean:    return unsafe_get_bool();
+                case msgpack_type::int64:      return unsafe_get_int64() != 0;
+                case msgpack_type::uint64:     return unsafe_get_uint64() != 0;
+                case msgpack_type::floating:   return !std::isnan(unsafe_get_floating()) && unsafe_get_floating() != 0.0;
+                case msgpack_type::string:     return unsafe_get_string().size() != 0;
+                case msgpack_type::binary:     return unsafe_get_binary().size() != 0;
+                case msgpack_type::extension:  return unsafe_get_extension().data.size() != 0;
+                case msgpack_type::array:      return true;
+                case msgpack_type::object:     return true;
+            }
+        }
+        template<typename FloatType = double>
+        FloatType as_number() const noexcept {
+            switch (current_type()) {
+                default:                       return 0.0;
+                case msgpack_type::boolean:    return unsafe_get_bool();
+                case msgpack_type::int64:      return unsafe_get_int64();
+                case msgpack_type::uint64:     return unsafe_get_uint64();
+                case msgpack_type::floating:   return unsafe_get_floating();
+                case msgpack_type::string:     {
+                    FloatType v = 0.0;
+                    return impl::parse_float(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: NAN;
+                }
+                case msgpack_type::binary:     return NAN;
+                case msgpack_type::extension:  return NAN;
+                case msgpack_type::array:      return unsafe_get_array().size() == 0? 0.0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_number(): NAN;
+                case msgpack_type::object:     return NAN;
+            }
+        }
+        int64_t as_int64(int64_t error_value = 0) const noexcept {
+            switch (current_type()) {
+                default:                       return 0;
+                case msgpack_type::boolean:    return unsafe_get_bool();
+                case msgpack_type::int64:      // fallthrough
+                case msgpack_type::uint64:     // fallthrough
+                case msgpack_type::floating:   return get_int64();
+                case msgpack_type::string:     {
+                    int64_t v = 0;
+                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                }
+                case msgpack_type::binary:     return error_value;
+                case msgpack_type::extension:  return error_value;
+                case msgpack_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
+                case msgpack_type::object:     return error_value;
+            }
+        }
+        uint64_t as_uint64(uint64_t error_value = 0) const noexcept {
+            switch (current_type()) {
+                default:                    return 0;
+                case msgpack_type::boolean:    return unsafe_get_bool();
+                case msgpack_type::int64:      // fallthrough
+                case msgpack_type::uint64:     // fallthrough
+                case msgpack_type::floating:   return get_int64();
+                case msgpack_type::string:     {
+                    uint64_t v = 0;
+                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                }
+                case msgpack_type::binary:     return error_value;
+                case msgpack_type::extension:  return error_value;
+                case msgpack_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
+                case msgpack_type::object:     return error_value;
+            }
+        }
+        template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I as_int(I error_value = 0) const noexcept {
+            const int64_t i = as_int64(error_value);
+
+            if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return error_value;
+        }
+        template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
+        I as_uint(I error_value = 0) const noexcept {
+            const uint64_t i = as_uint64(error_value);
+
+            if (i <= std::numeric_limits<I>::max())
+                return I(i);
+
+            return error_value;
+        }
+        template<typename S = String>
+        S as_string() const {
+            switch (current_type()) {
+                default:                       return utf_convert_weak<S>("null").get();
+                case msgpack_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false").get();
+                case msgpack_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64())).get();
+                case msgpack_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64())).get();
+                case msgpack_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN").get():
+                                                      std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity").get():
+                                                                                         utf_convert_weak<S>(to_msgpack(unsafe_get_floating())).get();
+                case msgpack_type::string:     return utf_convert_weak<S>(unsafe_get_string()).get();
+                case msgpack_type::binary:     return utf_convert_weak<S>(unsafe_get_binary()).get();
+                case msgpack_type::extension:  return utf_convert_weak<S>(unsafe_get_extension().data).get();
+                case msgpack_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(",").get(), [](const basic_msgpack_value &v) { return v.as_string<S>(); });
+                case msgpack_type::object:     return utf_convert_weak<S>("[object Object]").get();
+            }
+        }
+        array as_array() const { return get_array(); }
+        object as_object() const { return get_object(); }
 
         // ---------------------------------------------------
         // Array helpers
         void reserve(size_t size) { array_ref().reserve(size); }
         void resize(size_t size) { array_ref().resize(size); }
+        void erase(size_t index, size_t count = 1) { array_ref().erase(index, count); }
         void push_back(basic_msgpack_value v) { array_ref().push_back(std::move(v)); }
         void pop_back() { array_ref().pop_back(); }
 
@@ -1112,17 +1374,18 @@ namespace skate {
 
         // ---------------------------------------------------
         // Object helpers
-        basic_msgpack_value value(const String &key, basic_msgpack_value default_value = {}) const {
+        template<typename K>
+        void erase(const K &key) { object_ref().erase(key); }
+
+        template<typename K>
+        basic_msgpack_value value(const K &key, basic_msgpack_value default_value = {}) const {
             if (!is_object())
                 return default_value;
 
             return unsafe_get_object().value(key, default_value);
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_msgpack_value value(const S &key, basic_msgpack_value default_value = {}) const {
-            return value(utf_convert_weak<String>(key).get(), default_value);
-        }
 
+        template<typename K, typename std::enable_if<!std::is_integral<K>::value, int>::type = 0>
         const basic_msgpack_value &operator[](const String &key) const {
             static const basic_msgpack_value null;
 
@@ -1135,22 +1398,16 @@ namespace skate {
 
             return it->second;
         }
-        basic_msgpack_value &operator[](const String &key) { return object_ref()[key]; }
-        basic_msgpack_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        const basic_msgpack_value &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key).get()];
-        }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_msgpack_value &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key).get()];
-        }
+        template<typename K, typename std::enable_if<!std::is_integral<K>::value, int>::type = 0>
+        basic_msgpack_value &operator[](K &&key) { return object_ref()[std::forward<K>(key)]; }
         // ---------------------------------------------------
 
         size_t size() const noexcept {
             switch (t) {
                 default: return 0;
                 case msgpack_type::string: return internal_string()->size();
+                case msgpack_type::binary: return internal_binary()->size();
+                case msgpack_type::extension: return internal_extension()->data.size();
                 case msgpack_type::array:  return  internal_array()->size();
                 case msgpack_type::object: return internal_object()->size();
             }
@@ -1159,44 +1416,83 @@ namespace skate {
         void clear() noexcept {
             switch (t) {
                 default: break;
-                case msgpack_type::string: delete internal_string(); break;
-                case msgpack_type::array:  delete  internal_array(); break;
-                case msgpack_type::object: delete internal_object(); break;
+                case msgpack_type::string:      delete internal_string(); break;
+                case msgpack_type::binary:      delete internal_binary(); break;
+                case msgpack_type::extension:   delete internal_extension(); break;
+                case msgpack_type::array:       delete  internal_array(); break;
+                case msgpack_type::object:      delete internal_object(); break;
             }
 
             t = msgpack_type::null;
         }
 
+        // Integer keys are condensed by semantic value (0 unsigned and 0 signed compare equal)
         bool operator==(const basic_msgpack_value &other) const {
             if (t != other.t) {
-                if (is_number() && other.is_number()) {
-                    switch (t) {
-                        default: break;
-                        case msgpack_type::floating:  return d.n == other.get_number();
-                        case msgpack_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && d.i == int64_t(other.d.n));
-                        case msgpack_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && d.u == uint64_t(other.d.n));
-                    }
+                if (is_int64() && other.is_uint64()) {
+                    return other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i;
+                } else if (is_uint64() && other.is_int64()) {
+                    return other.d.i >= 0 && uint64_t(other.d.i) == d.u;
                 }
 
                 return false;
             }
 
             switch (t) {
-                default:                     return true;
+                default:                        return true;
                 case msgpack_type::boolean:     return d.b == other.d.b;
                 case msgpack_type::floating:    return d.n == other.d.n;
                 case msgpack_type::int64:       return d.i == other.d.i;
                 case msgpack_type::uint64:      return d.u == other.d.u;
                 case msgpack_type::string:      return *internal_string() == *other.internal_string();
+                case msgpack_type::binary:      return *internal_binary() == *other.internal_binary();
+                case msgpack_type::extension:   return *internal_extension() == *other.internal_extension();
                 case msgpack_type::array:       return  *internal_array() == *other.internal_array();
                 case msgpack_type::object:      return *internal_object() == *other.internal_object();
             }
         }
         bool operator!=(const basic_msgpack_value &other) const { return !(*this == other); }
 
+        // For map comparisons, not for general use
+        // Integer keys are condensed by semantic value (0 unsigned and 0 signed compare equal)
+        bool operator<(const basic_msgpack_value &other) const {
+            if (t != other.t) {
+                if (is_int64() && other.is_uint64()) {
+                    return d.i < 0 || uint64_t(d.i) < other.d.u;
+                } else if (is_uint64() && other.is_int64()) {
+                    return other.d.i > 0 && d.u < uint64_t(other.d.i);
+                }
+
+                return false;
+            }
+
+            switch (t) {
+                default:                        return false;
+                case msgpack_type::boolean:     return d.b < other.d.b;
+                case msgpack_type::floating:    return d.n < other.d.n;
+                case msgpack_type::int64:       return d.i < other.d.i;
+                case msgpack_type::uint64:      return d.u < other.d.u;
+                case msgpack_type::string:      return *internal_string() < *other.internal_string();
+                case msgpack_type::binary:      return *internal_binary() < *other.internal_binary();
+                case msgpack_type::extension:
+                    if (internal_extension()->type != other.internal_extension()->type)
+                        return internal_extension()->type < other.internal_extension()->type;
+
+                    return internal_extension()->data < other.internal_extension()->data;
+                case msgpack_type::array:       return *internal_array() < *other.internal_array();
+                case msgpack_type::object:      return *internal_object() < *other.internal_object();
+            }
+        }
+
     private:
         const String *internal_string() const noexcept { return static_cast<const String *>(d.p); }
         String *internal_string() noexcept { return static_cast<String *>(d.p); }
+
+        const binary *internal_binary() const noexcept { return static_cast<const binary *>(d.p); }
+        binary *internal_binary() noexcept { return static_cast<binary *>(d.p); }
+
+        const extension *internal_extension() const noexcept { return static_cast<const extension *>(d.p); }
+        extension *internal_extension() noexcept { return static_cast<extension *>(d.p); }
 
         const array *internal_array() const noexcept { return static_cast<const array *>(d.p); }
         array *internal_array() noexcept { return static_cast<array *>(d.p); }
@@ -1204,24 +1500,26 @@ namespace skate {
         const object *internal_object() const noexcept { return static_cast<const object *>(d.p); }
         object *internal_object() noexcept { return static_cast<object *>(d.p); }
 
-        void create(msgpack_type t) {
-            if (t == this->t)
+        void create(msgpack_type type) {
+            if (type == t)
                 return;
 
             clear();
 
-            switch (t) {
+            switch (type) {
                 default: break;
                 case msgpack_type::boolean:     d.b = false; break;
                 case msgpack_type::floating:    d.n = 0.0; break;
                 case msgpack_type::int64:       d.i = 0; break;
                 case msgpack_type::uint64:      d.u = 0; break;
                 case msgpack_type::string:      d.p = new String(); break;
+                case msgpack_type::binary:      d.p = new binary(); break;
+                case msgpack_type::extension:   d.p = new extension(); break;
                 case msgpack_type::array:       d.p = new array(); break;
                 case msgpack_type::object:      d.p = new object(); break;
             }
 
-            this->t = t;
+            t = type;
         }
 
         msgpack_type t;
@@ -1253,7 +1551,7 @@ namespace skate {
         const_iterator begin() const noexcept { return v.begin(); }
         const_iterator end() const noexcept { return v.end(); }
 
-        void erase(size_t index) { v.erase(v.begin() + index); }
+        void erase(size_t index, size_t count = 1) { v.erase(v.begin() + index, v.begin() + std::min(size() - index, count)); }
         void insert(size_t before, basic_msgpack_value<String> item) { v.insert(v.begin() + before, std::move(item)); }
         void push_back(basic_msgpack_value<String> item) { v.push_back(std::move(item)); }
         void pop_back() noexcept { v.pop_back(); }
@@ -1269,17 +1567,21 @@ namespace skate {
 
         bool operator==(const basic_msgpack_array &other) const { return v == other.v; }
         bool operator!=(const basic_msgpack_array &other) const { return !(*this == other); }
+
+        // For map comparisons, not for general use
+        // Integer keys are condensed by semantic value (0 unsigned and 0 signed compare equal)
+        bool operator<(const basic_msgpack_array &other) const { return v < other.v; }
     };
 
     template<typename String>
     class basic_msgpack_object {
-        typedef std::map<String, basic_msgpack_value<String>> object;
+        typedef std::map<basic_msgpack_value<String>, basic_msgpack_value<String>> object;
 
         object v;
 
     public:
         basic_msgpack_object() {}
-        basic_msgpack_object(std::initializer_list<std::pair<const String, basic_msgpack_value<String>>> il) : v(std::move(il)) {}
+        basic_msgpack_object(std::initializer_list<std::pair<const basic_msgpack_value<String>, basic_msgpack_value<String>>> il) : v(std::move(il)) {}
 
         typedef typename object::const_iterator const_iterator;
         typedef typename object::iterator iterator;
@@ -1289,45 +1591,28 @@ namespace skate {
         const_iterator begin() const noexcept { return v.begin(); }
         const_iterator end() const noexcept { return v.end(); }
 
-        iterator find(const String &key) { return v.find(key); }
-        const_iterator find(const String &key) const { return v.find(key); }
-        void erase(const String &key) { v.erase(key); }
+        iterator find(const basic_msgpack_value<String> &key) { return v.find(key); }
+        const_iterator find(const basic_msgpack_value<String> &key) const { return v.find(key); }
+        void erase(const basic_msgpack_value<String> &key) { v.erase(key); }
         template<typename K, typename V>
-        void insert(K &&key, V &&value) { v.insert(std::forward<K>(key), std::forward<V>(value)); }
+        void insert(K &&key, V &&value) { v.insert({ std::forward<K>(key), std::forward<V>(value)} ); }
 
-        basic_msgpack_value<String> value(const String &key, basic_msgpack_value<String> default_value = {}) const {
+        template<typename K>
+        basic_msgpack_value<String> value(const K &key, basic_msgpack_value<String> default_value = {}) const {
             const auto it = v.find(key);
             if (it == v.end())
                 return default_value;
 
             return it->second;
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_msgpack_value<String> value(const S &key, basic_msgpack_value<String> default_value = {}) const {
-            return value(utf_convert_weak<String>(key).get(), default_value);
-        }
 
-        basic_msgpack_value<String> &operator[](const String &key) {
+        template<typename K>
+        basic_msgpack_value<String> &operator[](K &&key) {
             const auto it = v.find(key);
             if (it != v.end())
                 return it->second;
 
-            return v.insert({key, typename object::mapped_type{}}).first->second;
-        }
-        basic_msgpack_value<String> &operator[](String &&key) {
-            const auto it = v.find(key);
-            if (it != v.end())
-                return it->second;
-
-            return v.insert({std::move(key), typename object::mapped_type{}}).first->second;
-        }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        const basic_msgpack_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key).get()];
-        }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
-        basic_msgpack_value<String> &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key).get()];
+            return v.insert({std::forward<K>(key), typename object::mapped_type{}}).first->second;
         }
 
         void clear() noexcept { v.clear(); }
@@ -1335,6 +1620,10 @@ namespace skate {
 
         bool operator==(const basic_msgpack_object &other) const { return v == other.v; }
         bool operator!=(const basic_msgpack_object &other) const { return !(*this == other); }
+
+        // For map comparisons, not for general use
+        // Integer keys are condensed by semantic value (0 unsigned and 0 signed compare equal)
+        bool operator<(const basic_msgpack_object &other) const { return v < other.v; }
     };
 
     typedef basic_msgpack_array<std::string> msgpack_array;
@@ -1345,15 +1634,15 @@ namespace skate {
     typedef basic_msgpack_object<std::wstring> msgpack_wobject;
     typedef basic_msgpack_value<std::wstring> msgpack_wvalue;
 
-    template<typename String>
-    bool skate_msgpack(std::streambuf &is, basic_msgpack_value<String> &j) {
+    template<typename StreamChar, typename String>
+    bool skate_msgpack(std::basic_streambuf<StreamChar> &is, basic_msgpack_value<String> &j) {
         if (!impl::skipws(is))
             return false;
 
         auto c = is.sgetc();
 
         switch (c) {
-            case std::char_traits<char>::eof(): return false;
+            case std::char_traits<StreamChar>::eof(): return false;
             case '"': return msgpack(j.string_ref()).read(is);
             case '[': return msgpack(j.array_ref()).read(is);
             case '{': return msgpack(j.object_ref()).read(is);
@@ -1376,7 +1665,7 @@ namespace skate {
                 bool floating = false;
 
                 do {
-                    temp.push_back(c);
+                    temp.push_back(char(c));
                     floating |= c == '.' || c == 'e' || c == 'E';
 
                     c = is.snextc();
@@ -1403,8 +1692,8 @@ namespace skate {
         }
     }
 
-    template<typename String>
-    bool skate_msgpack(std::streambuf &os, const basic_msgpack_value<String> &j, msgpack_options options) {
+    template<typename StreamChar, typename String>
+    bool skate_msgpack(std::basic_streambuf<StreamChar> &os, const basic_msgpack_value<String> &j, msgpack_options options) {
         switch (j.current_type()) {
             default:                         return msgpack(nullptr, options).write(os);
             case msgpack_type::null:         return msgpack(j.unsafe_get_null(), options).write(os);
@@ -1413,18 +1702,20 @@ namespace skate {
             case msgpack_type::int64:        return msgpack(j.unsafe_get_int64(), options).write(os);
             case msgpack_type::uint64:       return msgpack(j.unsafe_get_uint64(), options).write(os);
             case msgpack_type::string:       return msgpack(j.unsafe_get_string(), options).write(os);
+            case msgpack_type::binary:       return msgpack(j.unsafe_get_binary(), options).write(os);
+            case msgpack_type::extension:    return msgpack(j.unsafe_get_extension(), options).write(os);
             case msgpack_type::array:        return msgpack(j.unsafe_get_array(), options).write(os);
             case msgpack_type::object:       return msgpack(j.unsafe_get_object(), options).write(os);
         }
     }
 
-    template<typename String>
-    std::istream &operator>>(std::istream &is, basic_msgpack_value<String> &j) {
+    template<typename StreamChar, typename String>
+    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_msgpack_value<String> &j) {
         return is >> msgpack(j);
     }
 
-    template<typename String>
-    std::ostream &operator<<(std::ostream &os, const basic_msgpack_value<String> &j) {
+    template<typename StreamChar, typename String>
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_msgpack_value<String> &j) {
         return os << msgpack(j);
     }
 
