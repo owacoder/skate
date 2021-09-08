@@ -82,7 +82,9 @@ namespace skate {
     };
 
     class http_client_socket : public skate::tcp_socket {
-        std::string response;
+        std::string response_buffer;
+
+        http_response current_response;
         http_request current_request;
 
     protected:
@@ -91,31 +93,31 @@ namespace skate {
         {}
 
         virtual void ready_read(std::error_code &ec) override {
-            skate::tcp_socket::read_all(ec, response);
+            if (is_blocking())
+                skate::tcp_socket::read(ec, response_buffer, 1);
+            else
+                skate::tcp_socket::read_all(ec, response_buffer);
 
-            if (response.find("\r\n\r\n") == response.npos)
+            if (response_buffer.find("\r\n\r\n") == response_buffer.npos)
                 return;
 
-            std::cout << response;
+            std::cout << response_buffer;
             disconnect(ec);
         }
 
         // Write callback handles chunked writing of a request datastream
         virtual void ready_write(std::error_code &ec) override {
-            if (!is_blocking() && current_request.bodystream) {
+            if (current_request.bodystream) {
                 char buffer[4096];
 
                 const size_t read = current_request.bodystream->sgetn(buffer, sizeof(buffer));
 
                 write(ec, to_string_hex(read));
-                if (!ec)
-                    write(ec, "\r\n");
+                write(ec, "\r\n");
 
                 if (read) {
-                    if (!ec)
-                        write(ec, buffer, read);
-                    if (!ec)
-                        write(ec, "\r\n");
+                    write(ec, buffer, read);
+                    write(ec, "\r\n");
                 } else {
                     http_request_body_sent(current_request);
                     current_request.bodystream = nullptr;
@@ -124,7 +126,7 @@ namespace skate {
         }
 
         virtual void error(std::error_code ec) override {
-            std::cout << ec.message() << std::endl;
+            std::cout << "ERROR: " << ec.message() << std::endl;
         }
 
     public:
@@ -168,15 +170,12 @@ namespace skate {
 
             std::cout << "txbuf:\n" << txbuf;
             write(ec, txbuf);
+            // Write message body
+            if (request.bodystream == nullptr) {
+                write(ec, request.body);
 
-            if (!ec) {
-                // Write message body
-                if (request.bodystream == nullptr) {
-                    write(ec, request.body);
-
-                    if (!ec)
-                        http_request_body_sent(request);
-                }
+                if (!ec)
+                    http_request_body_sent(request);
             }
 
             current_request = std::move(request);

@@ -91,14 +91,14 @@ namespace skate {
         constexpr msgpack_reader(Type &ref, msgpack_options options = {}) : ref(ref), options(options) {}
 
         // User object overload, skate_to_msgpack(stream, object)
-        template<typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(std::declval<std::streambuf &>(), std::declval<_ &>()))>::value &&
+        template<typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(std::declval<std::streambuf &>(), std::declval<_ &>(), std::declval<msgpack_options>()))>::value &&
                                                             !is_string_base<_>::value &&
                                                             !is_array_base<_>::value &&
                                                             !is_map_base<_>::value &&
                                                             !is_tuple_base<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             // Library user is responsible for validating read MsgPack in the callback function
-            return skate_msgpack(is, ref);
+            return skate_msgpack(is, ref, options);
         }
 
         // Array overload
@@ -408,6 +408,54 @@ namespace skate {
             return true;
         }
 
+        // Extension overload
+        template<typename _ = Type, typename std::enable_if<std::is_same<_, msgpack_ext>::value, int>::type = 0>
+        bool read(std::streambuf &is) {
+            ref.data.clear();
+
+            const int c = sbump_byte(is);
+            uint_fast32_t size = 0;
+
+            switch (c) {
+                case 0xd4: size = 1; break;
+                case 0xd5: size = 2; break;
+                case 0xd6: size = 4; break;
+                case 0xd7: size = 8; break;
+                case 0xd8: size = 16; break;
+                case 0xc7: { /* 1-byte size string */
+                    uint8_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                case 0xc8: { /* 2-byte size string */
+                    uint16_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                case 0xc9: { /* 4-byte size string */
+                    uint32_t n = 0;
+                    if (!impl::read_big_endian(is, n))
+                        return false;
+                    size = n;
+                    break;
+                }
+                default: return false;
+            }
+
+            const int type = sbump_byte(is);
+            if (type < 0)
+                return false;
+
+            ref.type = type;
+            ref.data.resize(size);
+
+            return is.sgetn(reinterpret_cast<char *>(ref.data.data()), std::streamsize(size)) == std::streamsize(size);
+        }
+
         // Null overload
         template<typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
@@ -466,7 +514,7 @@ namespace skate {
                 case 0xcf: { // Unsigned 64-bit
                     uint64_t i = 0;
                     if (!impl::read_big_endian(is, i) ||
-                        i > std::numeric_limits<_>::max())
+                        i > uint64_t(std::numeric_limits<_>::max()))
                         return false;
 
                     ref = static_cast<_>(i);
@@ -510,7 +558,7 @@ namespace skate {
                     uint64_t i = 0;
                     if (!impl::read_big_endian(is, i) ||
                         unsigned_as_twos_complement(i) < minimum ||
-                        (unsigned_as_twos_complement(i) > 0 && i > std::numeric_limits<_>::max()))
+                        (unsigned_as_twos_complement(i) > 0 && i > uint64_t(std::numeric_limits<_>::max())))
                         return false;
 
                     ref = static_cast<_>(i);
@@ -521,7 +569,7 @@ namespace skate {
                     if (byte < 0x80)
                         ref = static_cast<_>(byte);
                     else if (std::is_signed<_>::value && byte >= 0xe0)
-                        ref = -static_cast<_>(static_cast<unsigned char>(~byte) + 1);
+                        ref = -static_cast<typename std::make_signed<_>::type>(static_cast<unsigned char>(~byte) + 1);
                     else
                         return false;
             }
@@ -863,7 +911,7 @@ namespace skate {
         // Boolean overload
         template<typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
-            return os.sputc(static_cast<unsigned char>(0xc2 | ref)) != std::char_traits<char>::eof();
+            return os.sputc(static_cast<unsigned char>(0xc2 | (ref ? 1 : 0))) != std::char_traits<char>::eof();
         }
 
         // Integer overload
@@ -1635,60 +1683,60 @@ namespace skate {
     typedef basic_msgpack_value<std::wstring> msgpack_wvalue;
 
     template<typename StreamChar, typename String>
-    bool skate_msgpack(std::basic_streambuf<StreamChar> &is, basic_msgpack_value<String> &j) {
-        if (!impl::skipws(is))
+    bool skate_msgpack(std::basic_streambuf<StreamChar> &is, basic_msgpack_value<String> &j, msgpack_options options) {
+        const auto next = is.sgetc();
+
+        if (next == std::char_traits<char>::eof())
             return false;
 
-        auto c = is.sgetc();
+        const unsigned char c = next;
 
         switch (c) {
-            case std::char_traits<StreamChar>::eof(): return false;
-            case '"': return msgpack(j.string_ref()).read(is);
-            case '[': return msgpack(j.array_ref()).read(is);
-            case '{': return msgpack(j.object_ref()).read(is);
-            case 't': // fallthrough
-            case 'f': return msgpack(j.bool_ref()).read(is);
-            case 'n': return msgpack(j.null_ref()).read(is);
-            case '0': // fallthrough
-            case '1': // fallthrough
-            case '2': // fallthrough
-            case '3': // fallthrough
-            case '4': // fallthrough
-            case '5': // fallthrough
-            case '6': // fallthrough
-            case '7': // fallthrough
-            case '8': // fallthrough
-            case '9': // fallthrough
-            case '-': {
-                std::string temp;
-                const bool negative = c == '-';
-                bool floating = false;
-
-                do {
-                    temp.push_back(char(c));
-                    floating |= c == '.' || c == 'e' || c == 'E';
-
-                    c = is.snextc();
-                } while (isfpdigit(c));
-
-                char *end;
-                if (floating) {
-                    j.number_ref() = strtod(temp.c_str(), &end);
-                } else if (negative) {
-                    errno = 0;
-                    j.int64_ref() = strtoll(temp.c_str(), &end, 10);
-                    if (errno == ERANGE || *end != 0)
-                        j.number_ref() = strtod(temp.c_str(), &end);
-                } else {
-                    errno = 0;
-                    j.uint64_ref() = strtoull(temp.c_str(), &end, 10);
-                    if (errno == ERANGE || *end != 0)
-                        j.number_ref() = strtod(temp.c_str(), &end);
+            case 0xc0: return msgpack(j.null_ref(), options).read(is);
+            case 0xc2: // fallthrough
+            case 0xc3: return msgpack(j.bool_ref(), options).read(is);
+            case 0xc4: // fallthrough
+            case 0xc5: // fallthrough
+            case 0xc6: return msgpack(j.binary_ref(), options).read(is);
+            case 0xc7: // fallthrough
+            case 0xc8: // fallthrough
+            case 0xc9: return msgpack(j.extension_ref(), options).read(is);
+            case 0xca: // fallthrough
+            case 0xcb: return msgpack(j.number_ref(), options).read(is);
+            case 0xcc: // fallthrough
+            case 0xcd: // fallthrough
+            case 0xce: // fallthrough
+            case 0xcf: return msgpack(j.uint64_ref(), options).read(is);
+            case 0xd0: // fallthrough
+            case 0xd1: // fallthrough
+            case 0xd2: // fallthrough
+            case 0xd3: return msgpack(j.int64_ref(), options).read(is);
+            case 0xd4: // fallthrough
+            case 0xd5: // fallthrough
+            case 0xd6: // fallthrough
+            case 0xd7: // fallthrough
+            case 0xd8: return msgpack(j.extension_ref(), options).read(is);
+            case 0xd9: // fallthrough
+            case 0xda: // fallthrough
+            case 0xdb: return msgpack(j.string_ref(), options).read(is);
+            case 0xdc: // fallthrough
+            case 0xdd: return msgpack(j.array_ref(), options).read(is);
+            case 0xde: // fallthrough
+            case 0xdf: return msgpack(j.object_ref(), options).read(is);
+            default:
+                if (c < 0x80) {
+                    return msgpack(j.uint64_ref(), options).read(is);
+                } else if (c < 0x90) {
+                    return msgpack(j.object_ref(), options).read(is);
+                } else if (c < 0xa0) {
+                    return msgpack(j.array_ref(), options).read(is);
+                } else if (c < 0xc0) {
+                    return msgpack(j.string_ref(), options).read(is);
+                } else if (c >= 0xe0) {
+                    return msgpack(j.int64_ref(), options).read(is);
                 }
 
-                return *end == 0;
-            }
-            default: return false;
+                return false;
         }
     }
 

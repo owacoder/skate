@@ -134,15 +134,13 @@ void network_test() {
     req.url.set_hostname("territory.ddns.net");
 
     auto resolved = http.resolve(ec, { req.url.get_host(skate::url::encoding::raw), req.url.get_port(80) });
+    // http.set_blocking(ec, false);
     if (resolved.size())
         http.connect_sync(ec, resolved);
 
     auto save = ec;
     std::cout << skate::json(resolved) << save.message() << std::endl;
-    http.set_blocking(ec, false);
     ec = http.write_http_request(std::move(req));
-
-    std::cout << http.read_all(ec) << std::endl;
 
     // http.listen(ec);
     std::cout << save.message() << " " << ec.message() << std::endl;
@@ -224,98 +222,107 @@ namespace skate {
 int main()
 {
 #if 1
-    std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
-    std::unordered_map<std::string, skate::json_value> map;
+    if (0)
+    {
+        std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
+        std::unordered_map<std::string, skate::json_value> map;
 
-    std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[\"string\\ud83c\\udf0d\", 1000, null, true]}");
-    for (skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
-        std::cout << "Codepoint: " << cp.character() << '\n';
+        std::istringstream jstream("{\"string\xf0\x9f\x8c\x8d\":[\"string\\ud83c\\udf0d\", 1000, null, true]}");
+        for (skate::unicode_codepoint cp = {0xd83c, 0xdf0d}; jstream >> cp; ) {
+            std::cout << "Codepoint: " << cp.character() << '\n';
+        }
+
+        std::cout << '\n';
+
+        skate::json_value js;
+        std::string js_text;
+
+        const size_t count = 20;
+        if (count) {
+            skate::benchmark([&js]() {
+                js.resize(200000);
+                for (size_t i = 0; i < js.size(); ++i) {
+                    skate::json_value temp;
+
+                    temp["1st"] = rand();
+                    temp["2nd"] = std::nullptr_t{}; //rand() * 0.00000000000001;
+                    temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+                    temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
+
+                    js[i] = std::move(temp);
+                }
+            }, "JSON build");
+        }
+
+        for (size_t i = 0; i < count; ++i) {
+            skate::benchmark_throughput([&js_text, &js]() {
+                js_text = skate::to_json(js);
+                return js_text.size();
+            }, "JSON write " + std::to_string(i));
+        }
+
+        std::cout << js_text.substr(0, 1000) << '\n';
+
+        for (size_t i = 0; i < count; ++i) {
+            skate::benchmark_throughput([&js_text, &js]() {
+                js = skate::from_json<typename std::remove_reference<decltype(js)>::type>(js_text);
+                return js_text.size();
+            }, "JSON read " + std::to_string(i));
+        }
+
+        std::cout << js_text.size() << std::endl;
+
+        jstream.clear();
+        jstream.seekg(0);
+        if (jstream >> skate::json(map))
+            std::cout << skate::json(map) << '\n';
+        else
+            std::cout << "An error occurred\n";
     }
 
-    std::cout << '\n';
+    if (0)
+    {
+        skate::msgpack_value ms;
+        std::string ms_text;
 
-    skate::json_value js;
-    std::string js_text;
+        const size_t mcount = 20;
+        if (mcount) {
+            skate::benchmark([&ms]() {
+                ms.resize(200000);
+                for (size_t i = 0; i < ms.size(); ++i) {
+                    skate::msgpack_value temp;
 
-    const size_t count = 20;
-    if (count) {
-        skate::benchmark([&js]() {
-            js.resize(200000);
-            for (size_t i = 0; i < js.size(); ++i) {
-                skate::json_value temp;
+                    temp[skate::msgpack_value(0)] = rand();
+                    temp[skate::msgpack_value(1)] = rand() * 0.00000000000001;
+                    temp[skate::msgpack_value(2)] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
+                    temp[skate::msgpack_value(3)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
 
-                temp["1st"] = rand();
-                temp["2nd"] = std::nullptr_t{}; //rand() * 0.00000000000001;
-                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
-                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
+                    ms[i] = std::move(temp);
+                }
+            }, "MsgPack build");
+        }
 
-                js[i] = std::move(temp);
-            }
-        }, "JSON build");
+        for (size_t i = 0; i < mcount; ++i) {
+            skate::benchmark_throughput([&ms_text, &ms]() {
+                ms_text = skate::to_msgpack(ms);
+                return ms_text.size();
+            }, "MsgPack write " + std::to_string(i));
+        }
+
+        std::cout << ms_text.substr(0, 1000) << '\n';
+
+        for (size_t i = 0; i < mcount; ++i) {
+            skate::benchmark_throughput([&ms_text, &ms]() {
+                ms = skate::from_msgpack<typename std::remove_reference<decltype(ms)>::type>(ms_text);
+                return ms_text.size();
+            }, "MsgPack read " + std::to_string(i));
+        }
+
+        std::cout << ms_text.size() << std::endl;
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        skate::benchmark_throughput([&js_text, &js]() {
-            js_text = skate::to_json(js);
-            return js_text.size();
-        }, "JSON write " + std::to_string(i));
-    }
-
-    std::cout << js_text.substr(0, 1000) << '\n';
-
-    for (size_t i = 0; i < count; ++i) {
-        skate::benchmark_throughput([&js_text, &js]() {
-            js = skate::from_json<typename std::remove_reference<decltype(js)>::type>(js_text);
-            return js_text.size();
-        }, "JSON read " + std::to_string(i));
-    }
-
-    std::cout << js_text.size() << std::endl;
-
-    jstream.clear();
-    jstream.seekg(0);
-    if (jstream >> skate::json(map))
-        std::cout << skate::json(map) << '\n';
-    else
-        std::cout << "An error occurred\n";
-
-    skate::msgpack_value ms;
-    std::string ms_text;
-
-    const size_t mcount = 20;
-    if (mcount) {
-        skate::benchmark([&ms]() {
-            ms.resize(200000);
-            for (size_t i = 0; i < ms.size(); ++i) {
-                skate::msgpack_value temp;
-
-                temp["1st"] = rand();
-                temp["2nd"] = std::nullptr_t{}; //rand() * 0.00000000000001;
-                temp["3rd"] = std::string(10, 'A') + std::string("\xf0\x9f\x8c\x8d") + std::to_string(rand());
-                temp[L"4th" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d)] = L"Wide" + std::wstring(1, wchar_t(0xd83c)) + wchar_t(0xdf0d);
-
-                ms[i] = std::move(temp);
-            }
-        }, "MsgPack build");
-    }
-
-    for (size_t i = 0; i < mcount; ++i) {
-        skate::benchmark_throughput([&ms_text, &ms]() {
-            ms_text = skate::to_msgpack(ms);
-            return ms_text.size();
-        }, "MsgPack write " + std::to_string(i));
-    }
-
-    std::cout << ms_text.substr(0, 1000) << '\n';
-
-    for (size_t i = 0; i < mcount; ++i) {
-        skate::benchmark_throughput([&ms_text, &ms]() {
-            ms = skate::from_msgpack<typename std::remove_reference<decltype(ms)>::type>(ms_text);
-            return ms_text.size();
-        }, "MsgPack read " + std::to_string(i));
-    }
-
-    std::cout << ms_text.size() << std::endl;
+    network_test();
+    return 0;
 #endif
 
 #if 0

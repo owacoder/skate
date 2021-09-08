@@ -64,6 +64,9 @@
     <ClInclude Include="socket\epoll.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="socket\protocol\http.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="system\includes.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -115,7 +118,7 @@
     <ClInclude Include="containers\tree.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="system\utf.h">
+    <ClInclude Include="containers\utf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="socket\wsaasyncselect.h">

@@ -66,7 +66,7 @@ namespace skate {
 
     template<typename U, typename I = typename std::make_signed<U>::type>
     I unsigned_as_twos_complement(U value) {
-        return value <= std::numeric_limits<I>::max()? static_cast<I>(value): -static_cast<I>(std::numeric_limits<U>::max() - value) - 1;
+        return value <= static_cast<U>(std::numeric_limits<I>::max())? static_cast<I>(value): -static_cast<I>(std::numeric_limits<U>::max() - value) - 1;
     }
 
     // Test if type is losslessly convertible to char

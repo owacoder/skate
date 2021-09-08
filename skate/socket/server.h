@@ -24,7 +24,7 @@
 namespace skate {
     namespace impl {
 #if LINUX_OS
-        typedef epoll_socket_watcher default_socket_watcher;
+        typedef poll_socket_watcher default_socket_watcher;
 #elif POSIX_OS
         typedef poll_socket_watcher default_socket_watcher;
 #elif WINDOWS_OS

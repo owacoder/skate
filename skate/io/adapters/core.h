@@ -29,6 +29,7 @@
 
 #include "../../containers/utf.h"
 #include "../../containers/abstract_list.h"
+#include "../../containers/split_join.h"
 
 namespace skate {
     namespace impl {

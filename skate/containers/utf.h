@@ -512,7 +512,7 @@ namespace skate {
     template<typename String>
     inline bool utf8append(String &utf8, unicode_codepoint codepoint) {
         if (codepoint.value() < 0x80) { // Shortcut for speed, not strictly necessary
-            abstract::push_back(utf8, codepoint.value());
+            abstract::push_back(utf8, static_cast<char>(codepoint.value()));
             return true;
         } else if (!codepoint.valid())
             return false;
@@ -528,10 +528,10 @@ namespace skate {
         const size_t bytesInCode = utf8size(codepoint.value());
         const size_t continuationBytesInCode = bytesInCode - 1;
 
-        abstract::push_back(utf8, headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6)));
+        abstract::push_back(utf8, static_cast<unsigned char>(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6))));
 
         for (size_t i = continuationBytesInCode; i > 0; --i) {
-            abstract::push_back(utf8, 0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6))));
+            abstract::push_back(utf8, static_cast<unsigned char>(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6)))));
         }
 
         return true;
@@ -1239,7 +1239,7 @@ namespace skate {
             std::fill(result.begin(), result.end(), '0');
         } else {
             for (; i; i >>= 4) {
-                result.push_back(toxchar(i, uppercase));
+                result.push_back(toxchar(i & 0xf, uppercase));
             }
 
             const auto digits = result.size();
