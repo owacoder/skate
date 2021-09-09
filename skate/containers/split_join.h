@@ -20,7 +20,7 @@ namespace skate {
         T &&identity(T &&item) { return std::forward<T>(item); }
 
         template<typename String, typename T>
-        void identity_append(String &append_to, T &&item) { append_to += std::move(item); }
+        void identity_append(String &append_to, T &&item) { append_to += std::forward<T>(item); }
     }
 
 #if __cplusplus >= 201703L

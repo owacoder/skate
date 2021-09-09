@@ -23,10 +23,12 @@ namespace skate {
     }
 
     struct http_response {
-        http_response() : code(200), major(1), minor(1) {}
+        http_response() : major(1), minor(1), code(200) {}
 
-        short code;
         unsigned char major, minor;
+        short code;
+        std::string status;
+
         skate::url url;
         std::map<std::string, std::string, impl::less_case_insensitive> headers;
     };
@@ -93,20 +95,104 @@ namespace skate {
         {}
 
         virtual void ready_read(std::error_code &ec) override {
-            if (is_blocking())
-                skate::tcp_socket::read(ec, response_buffer, 1);
-            else
-                skate::tcp_socket::read_all(ec, response_buffer);
+            if (current_response.headers.empty()) {
+                if (is_blocking())
+                    skate::tcp_socket::read(ec, response_buffer, 1);
+                else
+                    skate::tcp_socket::read_all(ec, response_buffer);
 
-            if (response_buffer.find("\r\n\r\n") == response_buffer.npos)
-                return;
+                // Detect double line ending to get mark end of headers
+                if (response_buffer.find("\r\n\r\n") == response_buffer.npos)
+                    return;
 
-            std::cout << response_buffer;
-            disconnect(ec);
+                // At this point, all headers are read and waiting for parsing
+                // Parse the headers now
+                const char *status = response_buffer.c_str();
+
+                {
+                    char *end = nullptr;
+
+                    if (memcmp(status, "HTTP/", 5) || !isdigit(status[5])) {
+                        ec = std::make_error_code(std::errc::bad_message);
+                        return;
+                    }
+                    status += 5;
+
+                    // Get HTTP major version
+                    current_response.major = strtol(status, &end, 10);
+                    status = end;
+
+                    if (*status++ != '.') {
+                        ec = std::make_error_code(std::errc::bad_message);
+                        return;
+                    }
+
+                    // Get HTTP minor version
+                    current_response.minor = strtol(status, &end, 10);
+                    status = end;
+
+                    while (*status == ' ')
+                        ++status;
+
+                    // Get HTTP status code
+                    if (!isdigit(status[0]) ||
+                            !isdigit(status[1]) ||
+                            !isdigit(status[2])) {
+                        ec = std::make_error_code(std::errc::bad_message);
+                        return;
+                    }
+
+                    current_response.code = static_cast<short>(strtol(status, &end, 10));
+                    status = end;
+
+                    while (*status == ' ')
+                        ++status;
+
+                    // Get HTTP status reason
+                    const size_t start_offset = status - response_buffer.c_str();
+                    const size_t end_of_line = response_buffer.find("\r\n", start_offset);
+                    current_response.status = std::string(status, end_of_line - start_offset);
+                    status = response_buffer.c_str() + end_of_line + 2;
+                }
+
+                while (1) {
+                    const size_t start_offset = status - response_buffer.c_str();
+                    const size_t end_of_line = response_buffer.find("\r\n", start_offset);
+                    size_t colon = response_buffer.find(':', start_offset);
+
+                    if (end_of_line == start_offset) // Empty line signifies end of headers
+                        break;
+
+                    if (colon == std::string::npos) {
+                        ec = std::make_error_code(std::errc::bad_message);
+                        return;
+                    }
+
+                    std::string key{status, colon - start_offset};
+
+                    ++colon;
+                    while (response_buffer[colon] == ' ')
+                        ++colon;
+
+                    std::string value{response_buffer.c_str() + colon, end_of_line - colon};
+
+                    current_response.headers[std::move(key)] = std::move(value);
+
+                    status = response_buffer.c_str() + end_of_line + 2;
+                }
+
+                http_response_received(current_response);
+
+                current_response.headers.clear();
+                response_buffer.clear();
+            }
         }
 
         // Write callback handles chunked writing of a request datastream
         virtual void ready_write(std::error_code &ec) override {
+            if (ec)
+                return;
+
             if (current_request.bodystream) {
                 char buffer[4096];
 
@@ -134,12 +220,32 @@ namespace skate {
         virtual ~http_client_socket() {}
 
         virtual void http_request_body_sent(const http_request &/* request */) {}
-        virtual void http_response_received(http_response &&/* response */) {}
+        virtual void http_response_received(const http_response &response) {
+            std::cout << "Version: HTTP/" << int(response.major) << '.' << int(response.minor) << '\n';
+            std::cout << "   Code: " << response.code << '\n';
+            std::cout << " Status: " << response.status << '\n';
+            for (const auto &header: response.headers) {
+                std::cout << " Header: \"" << header.first << "\": " << header.second << '\n';
+            }
+        }
+
+        // TODO: Read a single HTTP response from the socket (blocking mode only)
+        http_response read_http_response_sync(std::error_code &ec) {
+            if (ec)
+                return {};
+            else if (!is_blocking()) {
+                ec = std::make_error_code(std::errc::operation_not_supported);
+                return {};
+            }
+
+            return {};
+        }
 
         // Write a single HTTP request to the socket
         // Once the body has been written, http_request_body_sent() is called with the current request
-        std::error_code write_http_request(http_request &&request) {
-            std::error_code ec;
+        void write_http_request(std::error_code &ec, http_request request) {
+            if (ec)
+                return;
 
             std::string path = request.url.get_path_and_query(skate::url::encoding::percent);
             if (path.empty())
@@ -176,11 +282,15 @@ namespace skate {
 
                 if (!ec)
                     http_request_body_sent(request);
+            } else if (is_blocking()) {
+                while (request.bodystream && !ec)
+                    ready_write(ec);
+
+                if (!ec)
+                    http_request_body_sent(request);
+            } else {
+                current_request = std::move(request);
             }
-
-            current_request = std::move(request);
-
-            return ec;
         }
     };
 }

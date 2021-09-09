@@ -140,7 +140,7 @@ void network_test() {
 
     auto save = ec;
     std::cout << skate::json(resolved) << save.message() << std::endl;
-    ec = http.write_http_request(std::move(req));
+    http.write_http_request(ec, std::move(req));
 
     // http.listen(ec);
     std::cout << save.message() << " " << ec.message() << std::endl;
