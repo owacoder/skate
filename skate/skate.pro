@@ -20,6 +20,8 @@ HEADERS += \
     io/adapters/msgpack.h \
     io/buffer.h \
     io/logger.h \
+    io/streams.h \
+    math/safeint.h \
     socket/iocp.h \
     socket/protocol/http.h \
     socket/wsaasyncselect.h \

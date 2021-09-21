@@ -89,6 +89,93 @@ namespace skate {
         http_response current_response;
         http_request current_request;
 
+        http_response read_headers(std::error_code &ec) {
+            if (ec)
+                return {};
+
+            // At this point, all headers are read and waiting for parsing
+            // Parse the headers now
+
+            http_response response;
+            const char *status = response_buffer.c_str();
+
+            {
+                char *end = nullptr;
+
+                if (memcmp(status, "HTTP/", 5) || !isdigit(status[5])) {
+                    ec = std::make_error_code(std::errc::bad_message);
+                    return {};
+                }
+                status += 5;
+
+                // Get HTTP major version
+                response.major = strtol(status, &end, 10);
+                status = end;
+
+                if (*status++ != '.') {
+                    ec = std::make_error_code(std::errc::bad_message);
+                    return {};
+                }
+
+                // Get HTTP minor version
+                response.minor = strtol(status, &end, 10);
+                status = end;
+
+                while (*status == ' ')
+                    ++status;
+
+                // Get HTTP status code
+                if (!isdigit(status[0]) ||
+                        !isdigit(status[1]) ||
+                        !isdigit(status[2])) {
+                    ec = std::make_error_code(std::errc::bad_message);
+                    return {};
+                }
+
+                response.code = static_cast<short>(strtol(status, &end, 10));
+                status = end;
+
+                while (*status == ' ')
+                    ++status;
+
+                // Get HTTP status reason
+                const size_t start_offset = status - response_buffer.c_str();
+                const size_t end_of_line = response_buffer.find("\r\n", start_offset);
+                response.status = std::string(status, end_of_line - start_offset);
+                status = response_buffer.c_str() + end_of_line + 2;
+            }
+
+            while (1) {
+                const size_t start_offset = status - response_buffer.c_str();
+                const size_t end_of_line = response_buffer.find("\r\n", start_offset);
+                size_t colon = response_buffer.find(':', start_offset);
+
+                if (end_of_line == start_offset) // Empty line signifies end of headers
+                    break;
+
+                if (colon == std::string::npos) {
+                    ec = std::make_error_code(std::errc::bad_message);
+                    return {};
+                }
+
+                std::string key{status, colon - start_offset};
+
+                ++colon;
+                while (response_buffer[colon] == ' ')
+                    ++colon;
+
+                std::string value{response_buffer.c_str() + colon, end_of_line - colon};
+
+                response.headers[std::move(key)] = std::move(value);
+
+                status = response_buffer.c_str() + end_of_line + 2;
+            }
+
+            http_response_received(response);
+
+            return response;
+        }
+
     protected:
         http_client_socket(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking)
             : tcp_socket(desc, current_state, blocking)
@@ -96,95 +183,18 @@ namespace skate {
 
         virtual void ready_read(std::error_code &ec) override {
             if (current_response.headers.empty()) {
+                const size_t start_search = std::max(response_buffer.size(), size_t(4)) - 4;
+
                 if (is_blocking())
                     skate::tcp_socket::read(ec, response_buffer, 1);
                 else
                     skate::tcp_socket::read_all(ec, response_buffer);
 
                 // Detect double line ending to get mark end of headers
-                if (response_buffer.find("\r\n\r\n") == response_buffer.npos)
+                if (response_buffer.find("\r\n\r\n", start_search) == response_buffer.npos)
                     return;
 
-                // At this point, all headers are read and waiting for parsing
-                // Parse the headers now
-                const char *status = response_buffer.c_str();
-
-                {
-                    char *end = nullptr;
-
-                    if (memcmp(status, "HTTP/", 5) || !isdigit(status[5])) {
-                        ec = std::make_error_code(std::errc::bad_message);
-                        return;
-                    }
-                    status += 5;
-
-                    // Get HTTP major version
-                    current_response.major = strtol(status, &end, 10);
-                    status = end;
-
-                    if (*status++ != '.') {
-                        ec = std::make_error_code(std::errc::bad_message);
-                        return;
-                    }
-
-                    // Get HTTP minor version
-                    current_response.minor = strtol(status, &end, 10);
-                    status = end;
-
-                    while (*status == ' ')
-                        ++status;
-
-                    // Get HTTP status code
-                    if (!isdigit(status[0]) ||
-                            !isdigit(status[1]) ||
-                            !isdigit(status[2])) {
-                        ec = std::make_error_code(std::errc::bad_message);
-                        return;
-                    }
-
-                    current_response.code = static_cast<short>(strtol(status, &end, 10));
-                    status = end;
-
-                    while (*status == ' ')
-                        ++status;
-
-                    // Get HTTP status reason
-                    const size_t start_offset = status - response_buffer.c_str();
-                    const size_t end_of_line = response_buffer.find("\r\n", start_offset);
-                    current_response.status = std::string(status, end_of_line - start_offset);
-                    status = response_buffer.c_str() + end_of_line + 2;
-                }
-
-                while (1) {
-                    const size_t start_offset = status - response_buffer.c_str();
-                    const size_t end_of_line = response_buffer.find("\r\n", start_offset);
-                    size_t colon = response_buffer.find(':', start_offset);
-
-                    if (end_of_line == start_offset) // Empty line signifies end of headers
-                        break;
-
-                    if (colon == std::string::npos) {
-                        ec = std::make_error_code(std::errc::bad_message);
-                        return;
-                    }
-
-                    std::string key{status, colon - start_offset};
-
-                    ++colon;
-                    while (response_buffer[colon] == ' ')
-                        ++colon;
-
-                    std::string value{response_buffer.c_str() + colon, end_of_line - colon};
-
-                    current_response.headers[std::move(key)] = std::move(value);
-
-                    status = response_buffer.c_str() + end_of_line + 2;
-                }
-
-                http_response_received(current_response);
-
-                current_response.headers.clear();
-                response_buffer.clear();
+                current_response = read_headers(ec);
             }
         }
 
@@ -238,7 +248,15 @@ namespace skate {
                 return {};
             }
 
-            return {};
+            do {
+                skate::tcp_socket::read(ec, response_buffer, 1);
+            } while (response_buffer.find("\r\n\r\n", std::max(response_buffer.size(), size_t(4)) - 4) == response_buffer.npos && !ec);
+
+            auto headers = read_headers(ec);
+
+            response_buffer.clear();
+
+            return headers;
         }
 
         // Write a single HTTP request to the socket
@@ -275,6 +293,7 @@ namespace skate {
             txbuf += "\r\n";
 
             std::cout << "txbuf:\n" << txbuf;
+
             write(ec, txbuf);
             // Write message body
             if (request.bodystream == nullptr) {

@@ -49,6 +49,7 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
     return os << address.to_string();
 }
 
+#include "io/streams.h"
 #include "containers/abstract_list.h"
 //#include "containers/MFC/mfc_abstract_list.h"
 #if 0
@@ -219,8 +220,42 @@ namespace skate {
     }
 }
 
+#include "math/safeint.h"
+
 int main()
 {
+    {
+        skate::basic_safeint<unsigned> u = 0;
+        skate::basic_safeint<int> i = -1;
+
+        i += INT_MIN;
+
+        std::cout << i.value() << std::endl;
+
+        return 0;
+    }
+
+    auto save = std::cout.rdbuf();
+    skate::teebuf tee{save, std::cerr.rdbuf()};
+    std::cout.rdbuf(&tee);
+
+    std::cout << "Hello, World!";
+
+    skate::cfilebuf cfile;
+    cfile.open("F:\\Scratch\\test.txt", std::ios_base::in);
+    std::cout.rdbuf(save);
+
+    while (1) {
+        const auto c = cfile.sbumpc();
+
+        if (c == EOF)
+            break;
+
+        std::cout << char(c);
+    }
+
+    return 0;
+
 #if 1
     if (0)
     {
