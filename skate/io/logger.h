@@ -17,12 +17,12 @@
 namespace skate {
     enum class log_type {
         none,
-        trace,
-        debug,
-        info,
-        warn,
+        critical,
         error,
-        critical
+        warn,
+        info,
+        debug,
+        trace
     };
 
     struct default_logger_options {

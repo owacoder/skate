@@ -22,8 +22,11 @@ namespace skate {
         };
     }
 
+    // Contains one HTTP response header set (not including body, which is signalled separately)
     struct http_response {
         http_response() : major(1), minor(1), code(200) {}
+
+        bool is_null() const { return headers.empty(); }
 
         unsigned char major, minor;
         short code;
@@ -33,6 +36,7 @@ namespace skate {
         std::map<std::string, std::string, impl::less_case_insensitive> headers;
     };
 
+    // Contains one HTTP request header set (including body)
     struct http_request {
         http_request() : method("GET"), major(1), minor(1), bodystream(nullptr) {}
 
@@ -47,54 +51,26 @@ namespace skate {
         std::string body;
     };
 
-    class http_server_socket : public skate::tcp_socket {
-        std::string request;
-
-    protected:
-        http_server_socket(skate::system_socket_descriptor desc, skate::socket_state current_state, bool blocking)
-            : tcp_socket(desc, current_state, blocking)
-        {}
-
-        virtual std::unique_ptr<skate::socket> create(skate::system_socket_descriptor desc, skate::socket_state current_state, bool is_blocking) override {
-            return std::unique_ptr<skate::socket>{new http_server_socket(desc, current_state, is_blocking)};
-        }
-
-        virtual void ready_read(std::error_code &ec) override {
-            request += read_all(ec);
-
-            if (request.find("\r\n\r\n") == request.npos)
-                return;
-
-            disconnect(ec);
-        }
-
-        virtual void ready_write(std::error_code &) override {
-
-        }
-
-        virtual void error(std::error_code ec) override {
-            std::cout << ec.message() << std::endl;
-        }
-
-    public:
-        http_server_socket() {}
-        virtual ~http_server_socket() {}
-
-        virtual void http_request_received(http_request &&/* request */) {}
-    };
-
     class http_client_socket : public skate::tcp_socket {
         std::string response_buffer;
+
+        uint64_t response_body_consumed; // If chunked, number of bytes consumed in the chunk, otherwise, total number of bytes consumed in the response
+        uint64_t response_body_expected; // If chunked, number of bytes in the current chunk, otherwise, total number of bytes expected in the response
+        bool response_chunked; // Whether chunked (1), or specified size (0)
 
         http_response current_response;
         http_request current_request;
 
+        // Reads the headers from the response_buffer string
         http_response read_headers(std::error_code &ec) {
             if (ec)
                 return {};
 
             // At this point, all headers are read and waiting for parsing
             // Parse the headers now
+
+            response_body_expected = response_body_consumed = 0;
+            response_chunked = false;
 
             http_response response;
             const char *status = response_buffer.c_str();
@@ -109,7 +85,7 @@ namespace skate {
                 status += 5;
 
                 // Get HTTP major version
-                response.major = strtol(status, &end, 10);
+                response.major = static_cast<unsigned char>(std::max(0L, std::min(strtol(status, &end, 10), 255L)));
                 status = end;
 
                 if (*status++ != '.') {
@@ -118,7 +94,7 @@ namespace skate {
                 }
 
                 // Get HTTP minor version
-                response.minor = strtol(status, &end, 10);
+                response.minor = static_cast<unsigned char>(std::max(0L, std::min(strtol(status, &end, 10), 255L)));
                 status = end;
 
                 while (*status == ' ')
@@ -173,6 +149,12 @@ namespace skate {
 
             http_response_received(response);
 
+            if (response.code == 204 || response.code == 304 || response.code / 100 == 1 || current_request.method == "HEAD")
+                response_body_expected = 0;
+            else
+                response_body_expected = strtoull(response.headers["Content-Length"].c_str(), nullptr, 10);
+            response_chunked = response.headers["Transfer-Encoding"].find("chunked") != std::string::npos;
+
             return response;
         }
 
@@ -181,20 +163,45 @@ namespace skate {
             : tcp_socket(desc, current_state, blocking)
         {}
 
+        // Data is ready to read, which may be headers or actual data
         virtual void ready_read(std::error_code &ec) override {
+            bool response_done = false;
+
             if (current_response.headers.empty()) {
                 const size_t start_search = std::max(response_buffer.size(), size_t(4)) - 4;
 
-                if (is_blocking())
-                    skate::tcp_socket::read(ec, response_buffer, 1);
-                else
-                    skate::tcp_socket::read_all(ec, response_buffer);
+                skate::tcp_socket::read(ec, response_buffer, 1);
 
                 // Detect double line ending to get mark end of headers
                 if (response_buffer.find("\r\n\r\n", start_search) == response_buffer.npos)
                     return;
 
                 current_response = read_headers(ec);
+                response_buffer.clear();
+            } else if (!response_chunked) { // Standard response body
+                response_body_consumed += skate::tcp_socket::read(ec, response_buffer, response_body_expected - response_body_consumed);
+
+                http_response_body_chunk(current_response, response_buffer);
+                response_buffer.clear();
+
+                response_done = response_body_consumed == response_body_expected;
+            } else { // Chunked response body
+                const size_t start_search = std::max(response_buffer.size(), size_t(2)) - 2;
+
+                skate::tcp_socket::read(ec, response_buffer, 1);
+
+                // Detect line ending to get mark end of chunk header
+                if (response_buffer.find("\r\n", start_search) == response_buffer.npos)
+                    return;
+            }
+
+            // If at end of body...
+            if (response_done) {
+                if ((current_response.major < 1 || (current_response.minor == 1 && current_response.minor == 0)) ||
+                     current_request.headers["Connection"].find("close") != std::string::npos) // HTTP 1.0 or "Connection: close", close connection
+                    disconnect(ec);
+
+                current_response = {};
             }
         }
 
@@ -238,6 +245,9 @@ namespace skate {
                 std::cout << " Header: \"" << header.first << "\": " << header.second << '\n';
             }
         }
+        virtual void http_response_body_chunk(const http_response &response, const std::string &chunk) {
+            std::cout << chunk;
+        }
 
         // TODO: Read a single HTTP response from the socket (blocking mode only)
         http_response read_http_response_sync(std::error_code &ec) {
@@ -269,7 +279,11 @@ namespace skate {
             if (path.empty())
                 path = "/";
 
-            std::string txbuf = request.method + ' ' + path + " HTTP/" + std::to_string(request.major) + '.' + std::to_string(request.minor) + "\r\n";
+            std::string txbuf;
+            for (const auto c: request.method)
+                txbuf += skate::toupper(c);
+
+            txbuf += ' ' + path + " HTTP/" + std::to_string(request.major) + '.' + std::to_string(request.minor) + "\r\n";
             txbuf += "Host: " + request.url.get_hostname(skate::url::encoding::percent) + "\r\n";
 
             // Remove possibly user-defined headers

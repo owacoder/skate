@@ -941,8 +941,8 @@ namespace skate {
         template<typename T, typename U>
         void copy(T &dest, const U &source) {
             clear(dest);
-
             reserve(dest, size(source));
+
             for (auto el = begin(source); el != end(source); ++el)
                 push_back(dest, *el);
         }

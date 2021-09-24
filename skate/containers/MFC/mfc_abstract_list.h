@@ -32,6 +32,8 @@
 
 #include <afxtempl.h>
 #include <atlstr.h>
+#include <afxwin.h>
+#include <afxcmn.h>
 
 // ------------------------------------------------
 // Specialization for CStringT<T>
@@ -89,12 +91,12 @@ public:
 template<typename... ContainerParams>
 const typename skate::parameter_pack_element_type<0, ContainerParams...>::type *begin(const CStringT<ContainerParams...> &c) { return static_cast<const typename skate::parameter_pack_element_type<0, ContainerParams...>::type *>(c); }
 template<typename... ContainerParams>
-typename mfc_cstring_iterator<ContainerParams...> begin(CStringT<ContainerParams...> &c) { return { c, 0 }; }
+mfc_cstring_iterator<ContainerParams...> begin(CStringT<ContainerParams...> &c) { return { c, 0 }; }
 
 template<typename... ContainerParams>
 const typename skate::parameter_pack_element_type<0, ContainerParams...>::type *end(const CStringT<ContainerParams...> &c) { return begin(c) + c.GetLength(); }
 template<typename... ContainerParams>
-typename mfc_cstring_iterator<ContainerParams...> end(CStringT<ContainerParams...> &c) { return { c, c.GetLength() }; }
+mfc_cstring_iterator<ContainerParams...> end(CStringT<ContainerParams...> &c) { return { c, c.GetLength() }; }
 
 // ------------------------------------------------
 // Specialization for CArray<T>
@@ -214,7 +216,7 @@ namespace skate {
     template<typename... ContainerParams>
     struct abstract_front<CStringT<ContainerParams...>> {
         decltype(std::declval<const CStringT<ContainerParams...> &>()[0]) operator()(const CStringT<ContainerParams...> &c) { return c[0]; }
-        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) const { return {c, 0}; }
+        impl::mfc_cstring_char_reference<ContainerParams...> operator()(CStringT<ContainerParams...> &c) const { return { c, 0 }; }
     };
 
     template<typename... ContainerParams>
@@ -244,7 +246,7 @@ namespace skate {
 
             while (s > abstract::size(c))
                 abstract::push_back(c, 0);
-        
+
             if (s < abstract::size(c))
                 c.Truncate(s);
         }
@@ -368,7 +370,7 @@ namespace skate {
         template<typename R>
         abstract_front_insert_iterator &operator=(R &&element) {
             c->SetSize(c->GetSize(), 1 + (c->GetSize() / 2));
-            c->InsertAt(0, std::forward<R>(element)); 
+            c->InsertAt(0, std::forward<R>(element));
             return *this;
         }
 
@@ -391,10 +393,10 @@ namespace skate {
         constexpr abstract_back_insert_iterator(CArray<ContainerParams...> &c) : c(&c) {}
 
         template<typename R>
-        abstract_back_insert_iterator &operator=(R &&element) { 
+        abstract_back_insert_iterator &operator=(R &&element) {
             c->SetSize(c->GetSize(), 1 + (c->GetSize() / 2));
             c->Add(std::forward<R>(element));
-            return *this; 
+            return *this;
         }
 
         abstract_back_insert_iterator &operator*() { return *this; }
@@ -511,6 +513,405 @@ namespace skate {
 
         template<typename R>
         abstract_back_insert_iterator &operator=(R &&element) { c->InsertAfter(c->GetTailPosition(), std::forward<R>(element)); return *this; }
+
+        abstract_back_insert_iterator &operator*() { return *this; }
+        abstract_back_insert_iterator &operator++() { return *this; }
+        abstract_back_insert_iterator &operator++(int) { return *this; }
+    };
+}
+
+// ------------------------------------------------
+// Specialization for CListCtrl
+// ------------------------------------------------
+namespace skate {
+    namespace impl {
+        class mfc_const_clistctrl_reference {
+            const CListCtrl &c;
+            const int pos;
+
+        public:
+            constexpr mfc_const_clistctrl_reference(const CListCtrl &c, int pos) : c(c), pos(pos) {}
+
+            operator CString() const { return c.GetItemText(pos, 0); }
+        };
+
+        class mfc_clistctrl_reference {
+            CListCtrl &c;
+            const int pos;
+
+        public:
+            constexpr mfc_clistctrl_reference(CListCtrl &c, int pos) : c(c), pos(pos) {}
+
+            template<typename T>
+            mfc_clistctrl_reference &operator=(T &&v) {
+                c.SetItemText(pos, 0, std::forward<T>(v));
+                return *this;
+            }
+            operator CString() const { return c.GetItemText(pos, 0); }
+        };
+
+        void swap(mfc_clistctrl_reference a, mfc_clistctrl_reference b) {
+            const CString temp = a;
+            a = static_cast<CString>(b);
+            b = temp;
+        }
+    }
+}
+
+// TODO: make mfc_clistctrl_iterator a random-access iterator, rather than bidirectional
+class mfc_clistctrl_iterator : public std::iterator<std::bidirectional_iterator_tag, CString> {
+    CListCtrl *c;
+    int pos;
+
+    friend class mfc_const_clistctrl_iterator;
+
+public:
+    constexpr mfc_clistctrl_iterator(CListCtrl &c, int pos) : c(&c), pos(pos) {}
+
+    typename skate::impl::mfc_clistctrl_reference operator*() const { return { *c, pos }; }
+    mfc_clistctrl_iterator &operator--() { --pos; return *this; }
+    mfc_clistctrl_iterator operator--(int) { auto copy = *this; -- *this; return copy; }
+    mfc_clistctrl_iterator &operator++() { ++pos; return *this; }
+    mfc_clistctrl_iterator operator++(int) { auto copy = *this; ++ *this; return copy; }
+
+    bool operator==(mfc_clistctrl_iterator other) const { return (pos == other.pos) && (c == other.c); }
+    bool operator!=(mfc_clistctrl_iterator other) const { return !(*this == other); }
+};
+
+// TODO: make mfc_clistctrl_iterator a random-access iterator, rather than bidirectional
+class mfc_const_clistctrl_iterator : public std::iterator<std::bidirectional_iterator_tag, const CString> {
+    const CListCtrl *c;
+    int pos;
+
+public:
+    constexpr mfc_const_clistctrl_iterator(const CListCtrl &c, int pos) : c(&c), pos(pos) {}
+    constexpr mfc_const_clistctrl_iterator(mfc_clistctrl_iterator other) : c(other.c), pos(other.pos) {}
+
+    typename skate::impl::mfc_const_clistctrl_reference operator*() const { return { *c, pos }; }
+    mfc_const_clistctrl_iterator &operator--() { --pos; return *this; }
+    mfc_const_clistctrl_iterator operator--(int) { auto copy = *this; -- *this; return copy; }
+    mfc_const_clistctrl_iterator &operator++() { ++pos; return *this; }
+    mfc_const_clistctrl_iterator operator++(int) { auto copy = *this; ++ *this; return copy; }
+
+    bool operator==(mfc_const_clistctrl_iterator other) const { return (pos == other.pos) && (c == other.c); }
+    bool operator!=(mfc_const_clistctrl_iterator other) const { return !(*this == other); }
+};
+
+mfc_const_clistctrl_iterator begin(const CListCtrl &c) { return { c, 0 }; }
+mfc_clistctrl_iterator begin(CListCtrl &c) { return { c, 0 }; }
+
+mfc_const_clistctrl_iterator end(const CListCtrl &c) { return { c, skate::abstract::size(c) }; }
+mfc_clistctrl_iterator end(CListCtrl &c) { return { c, skate::abstract::size(c) }; }
+
+namespace skate {
+    template<>
+    struct abstract_clear<CListCtrl> {
+        void operator()(CListCtrl &c) const { c.DeleteAllItems(); }
+    };
+
+    template<>
+    struct abstract_empty<CListCtrl> {
+        bool operator()(const CListCtrl &c) const { return c.GetItemCount() == 0; }
+    };
+
+    template<>
+    struct abstract_size<CListCtrl> {
+        int operator()(const CListCtrl &c) const { return c.GetItemCount(); }
+    };
+
+    template<>
+    struct abstract_front<CListCtrl> {
+        impl::mfc_const_clistctrl_reference operator()(const CListCtrl &c) const { return {c, 0}; }
+        impl::mfc_clistctrl_reference operator()(CListCtrl &c) const { return { c, 0 }; }
+    };
+
+    template<>
+    struct abstract_back<CListCtrl> {
+        impl::mfc_const_clistctrl_reference operator()(const CListCtrl &c) const { return { c, abstract::size(c) - 1 }; }
+        impl::mfc_clistctrl_reference operator()(CListCtrl &c) const { return { c, abstract::size(c) - 1 }; }
+    };
+
+    template<>
+    struct abstract_element<CListCtrl> {
+        impl::mfc_const_clistctrl_reference operator()(const CListCtrl &c, int n) const { return { c, n }; }
+        impl::mfc_clistctrl_reference operator()(CListCtrl &c, int n) { return { c, n }; }
+    };
+
+    template<>
+    struct abstract_resize<CListCtrl> {
+        void operator()(CListCtrl &c, int s) const { 
+            if (s < abstract::size(c)) {
+                abstract::reserve(c, s);
+
+                while (s < abstract::size(c))
+                    abstract::push_back(c, _T(""));
+            } else {
+                while (s > abstract::size(c))
+                    abstract::pop_back(c);
+            }
+        }
+    };
+
+    template<>
+    struct abstract_reserve<CListCtrl> {
+        void operator()(CListCtrl &c, int s) const { 
+            if (s > c.GetItemCount()) 
+                c.SetItemCount(s); 
+        }
+    };
+
+    template<>
+    struct abstract_pop_back<CListCtrl> {
+        void operator()(CListCtrl &c) const { c.DeleteItem(c.GetItemCount() - 1); }
+    };
+
+    template<>
+    struct abstract_pop_front<CListCtrl> {
+        void operator()(CListCtrl &c) const { c.DeleteItem(0); }
+    };
+
+    template<>
+    class abstract_front_insert_iterator<CListCtrl> {
+        CListCtrl *c;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr abstract_front_insert_iterator(CListCtrl &c) : c(&c) {}
+
+        template<typename R>
+        abstract_front_insert_iterator &operator=(R &&element) {
+            c->InsertItem(0, std::forward<R>(element));
+            return *this;
+        }
+
+        abstract_front_insert_iterator &operator*() { return *this; }
+        abstract_front_insert_iterator &operator++() { return *this; }
+        abstract_front_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<>
+    class abstract_back_insert_iterator<CListCtrl> {
+        CListCtrl *c;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr abstract_back_insert_iterator(CListCtrl &c) : c(&c) {}
+
+        template<typename R>
+        abstract_back_insert_iterator &operator=(R &&element) {
+            c->InsertItem(c->GetItemCount(), std::forward<R>(element));
+            return *this;
+        }
+
+        abstract_back_insert_iterator &operator*() { return *this; }
+        abstract_back_insert_iterator &operator++() { return *this; }
+        abstract_back_insert_iterator &operator++(int) { return *this; }
+    };
+}
+
+// ------------------------------------------------
+// Specialization for CComboBox
+// ------------------------------------------------
+namespace skate {
+    namespace impl {
+        class mfc_const_ccombobox_reference {
+            const CComboBox &c;
+            const int pos;
+
+        public:
+            constexpr mfc_const_ccombobox_reference(const CComboBox &c, int pos) : c(c), pos(pos) {}
+
+            operator CString() const {
+                CString text;
+                c.GetLBText(pos, text);
+                return text;
+            }
+        };
+
+        class mfc_ccombobox_reference {
+            CComboBox &c;
+            const int pos;
+
+        public:
+            constexpr mfc_ccombobox_reference(CComboBox &c, int pos) : c(c), pos(pos) {}
+
+            template<typename T>
+            mfc_ccombobox_reference &operator=(T &&v) {
+                c.DeleteString(pos);
+                c.InsertString(pos, std::forward<T>(v));
+                return *this;
+            }
+            operator CString() const {
+                CString text;
+                c.GetLBText(pos, text);
+                return text;
+            }
+        };
+
+        void swap(mfc_ccombobox_reference a, mfc_ccombobox_reference b) {
+            const CString temp = a;
+            a = static_cast<CString>(b);
+            b = temp;
+        }
+    }
+}
+
+// TODO: make mfc_ccombobox_iterator a random-access iterator, rather than bidirectional
+class mfc_ccombobox_iterator : public std::iterator<std::bidirectional_iterator_tag, CString> {
+    CComboBox *c;
+    int pos;
+
+    friend class mfc_const_ccombobox_iterator;
+
+public:
+    constexpr mfc_ccombobox_iterator(CComboBox &c, int pos) : c(&c), pos(pos) {}
+
+    typename skate::impl::mfc_ccombobox_reference operator*() const { return { *c, pos }; }
+    mfc_ccombobox_iterator &operator--() { --pos; return *this; }
+    mfc_ccombobox_iterator operator--(int) { auto copy = *this; -- *this; return copy; }
+    mfc_ccombobox_iterator &operator++() { ++pos; return *this; }
+    mfc_ccombobox_iterator operator++(int) { auto copy = *this; ++ *this; return copy; }
+
+    bool operator==(mfc_ccombobox_iterator other) const { return (pos == other.pos) && (c == other.c); }
+    bool operator!=(mfc_ccombobox_iterator other) const { return !(*this == other); }
+};
+
+// TODO: make mfc_ccombobox_iterator a random-access iterator, rather than bidirectional
+class mfc_const_ccombobox_iterator : public std::iterator<std::bidirectional_iterator_tag, const CString> {
+    const CComboBox *c;
+    int pos;
+
+public:
+    constexpr mfc_const_ccombobox_iterator(const CComboBox &c, int pos) : c(&c), pos(pos) {}
+    constexpr mfc_const_ccombobox_iterator(mfc_ccombobox_iterator other) : c(other.c), pos(other.pos) {}
+
+    typename skate::impl::mfc_const_ccombobox_reference operator*() const { return { *c, pos }; }
+    mfc_const_ccombobox_iterator &operator--() { --pos; return *this; }
+    mfc_const_ccombobox_iterator operator--(int) { auto copy = *this; -- *this; return copy; }
+    mfc_const_ccombobox_iterator &operator++() { ++pos; return *this; }
+    mfc_const_ccombobox_iterator operator++(int) { auto copy = *this; ++ *this; return copy; }
+
+    bool operator==(mfc_const_ccombobox_iterator other) const { return (pos == other.pos) && (c == other.c); }
+    bool operator!=(mfc_const_ccombobox_iterator other) const { return !(*this == other); }
+};
+
+mfc_const_ccombobox_iterator begin(const CComboBox &c) { return { c, 0 }; }
+mfc_ccombobox_iterator begin(CComboBox &c) { return { c, 0 }; }
+
+mfc_const_ccombobox_iterator end(const CComboBox &c) { return { c, skate::abstract::size(c) }; }
+mfc_ccombobox_iterator end(CComboBox &c) { return { c, skate::abstract::size(c) }; }
+
+namespace skate {
+    template<>
+    struct abstract_clear<CComboBox> {
+        void operator()(CComboBox &c) const { c.ResetContent(); }
+    };
+
+    template<>
+    struct abstract_empty<CComboBox> {
+        bool operator()(const CComboBox &c) const { return c.GetCount() == 0; }
+    };
+
+    template<>
+    struct abstract_size<CComboBox> {
+        int operator()(const CComboBox &c) const { return c.GetCount(); }
+    };
+
+    template<>
+    struct abstract_front<CComboBox> {
+        impl::mfc_const_ccombobox_reference operator()(const CComboBox &c) const { return { c, 0 }; }
+        impl::mfc_ccombobox_reference operator()(CComboBox &c) const { return { c, 0 }; }
+    };
+
+    template<>
+    struct abstract_back<CComboBox> {
+        impl::mfc_const_ccombobox_reference operator()(const CComboBox &c) const { return { c, abstract::size(c) - 1 }; }
+        impl::mfc_ccombobox_reference operator()(CComboBox &c) const { return { c, abstract::size(c) - 1 }; }
+    };
+
+    template<>
+    struct abstract_element<CComboBox> {
+        impl::mfc_const_ccombobox_reference operator()(const CComboBox &c, int n) const { return { c, n }; }
+        impl::mfc_ccombobox_reference operator()(CComboBox &c, int n) { return { c, n }; }
+    };
+
+    template<>
+    struct abstract_resize<CComboBox> {
+        void operator()(CComboBox &c, int s) const {
+            if (s < abstract::size(c)) {
+                abstract::reserve(c, s);
+
+                while (s < abstract::size(c))
+                    abstract::push_back(c, _T(""));
+            } else {
+                while (s > abstract::size(c))
+                    abstract::pop_back(c);
+            }
+        }
+    };
+
+    template<>
+    struct abstract_pop_back<CComboBox> {
+        void operator()(CComboBox &c) const { c.DeleteString(c.GetCount() - 1); }
+    };
+
+    template<>
+    struct abstract_pop_front<CComboBox> {
+        void operator()(CComboBox &c) const { c.DeleteString(0); }
+    };
+
+    template<>
+    class abstract_front_insert_iterator<CComboBox> {
+        CComboBox *c;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr abstract_front_insert_iterator(CComboBox &c) : c(&c) {}
+
+        template<typename R>
+        abstract_front_insert_iterator &operator=(R &&element) {
+            c->InsertString(0, std::forward<R>(element));
+            return *this;
+        }
+
+        abstract_front_insert_iterator &operator*() { return *this; }
+        abstract_front_insert_iterator &operator++() { return *this; }
+        abstract_front_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<>
+    class abstract_back_insert_iterator<CComboBox> {
+        CComboBox *c;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr abstract_back_insert_iterator(CComboBox &c) : c(&c) {}
+
+        template<typename R>
+        abstract_back_insert_iterator &operator=(R &&element) {
+            c->AddString(std::forward<R>(element));
+            return *this;
+        }
 
         abstract_back_insert_iterator &operator*() { return *this; }
         abstract_back_insert_iterator &operator++() { return *this; }

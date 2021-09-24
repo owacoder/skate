@@ -27,8 +27,8 @@ namespace skate {
     // The logical value can be more restricted in size than what the underlying type supports (hence the Bits field in the template parameters)
     // The Mode specifies the operation performed when attempting clamping the value into range
     template<typename Underlying,
-             int Bits = std::numeric_limits<Underlying>::digits + std::is_signed<Underlying>::value,
-             safeint_mode Mode = std::is_signed<Underlying>::value? safeint_mode::saturate: safeint_mode::mask>
+             safeint_mode Mode = std::is_signed<Underlying>::value? safeint_mode::saturate: safeint_mode::mask,
+             int Bits = std::numeric_limits<Underlying>::digits + std::is_signed<Underlying>::value>
     class basic_safeint {
         constexpr static const int UnderlyingBits = std::numeric_limits<Underlying>::digits + (std::is_signed<Underlying>::value != 0);
         constexpr static const bool Signed = std::is_signed<Underlying>::value;
@@ -58,8 +58,8 @@ namespace skate {
         template<typename T>
         constexpr static T Reduce(T value) noexcept { return value; }
 
-        template<typename T, int B, safeint_mode M>
-        constexpr static auto Reduce(basic_safeint<T, B, M> value) noexcept -> decltype(value.value()) { return value.value(); }
+        template<typename T, safeint_mode M, int B>
+        constexpr static auto Reduce(basic_safeint<T, M, B> value) noexcept -> decltype(value.value()) { return value.value(); }
 
         template<typename T>
         constexpr static Underlying ClampHelper(T value) {
@@ -120,11 +120,40 @@ namespace skate {
                     default: throw safeint_exception(); break;
                 }
             } else {
-                x += Underlying(other_reduced);
+                x = Underlying(x + other_reduced);
             }
 
             return *this;
         }
+
+        template<typename T>
+        basic_safeint &operator-=(T other) {
+            const auto other_reduced = Reduce(other);
+
+            if ((x >= 0 && LessThan(other_reduced, Min + x)) ||
+                (x < 0 && LessThan(Max + x, other_reduced))) {
+                switch (Mode) {
+                    case safeint_mode::mask: x &= Max; break;
+                    case safeint_mode::saturate: x = x < 0? Max: Min; break;
+                    default: throw safeint_exception(); break;
+                }
+            } else {
+                x = Underlying(x - other_reduced);
+            }
+
+            return *this;
+        }
+
+#if 0
+        template<typename T>
+        basic_safeint &operator/=(T other) {
+            const auto other_reduced = Reduce(other);
+
+            if (Min < -Max && x == Min && other_reduced < 0 && other_reduced == -1) {
+                // Overflow
+            }
+        }
+#endif
 
         basic_safeint &operator++() { return *this += 1; }
         basic_safeint operator++(int) { const auto copy = *this; ++*this; return copy; }
@@ -147,18 +176,18 @@ namespace skate {
         Underlying x;
     };
 
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator<(T l, basic_safeint<U, B, M> r) noexcept { return r.operator>(l); }
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator>(T l, basic_safeint<U, B, M> r) noexcept { return r.operator<(l); }
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator<=(T l, basic_safeint<U, B, M> r) noexcept { return r.operator>=(l); }
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator>=(T l, basic_safeint<U, B, M> r) noexcept { return r.operator<=(l); }
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator==(T l, basic_safeint<U, B, M> r) noexcept { return r.operator==(l); }
-    template<typename T, typename U, int B, safeint_mode M>
-    constexpr bool operator!=(T l, basic_safeint<U, B, M> r) noexcept { return r.operator!=(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator<(T l, basic_safeint<U, M, B> r) noexcept { return r.operator>(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator>(T l, basic_safeint<U, M, B> r) noexcept { return r.operator<(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator<=(T l, basic_safeint<U, M, B> r) noexcept { return r.operator>=(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator>=(T l, basic_safeint<U, M, B> r) noexcept { return r.operator<=(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator==(T l, basic_safeint<U, M, B> r) noexcept { return r.operator==(l); }
+    template<typename T, typename U, safeint_mode M, int B>
+    constexpr bool operator!=(T l, basic_safeint<U, M, B> r) noexcept { return r.operator!=(l); }
 }
 
 #endif // SKATE_SAFEINT_H

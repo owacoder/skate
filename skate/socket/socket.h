@@ -189,6 +189,12 @@ namespace skate {
         template<typename>
         friend class socket_server;
 
+        void do_server_connected(std::error_code &ec) {
+            connected(ec);
+
+            if (ec)
+                error(ec);
+        }
         void do_server_read(std::error_code &ec) {
             async_fill_read_buffer(ec);
             if (!ec)
@@ -205,6 +211,12 @@ namespace skate {
             if (ec)
                 error(ec);
         }
+        void do_server_disconnected(std::error_code &ec) {
+            disconnected(ec);
+
+            if (ec)
+                error(ec);
+        }
 
     protected:
         socket(system_socket_descriptor sock, socket_state current_state, bool is_blocking) noexcept
@@ -216,8 +228,10 @@ namespace skate {
 
         bool did_write; // Subclasses must set to true immediately when the socket object is written to (whether or not the write actually succeeded. stream_socket and datagram_socket already do this)
 
+        virtual void connected(std::error_code &) {}
         virtual void ready_read(std::error_code &) {}
         virtual void ready_write(std::error_code &) {}
+        virtual void disconnected(std::error_code &) {}
         virtual void error(std::error_code) {}
 
     public:
@@ -313,6 +327,9 @@ namespace skate {
                 ec = impl::close_socket(sock);
                 sock = impl::system_invalid_socket_value;
                 s = socket_state::invalid;
+
+                if (is_blocking() && !ec)
+                    disconnected(ec);
             }
         }
 
@@ -341,8 +358,10 @@ namespace skate {
 
             for (const auto &address: remote) {
                 connect_sync(ec, address);
-                if (!ec)
+                if (!ec) {
+                    connected(ec);
                     return; // Success!
+                }
                 ec.clear();
             }
         }
@@ -378,6 +397,8 @@ namespace skate {
         virtual void async_fill_read_buffer(std::error_code &ec) = 0;
         // Attempt to flush the write buffer to the native socket
         virtual void async_flush_write_buffer(std::error_code &ec) = 0;
+        // Must return true if more data is waiting to be read
+        virtual bool async_pending_read() const = 0;
         // Must return true if more data is waiting to be written
         virtual bool async_pending_write() const = 0;
 
@@ -603,9 +624,11 @@ namespace skate {
 
         // Attempt to flush the write buffer
         virtual void async_flush_write_buffer(std::error_code &ec) override {
-            write(ec, nullptr, 0);
+            if (write_buffer.size())
+                write(ec, nullptr, 0);
         }
 
+        virtual bool async_pending_read() const override { return read_buffer.size(); }
         virtual bool async_pending_write() const override { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
@@ -863,6 +886,7 @@ namespace skate {
                 ec.clear();
         }
 
+        virtual bool async_pending_read() const override { return read_buffer.size(); }
         virtual bool async_pending_write() const override { return write_buffer.size(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1

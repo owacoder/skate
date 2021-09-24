@@ -105,6 +105,12 @@ namespace skate {
                         }
 
                         client_socket_map.insert({remote, std::move(p)});
+
+                        s->do_server_connected(ec);
+                        if (ec) {
+                            p->error(ec);
+                            error(p.get(), ec);
+                        }
                     }
                 }
 #else
@@ -116,36 +122,29 @@ namespace skate {
         void socket_nonaccept_event_occurred(socket *s, socket_watch_flags flags) {
             const system_socket_descriptor desc = s->native(); // Must be called before callbacks. If called after, the user may have closed the socket and erased the descriptor
             const socket_state original_state = s->state();
+            std::error_code ec;
 
             s->did_write = false;
 
+            const bool attempt_read = (flags & WatchRead) || s->async_pending_read();
+            const bool attempt_write = flags & WatchWrite;
+
             if (!s->is_listening()) { // Ignore read/write events on accept()ing socket
-                if (flags & WatchWrite) {
-                    std::error_code ec;
+                if (attempt_write)
                     s->do_server_write(ec);
 
-                    if (ec)
-                        error(s, ec);
-                }
-
-                if (flags & WatchRead && !s->is_null()) {
-                    std::error_code ec;
+                if (attempt_read && !s->is_null())
                     s->do_server_read(ec);
-
-                    if (ec)
-                        error(s, ec);
-                }
             }
 
-            std::error_code ec;
-
             // Was it a hangup, or socket disconnected in callback? If so, unwatch and delete
-            if ((flags & WatchHangup) ||                                            // Originally disconnected, that's why the event came in
-                (s->state() != original_state && s->is_null())) {                   // Socket already was disconnected
+            if (((flags & WatchHangup) && !attempt_read) ||                             // Originally disconnected, that's why the event came in
+                (s->state() != original_state && s->is_null())) {                       // Socket already was disconnected
+                s->do_server_disconnected(ec);
                 watcher.unwatch_dead_descriptor(ec, desc);
                 third_party_socket_map.erase(desc);
                 client_socket_map.erase(desc);
-            } else if (s->did_write) {                                              // Data was queued to send, enable write watching
+            } else if (s->did_write) {                                                  // Data was queued to send, enable write watching
                 update_blocking(s, watcher.modify(ec, desc, WatchAll));
             } else if ((flags & WatchWrite) && !s->did_write && !s->async_pending_write()) { // No data queued and no data sent, disable write watching
                 update_blocking(s, watcher.modify(ec, desc, WatchAll & ~WatchWrite));
@@ -157,7 +156,6 @@ namespace skate {
             }
         }
 
-        // Initializes error handling on socket. If the socket has no error handler, set up a callback to the server error_fn
         std::error_code do_socket_init(socket *s) {
             std::error_code ec;
 

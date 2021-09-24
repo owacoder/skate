@@ -133,9 +133,10 @@ void network_test() {
 
     skate::http_request req;
     req.url.set_hostname("territory.ddns.net");
+    req.headers["Connection"] = "close";
 
     auto resolved = http.resolve(ec, { req.url.get_host(skate::url::encoding::raw), req.url.get_port(80) });
-    // http.set_blocking(ec, false);
+    http.set_blocking(ec, false);
     if (resolved.size())
         http.connect_sync(ec, resolved);
 
@@ -224,11 +225,12 @@ namespace skate {
 
 int main()
 {
+#if 0
     {
         skate::basic_safeint<unsigned> u = 0;
-        skate::basic_safeint<int> i = -1;
+        skate::basic_safeint<int, skate::safeint_mode::error> i = INT_MAX;
 
-        i += INT_MIN;
+        i += (long long) (INT_MAX) + 1;
 
         std::cout << i.value() << std::endl;
 
@@ -255,8 +257,9 @@ int main()
     }
 
     return 0;
+#endif
 
-#if 1
+#if 0
     if (0)
     {
         std::vector<std::string> v = {"A\nnewline'\"", " 1", "2   ", "3"};
@@ -365,6 +368,7 @@ int main()
     return 0;
 #endif
 
+#if 0
     std::string text = "1, no";
 
     std::cout << skate::from_csv<bool>(text) << std::endl;
@@ -375,6 +379,7 @@ int main()
     std::cout << '\n';
 
     return 0;
+#endif
 
 #if 0
     {
