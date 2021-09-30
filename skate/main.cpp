@@ -51,6 +51,7 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 
 #include "io/streams.h"
 #include "containers/abstract_list.h"
+#include "containers/abstract_map.h"
 //#include "containers/MFC/mfc_abstract_list.h"
 #if 0
 #include <QString>
@@ -76,9 +77,12 @@ void abstract_container_test() {
     std::vector<int> v = il;
     std::list<int> l = il;
     std::forward_list<int> fl = il;
+    std::map<int, int> m = {{0, 5}, {1, 4}, {2, 3}, {3, 2}, {4, 1}, {5, 0}};
     // CArray<int, int> ca;
     // CList<int, int> cl;
     // CString s;
+
+    std::cout << "map: " << skate::json(skate::abstract::keys<std::vector<int>>(m)) << '\n';
 
     namespace abstract = skate::abstract;
 
@@ -363,7 +367,7 @@ int main()
     return 0;
 #endif
 
-#if 0
+#if 1
     abstract_container_test();
     return 0;
 #endif

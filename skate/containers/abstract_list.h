@@ -230,7 +230,7 @@ namespace skate {
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
     };
 
-    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::key_type> struct key_of;
+    template<typename MapPair, typename = const typename is_map_pair_helper<MapPair>::key_type> struct key_of;
 
     template<typename MapPair>
     struct key_of<MapPair, decltype(std::declval<MapPair>()->first)> {
