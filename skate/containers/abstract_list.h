@@ -230,56 +230,48 @@ namespace skate {
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
     };
 
-    template<typename MapPair, typename = const typename is_map_pair_helper<MapPair>::key_type> struct key_of;
+    template<typename MapPair, typename = typename std::decay<typename is_map_pair_helper<MapPair>::key_type>::type> struct key_of;
 
     template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>()->first)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->first) &operator()(const _ &m) const { return m->first; }
+    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->first)>::type> {
+        const decltype(std::declval<MapPair>()->first) &operator()(const MapPair &m) const { return m->first; }
     };
 
     template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>().first)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().first) &operator()(const _ &m) const { return m.first; }
+    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().first)>::type> {
+        const decltype(std::declval<MapPair>().first) &operator()(const MapPair &m) const { return m.first; }
     };
 
     template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>()->key())> {
-        template<typename _ = MapPair>
-        decltype(std::declval<MapPair>()->key()) operator()(const _ &m) const { return m->key(); }
+    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->key())>::type> {
+        decltype(std::declval<MapPair>()->key()) operator()(const MapPair &m) const { return m->key(); }
     };
 
     template<typename MapPair>
-    struct key_of<MapPair, decltype(std::declval<MapPair>().key())> {
-        template<typename _ = MapPair>
-        decltype(std::declval<MapPair>().key()) operator()(const _ &m) const { return m.key(); }
+    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().key())>::type> {
+        decltype(std::declval<MapPair>().key()) operator()(const MapPair &m) const { return m.key(); }
     };
 
-    template<typename MapPair, typename = typename is_map_pair_helper<MapPair>::value_type> struct value_of;
+    template<typename MapPair, typename = typename std::decay<typename is_map_pair_helper<MapPair>::value_type>::type> struct value_of;
 
     template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>()->second)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>()->second) &operator()(const _ &m) const { return m->second; }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>().second)> {
-        template<typename _ = MapPair>
-        const decltype(std::declval<MapPair>().second) &operator()(const _ &m) const { return m.second; }
+    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->second)>::type> {
+        const decltype(std::declval<MapPair>()->second) &operator()(const MapPair &m) const { return m->second; }
     };
 
     template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>()->value())> {
-        template<typename _ = MapPair>
-        decltype(std::declval<MapPair>()->value()) operator()(const _ &m) const { return m->value(); }
+    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().second)>::type> {
+        const decltype(std::declval<MapPair>().second) &operator()(const MapPair &m) const { return m.second; }
     };
 
     template<typename MapPair>
-    struct value_of<MapPair, decltype(std::declval<MapPair>().value())> {
-        template<typename _ = MapPair>
-        decltype(std::declval<MapPair>().value()) operator()(const _ &m) const { return m.value(); }
+    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->value())>::type> {
+        decltype(std::declval<MapPair>()->value()) operator()(const MapPair &m) const { return m->value(); }
+    };
+
+    template<typename MapPair>
+    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().value())>::type> {
+        decltype(std::declval<MapPair>().value()) operator()(const MapPair &m) const { return m.value(); }
     };
 
     template<typename T> struct is_map : public std::false_type {};

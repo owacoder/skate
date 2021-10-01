@@ -82,7 +82,8 @@ void abstract_container_test() {
     // CList<int, int> cl;
     // CString s;
 
-    std::cout << "map: " << skate::json(skate::abstract::keys<std::vector<int>>(m)) << '\n';
+    std::cout << "map: " << skate::json(skate::abstract::keys(m)) << '\n';
+    std::cout << "map: " << skate::json(skate::abstract::values(m)) << '\n';
 
     namespace abstract = skate::abstract;
 

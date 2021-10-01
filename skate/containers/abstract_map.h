@@ -18,7 +18,7 @@
  * insert() adds a new key/value pair to the map, or replaces it if it exists in a single-value map
  * erase() removes a key/value pair from the map
  * contains() returns true if the key exists in the map
- * begin() and end() return iterators to the current abstract map with an iterator that dereferences identically to std::pair<Key, Value>
+ * begin() and end() return iterators to the current abstract map
  * keys() returns an abstract list allowing iteration of the current abstract map's keys
  * values() returns an abstract list allowing iteration of the current abstract map's values
  *
@@ -75,33 +75,59 @@ namespace skate {
         template<typename T, typename K, typename V>
         void insert(T &c, K &&key, V &&value) { abstract_map_insert<T>{}(c, std::forward<K>(key), std::forward<V>(value)); }
 
-        template<typename List, typename Map>
-        List keys(const Map &m) {
-            typedef typename std::decay<decltype(begin(m))>::type KeyValuePair;
+        namespace impl {
+            // Normal key extraction if list type is provided
+            template<typename List, typename Map>
+            struct keys {
+                List get(const Map &m) const {
+                    List result;
 
-            List result;
+                    abstract::reserve(result, abstract::size(m));
+                    for (auto el = begin(m); el != end(m); ++el) {
+                        abstract::push_back(result, key_of<decltype(el)>{}(el));
+                    }
 
-            abstract::reserve(result, abstract::size(m));
-            for (auto el = begin(m); el != end(m); ++el) {
-                abstract::push_back(result, key_of<KeyValuePair>{}(el));
-            }
+                    return result;
+                }
+            };
 
-            return result;
+            // Default key extract if list type is not provided (void)
+            template<typename Map>
+            struct keys<void, Map> {
+                typedef std::vector<typename std::decay<typename is_map_pair_helper<decltype(begin(std::declval<Map>()))>::key_type>::type> List;
+
+                List get(const Map &m) const { return keys<List, Map>{}.get(m); }
+            };
+
+            // Normal value extraction if list type is provided
+            template<typename List, typename Map>
+            struct values {
+                List get(const Map &m) const {
+                    List result;
+
+                    abstract::reserve(result, abstract::size(m));
+                    for (auto el = begin(m); el != end(m); ++el) {
+                        abstract::push_back(result, value_of<decltype(el)>{}(el));
+                    }
+
+                    return result;
+                }
+            };
+
+            // Default value extract if list type is not provided (void)
+            template<typename Map>
+            struct values<void, Map> {
+                typedef std::vector<typename std::decay<typename is_map_pair_helper<decltype(begin(std::declval<Map>()))>::value_type>::type> List;
+
+                List get(const Map &m) const { return values<List, Map>{}.get(m); }
+            };
         }
 
-        template<typename List, typename Map>
-        List values(const Map &m) {
-            typedef typename std::decay<decltype(begin(std::declval<Map>()))>::type KeyValuePair;
+        template<typename List = void, typename Map>
+        auto keys(const Map &m) -> decltype(impl::keys<List, Map>{}.get(m)) { return impl::keys<List, Map>{}.get(m); }
 
-            List result;
-
-            abstract::reserve(result, abstract::size(m));
-            for (auto el = begin(m); el != end(m); ++el) {
-                abstract::push_back(result, value_of<KeyValuePair>{}(el));
-            }
-
-            return result;
-        }
+        template<typename List = void, typename Map>
+        auto values(const Map &m) -> decltype(impl::values<List, Map>{}.get(m)) { return impl::values<List, Map>{}.get(m); }
     }
 }
 
