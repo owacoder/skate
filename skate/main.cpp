@@ -8,6 +8,7 @@
 
 #include "io/buffer.h"
 #include "containers/tree.h"
+#include "containers/sparse_array.h"
 
 #include "socket/socket.h"
 #include "socket/server.h"
@@ -72,6 +73,49 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
 #include "system/benchmark.h"
 
 void abstract_container_test() {
+    skate::sparse_array<uint8_t> sparse;
+    std::vector<uint8_t> dense;
+
+    skate::benchmark([&]() {
+        for (size_t i = 0; i < 1000000900; ++i)
+            sparse.push_back(rand());
+    }, "Building sparse");
+
+    skate::benchmark([&]() {
+        for (size_t i = 0; i < 1000000900; ++i)
+            dense.push_back(rand());
+    }, "Building dense");
+
+#if 0
+    for (size_t r = 0; r < sparse.runs(); ++r) {
+        std::cout << "Run " << (r+1) << ":\n";
+        for (size_t k = sparse.run_begin(r); k < sparse.run_end(r); ++k) {
+            std::cout << "  " << k << ": " << sparse.at(k) << '\n';
+        }
+    }
+#endif
+
+    skate::benchmark([&]() {
+        sparse.unstore(0, 1000000000);
+    }, "Erasing sparse");
+
+    skate::benchmark([&]() {
+        dense.erase(dense.begin(), dense.begin() + std::min<size_t>(1000000000, dense.size()));
+    }, "Erasing dense");
+
+    size_t calc_stored = 0;
+    for (size_t r = 0; r < sparse.runs(); ++r) {
+        std::cout << "Run " << (r+1) << ":\n";
+        for (size_t k = sparse.run_begin(r); k < sparse.run_end(r); ++k) {
+            std::cout << "  " << k << ": " << int(sparse.at(k)) << '\n';
+            ++calc_stored;
+        }
+    }
+
+    std::cout << sparse.stored() << ',' << calc_stored << '\n';
+
+    return;
+
     std::initializer_list<int> il = { 0, 1, 2, 3, 4, 5 };
 
     std::vector<int> v = il;

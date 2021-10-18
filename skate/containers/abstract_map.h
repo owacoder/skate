@@ -71,6 +71,17 @@ namespace skate {
         bool operator()(const std::unordered_multimap<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
     };
 
+    template<typename T>
+    struct abstract_value {
+        template<typename K, typename V = typename std::decay<decltype(value_of<decltype(begin(std::declval<T>()))>(begin(std::declval<T>())))>::type>
+        V operator()(const T &c, const K &key, const V &default_value = {}) const {
+            const auto it = c.find(key);
+            if (it == c.end())
+                return default_value;
+            return value_of<decltype(it)>(it);
+        }
+    };
+
     namespace abstract {
         template<typename T, typename K, typename V>
         void insert(T &c, K &&key, V &&value) { abstract_map_insert<T>{}(c, std::forward<K>(key), std::forward<V>(value)); }

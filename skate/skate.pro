@@ -13,6 +13,7 @@ HEADERS += \
     containers/WTL/wtl_abstract_list.h \
     containers/abstract_list.h \
     containers/abstract_map.h \
+    containers/sparse_array.h \
     containers/split_join.h \
     containers/utf.h \
     io/adapters/csv.h \
