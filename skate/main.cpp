@@ -76,13 +76,16 @@ void abstract_container_test() {
     skate::sparse_array<uint8_t> sparse;
     std::vector<uint8_t> dense;
 
+    sparse[10000] = 4;
+    sparse[7770] = 1;
+
     skate::benchmark([&]() {
-        for (size_t i = 0; i < 1000000900; ++i)
+        for (size_t i = 0; i < 1000; ++i)
             sparse.push_back(rand());
     }, "Building sparse");
 
     skate::benchmark([&]() {
-        for (size_t i = 0; i < 1000000900; ++i)
+        for (size_t i = 0; i < 1000; ++i)
             dense.push_back(rand());
     }, "Building dense");
 
@@ -96,7 +99,7 @@ void abstract_container_test() {
 #endif
 
     skate::benchmark([&]() {
-        sparse.unstore(0, 1000000000);
+        sparse.unstore(1, 11000);
     }, "Erasing sparse");
 
     skate::benchmark([&]() {

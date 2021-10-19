@@ -239,57 +239,11 @@ namespace skate {
         // Unstores [first, last), where last points one-past the last element to unstore
         // No elements have indexes shifted
         void unstore(Key first, Key last) {
-            if (!(first < last))
-                return;
+            first = std::max(first, span_begin());
+            last = std::min(last, span_end());
 
-            auto lower_bound = m_data.upper_bound(first);
-            if (lower_bound != m_data.begin())
-                --lower_bound;
-            first = std::min(first, chunk_last_index(lower_bound));
-
-            auto upper_bound = m_data.upper_bound(last);
-            if (upper_bound == m_data.begin())
-                return;
-            --upper_bound;
-            last = std::min(last, chunk_last_index(upper_bound));
-
-            const bool single_chunk = lower_bound == upper_bound;
-
-            // Remove extremes from the stored count
-            if (single_chunk)
-                m_stored -= size_t(last - first);
-            else {
-                m_stored -= size_t(last - chunk_first_index(upper_bound));
-                m_stored -= size_t(chunk_last_index(lower_bound) - first);
-            }
-
-            // Remove the trailing portion and insert as a new chunk
-            std::vector<Value> uppervec;
-
-            uppervec.insert(uppervec.end(),
-                            std::make_move_iterator(upper_bound->second.begin() + size_t(last - chunk_first_index(upper_bound))),
-                            std::make_move_iterator(upper_bound->second.end()));
-
-            if (uppervec.size()) {
-                upper_bound = m_data.insert(++upper_bound, std::make_pair(last, std::move(uppervec)));
-            }
-
-            if (first == chunk_first_index(lower_bound)) {
-                // If the beginning portion is completely removed, erase the chunk altogether
-                m_data.erase(lower_bound++);
-            } else {
-                // Otherwise, just resize the end of the chunk down to the required size
-                lower_bound->second.resize(size_t(first - chunk_first_index(lower_bound)));
-                ++lower_bound;
-            }
-
-            if (!single_chunk) {
-                // Deduct count from stored
-                for (auto it = lower_bound; it != upper_bound; ++it)
-                    m_stored -= it->second.size();
-
-                // Then erase all chunks completely within [first, last)
-                m_data.erase(lower_bound, upper_bound);
+            while (first < last) {
+                unstore(--last);
             }
         }
     };
