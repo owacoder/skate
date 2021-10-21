@@ -137,7 +137,7 @@ namespace skate {
                 std::string key{status, colon - start_offset};
 
                 ++colon;
-                while (response_buffer[colon] == ' ')
+                while (colon < response_buffer.size() && response_buffer[colon] == ' ')
                     ++colon;
 
                 std::string value{response_buffer.c_str() + colon, end_of_line - colon};
@@ -197,7 +197,7 @@ namespace skate {
 
             // If at end of body...
             if (response_done) {
-                if ((current_response.major < 1 || (current_response.minor == 1 && current_response.minor == 0)) ||
+                if ((current_response.major < 1 || (current_response.major == 1 && current_response.minor == 0)) ||
                      current_request.headers["Connection"].find("close") != std::string::npos) // HTTP 1.0 or "Connection: close", close connection
                     disconnect(ec);
 

@@ -242,9 +242,52 @@ namespace skate {
             first = std::max(first, span_begin());
             last = std::min(last, span_end());
 
-            while (first < last) {
+            if (first < last)
                 unstore(--last);
+
+            while (first < last) {
+                auto chunk = m_data.upper_bound(last);
+                if (chunk == m_data.begin())
+                    return;
+                --chunk;
+
+                if (chunk_first_index(chunk) < first) {
+                    m_stored -= size_t(chunk_last_index(chunk) - first);
+                    chunk->second.resize(size_t(first - chunk_first_index(chunk)));
+                    return;
+                } else {
+                    last = chunk_first_index(chunk);
+                    m_stored -= chunk->second.size();
+                    m_data.erase(chunk);
+                }
             }
+        }
+
+        // Erases idx from the array, shifting the indexes of all higher elements down by 1
+        void erase(Key idx) { erase(idx, idx + 1); }
+
+        // Erases [first, last) from the array, shifting the indexes of all higher elements down by `last - first`
+        void erase(Key first, Key last) {
+            if (!(first < last))
+                return;
+
+            unstore(first, last);
+            const Key diff = last - first;
+
+            // All chunks higher than last need to be updated to a new key value
+            for (auto chunk = m_data.upper_bound(--last); chunk != m_data.end(); ++chunk) {
+                auto chunkvec = std::move(chunk->second);
+                auto chunkstart = chunk_first_index(chunk);
+
+                m_data.erase(chunk++);
+                chunk = m_data.insert(chunk, { chunkstart - diff, std::move(chunkvec) });
+            }
+
+            // Now compact the chunks at the beginning (only relevant if there's a chunk exactly at first)
+            auto upper_chunk = m_data.find(first);
+            auto lower_chunk = upper_chunk;
+            if (upper_chunk != m_data.begin())
+                compact_chunks(--lower_chunk, upper_chunk);
         }
     };
 }
