@@ -523,13 +523,34 @@ namespace skate {
         }
 
 #if __cplusplus >= 201703L
-        static std::string from_percent_encoded(std::string_view s, bool *error = nullptr) {
+        static std::string from_string_helper(std::string_view s, encoding fmt, bool *error = nullptr) {
 #else
-        static std::string from_percent_encoded(const std::string &s, bool *error = nullptr) {
+        static std::string from_string_helper(const std::string &s, encoding fmt, bool *error = nullptr) {
 #endif
-            // TODO: parse from percent_encoded
+            std::string result;
 
-            return {};
+            if (error)
+                *error = false;
+
+            if (fmt == encoding::raw)
+                return std::string(s);
+
+            for (size_t i = 0; i < s.size(); ++i) {
+                if (s[i] == '%') {
+                    if (i + 2 < s.size() && isxdigit(s[i+1] & 0xff) && isxdigit(s[i+2] & 0xff)) {
+                        result.push_back((toxdigit(s[i+1]) << 4) | toxdigit(s[i+2]));
+                        i += 2;
+                        continue;
+                    } else {
+                        if (error)
+                            *error = true;
+                    }
+                }
+
+                result.push_back(s[i]);
+            }
+
+            return result;
         }
 
         static void to_percent_encoded(std::string &append_to, const std::string &s, const char *noescape = "") {
@@ -673,17 +694,29 @@ namespace skate {
 
     public:
         url() {}
+#if __cplusplus >= 201703L
+        url(std::string_view s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
+#else
+        url(const std::string &s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
+#endif
 
-        bool has_valid_scheme() const noexcept {
-            if (m_scheme.empty() || !isalpha(m_scheme[0]))
+        bool valid() const noexcept {
+            if (m_scheme.empty() || !isalpha(m_scheme[0] & 0xff))
                 return false;
 
             for (const unsigned char c: m_scheme)
                 if (!isalnum(c) && c != '+' && c != '-' && c != '.')
                     return false;
 
+            if (m_host.is_null())
+                return false;
+
+            if (has_authority() && get_path().substr(0, 2) == "//")
+                return false;
+
             return true;
         }
+        operator bool() const noexcept { return valid(); }
 
         bool has_host() const noexcept { return !m_host.is_null(); }
         bool has_port() const noexcept { return m_host.port(); }
@@ -697,19 +730,19 @@ namespace skate {
         bool has_userinfo() const noexcept { return has_username() || has_password(); }
         bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
 
-        std::string get_host(encoding fmt) const { std::string result; append_host(result, fmt); return result; }
+        std::string get_host(encoding fmt = encoding::raw) const { std::string result; append_host(result, fmt); return result; }
         uint16_t get_port(uint16_t default_port = 0) const noexcept { return m_host.port(default_port); }
-        std::string get_hostname(encoding fmt) const { std::string result; append_hostname(result, fmt); return result; }
-        std::string get_username(encoding fmt) const { std::string result; append_username(result, fmt); return result; }
-        std::string get_password(encoding fmt) const { std::string result; append_password(result, fmt); return result; }
-        std::string get_userinfo(encoding fmt) const { std::string result; append_userinfo(result, fmt); return result; }
-        std::string get_authority(encoding fmt) const { std::string result; append_authority(result, fmt); return result; }
+        std::string get_hostname(encoding fmt = encoding::raw) const { std::string result; append_hostname(result, fmt); return result; }
+        std::string get_username(encoding fmt = encoding::raw) const { std::string result; append_username(result, fmt); return result; }
+        std::string get_password(encoding fmt = encoding::raw) const { std::string result; append_password(result, fmt); return result; }
+        std::string get_userinfo(encoding fmt = encoding::raw) const { std::string result; append_userinfo(result, fmt); return result; }
+        std::string get_authority(encoding fmt = encoding::raw) const { std::string result; append_authority(result, fmt); return result; }
         std::string get_scheme() const { std::string result; append_scheme(result); return result; }
-        std::string get_path(encoding fmt) const { std::string result; append_path(result, fmt); return result; }
-        std::string get_query(encoding fmt) const { std::string result; append_query(result, fmt); return result; }
-        std::string get_fragment(encoding fmt) const { std::string result; append_fragment(result, fmt); return result; }
-        std::string get_path_and_query(encoding fmt) const { std::string result; append_path_and_query(result, fmt); return result; }
-        std::string get_path_and_query_and_fragment(encoding fmt) const { std::string result; append_path_and_query_and_fragment(result, fmt); return result; }
+        std::string get_path(encoding fmt = encoding::raw) const { std::string result; append_path(result, fmt); return result; }
+        std::string get_query(encoding fmt = encoding::raw) const { std::string result; append_query(result, fmt); return result; }
+        std::string get_fragment(encoding fmt = encoding::raw) const { std::string result; append_fragment(result, fmt); return result; }
+        std::string get_path_and_query(encoding fmt = encoding::raw) const { std::string result; append_path_and_query(result, fmt); return result; }
+        std::string get_path_and_query_and_fragment(encoding fmt = encoding::raw) const { std::string result; append_path_and_query_and_fragment(result, fmt); return result; }
 
         size_t path_elements() const {
             if (m_path.size()) {
@@ -732,30 +765,53 @@ namespace skate {
             m_host.set_port(port);
             return *this;
         }
-        url &set_scheme(std::string scheme) {
-            m_scheme = std::move(scheme);
+        url &set_authority(std::string authority, encoding fmt = encoding::raw) {
+            size_t start = 0;
+            const size_t end = authority.find('@');
+
+            if (end != authority.npos) {
+                const size_t middle = authority.find(':');
+
+                if (middle == authority.npos) { // Username only
+                    set_username(authority.substr(start, end - start), fmt);
+                } else { // Username and password
+                    set_username(authority.substr(start, middle - start), fmt);
+                    start = middle + 1;
+                    set_password(authority.substr(start, end - start), fmt);
+                }
+
+                start = end + 1;
+            }
+
+            return set_hostname(authority.substr(start));
+        }
+        url &set_scheme(std::string scheme, encoding fmt = encoding::raw) {
+            m_scheme = from_string_helper(scheme, fmt);
             return *this;
         }
-        url &set_username(std::string username) {
-            m_username = std::move(username);
+        url &set_username(std::string username, encoding fmt = encoding::raw) {
+            m_username = from_string_helper(username, fmt);
             return *this;
         }
-        url &set_password(std::string password) {
-            m_password = std::move(password);
+        url &set_password(std::string password, encoding fmt = encoding::raw) {
+            m_password = from_string_helper(password, fmt);
             return *this;
         }
-        url &set_path(std::string path) {
-            m_path = std::move(path);
+        url &set_path(std::string path, encoding fmt = encoding::raw) {
+            m_path = from_string_helper(path, fmt);
             m_pathlist = {};
             return *this;
         }
-        url &set_path(std::vector<std::string> path) {
+        url &set_path(std::vector<std::string> path, encoding fmt = encoding::raw) {
+            for (auto &p: path)
+                p = from_string_helper(p, fmt);
+
             m_path.clear();
             m_pathlist = std::move(path);
             return *this;
         }
-        url &set_query(std::string query) {
-            m_query = std::move(query);
+        url &set_query(std::string query, encoding fmt = encoding::raw) {
+            m_query = from_string_helper(query, fmt);
             m_querymap = {};
             return *this;
         }
@@ -765,7 +821,7 @@ namespace skate {
             return *this;
         }
         url &clear_queries() { return set_query(std::string{}); }
-        url &set_query(std::string key, std::string value) {
+        url &set_query(std::string key, std::string value, encoding fmt = encoding::raw) {
             if (m_query.size()) {
                 std::vector<std::string> queries = split(m_query, "&");
 
@@ -777,15 +833,15 @@ namespace skate {
                         break;
                     }
 
-                    m_querymap[query.substr(0, equals)] = query.substr(equals + 1);
+                    m_querymap[from_string_helper(query.substr(0, equals), fmt)] = from_string_helper(query.substr(equals + 1), fmt);
                 }
             }
 
-            m_querymap[std::move(key)] = std::move(value);
+            m_querymap[from_string_helper(key, fmt)] = from_string_helper(value, fmt);
             return *this;
         }
-        url &set_fragment(std::string fragment) {
-            m_fragment = std::move(fragment);
+        url &set_fragment(std::string fragment, encoding fmt = encoding::raw) {
+            m_fragment = from_string_helper(fragment, fmt);
             return *this;
         }
 
@@ -804,6 +860,67 @@ namespace skate {
             }
 
             append_path_and_query_and_fragment(result, fmt);
+
+            return result;
+        }
+
+        // Creates a URL from the given string, but doesn't verify its validity
+#if __cplusplus >= 201703L
+        static url from_string(std::string_view s, encoding fmt = encoding::percent) {
+#else
+        static url from_string(const std::string &s, encoding fmt = encoding::percent) {
+#endif
+            url result;
+
+            if (s.empty())
+                return result;
+
+            size_t start = 0;
+            size_t end = s.find(':', start);
+            if (end == s.npos)
+                return result;
+
+            // Parse scheme (all lowercase)
+            result.set_scheme(std::string(s.substr(start, end - start)), fmt);
+            start = end + 1;
+
+            for (size_t i = 0; i < result.m_scheme.size(); ++i)
+                result.m_scheme[i] = tolower(result.m_scheme[i] & 0xff);
+
+            // Parse authority
+            if (s.size() - start > 2 && s[start] == '/' && s[start+1] == '/') {
+                start += 2;
+                end = s.find_first_of("/?#", start);
+
+                result.set_authority(std::string(s.substr(start, end - start)), fmt);
+                if (end == s.npos)
+                    return result;
+
+                start = end;
+            }
+
+            // Parse path if present
+            if (start < s.size() && s[start] == '/') {
+                end = s.find_first_of("?#", ++start);
+
+                result.set_path(std::string(s.substr(start, end - start)), fmt);
+                start = end;
+            }
+
+            // Parse query if present
+            if (start < s.size() && s[start] == '?') {
+                end = s.find('#', ++start);
+
+                result.set_query(std::string(s.substr(start, end - start)), fmt);
+                start = end;
+            }
+
+            // Parse fragment if present
+            if (start < s.size() && s[start] == '#') {
+                ++start;
+
+                result.set_fragment(std::string(s.substr(start, end - start)), fmt);
+            }
 
             return result;
         }

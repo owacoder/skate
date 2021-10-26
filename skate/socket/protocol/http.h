@@ -190,7 +190,7 @@ namespace skate {
 
                 skate::tcp_socket::read(ec, response_buffer, 1);
 
-                // Detect line ending to get mark end of chunk header
+                // Detect line ending to get end of chunk header
                 if (response_buffer.find("\r\n", start_search) == response_buffer.npos)
                     return;
             }

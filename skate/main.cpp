@@ -175,6 +175,21 @@ void abstract_container_test() {
 #include "socket/protocol/http.h"
 
 void network_test() {
+    skate::url url("http://username:password@www.jw.org:90?#%20query=%65bc");
+
+    std::cout << url.to_string(skate::url::encoding::raw) << '\n';
+    std::cout << url.valid() << '\n';
+    std::cout << "scheme: " << url.get_scheme() << '\n';
+    std::cout << "username: " << url.get_username(skate::url::encoding::percent) << '\n';
+    std::cout << "password: " << url.get_password(skate::url::encoding::percent) << '\n';
+    std::cout << "host: " << url.get_host(skate::url::encoding::percent) << '\n';
+    std::cout << "port: " << url.get_port() << '\n';
+    std::cout << "path: " << url.get_path(skate::url::encoding::percent) << '\n';
+    std::cout << "query: " << url.get_query(skate::url::encoding::percent) << '\n';
+    std::cout << "fragment: " << url.get_fragment(skate::url::encoding::percent) << '\n';
+
+    return;
+
     skate::startup_wrapper wrapper;
     skate::socket_server<> server;
     skate::http_client_socket http;
@@ -274,6 +289,9 @@ namespace skate {
 
 int main()
 {
+    network_test();
+    return 0;
+
 #if 0
     {
         skate::basic_safeint<unsigned> u = 0;
