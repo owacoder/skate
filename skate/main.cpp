@@ -175,7 +175,7 @@ void abstract_container_test() {
 #include "socket/protocol/http.h"
 
 void network_test() {
-    skate::url url("http://username:password@www.jw.org:90?#%20query=%65bc");
+    skate::url url("http://username:password@www.jw.org?#%20query=%65bc");
 
     std::cout << url.to_string(skate::url::encoding::raw) << '\n';
     std::cout << url.valid() << '\n';

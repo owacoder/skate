@@ -522,11 +522,7 @@ namespace skate {
             return isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~';
         }
 
-#if __cplusplus >= 201703L
-        static std::string from_string_helper(std::string_view s, encoding fmt, bool *error = nullptr) {
-#else
-        static std::string from_string_helper(const std::string &s, encoding fmt, bool *error = nullptr) {
-#endif
+        static std::string from_string_helper(const string_parameter &s, encoding fmt, bool *error = nullptr) {
             std::string result;
 
             if (error)
@@ -553,7 +549,7 @@ namespace skate {
             return result;
         }
 
-        static void to_percent_encoded(std::string &append_to, const std::string &s, const char *noescape = "") {
+        static void to_percent_encoded(std::string &append_to, const string_parameter &s, const char *noescape = "") {
             for (const unsigned char c: s) {
                 if (is_unreserved(c) || (c && strchr(noescape, c)))
                     append_to.push_back(c);
@@ -731,7 +727,13 @@ namespace skate {
         bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
 
         std::string get_host(encoding fmt = encoding::raw) const { std::string result; append_host(result, fmt); return result; }
-        uint16_t get_port(uint16_t default_port = 0) const noexcept { return m_host.port(default_port); }
+        uint16_t get_port(uint16_t default_port = 0) const {
+            const uint16_t p = m_host.port(default_port);
+            if (p)
+                return p;
+
+            return default_port_for_scheme();
+        }
         std::string get_hostname(encoding fmt = encoding::raw) const { std::string result; append_hostname(result, fmt); return result; }
         std::string get_username(encoding fmt = encoding::raw) const { std::string result; append_username(result, fmt); return result; }
         std::string get_password(encoding fmt = encoding::raw) const { std::string result; append_password(result, fmt); return result; }
@@ -753,19 +755,19 @@ namespace skate {
             return m_pathlist.size();
         }
 
-        url &set_hostname(std::string hostname) {
-            m_host = network_address(std::move(hostname));
+        url &set_hostname(const string_parameter &hostname) {
+            m_host = network_address(std::string(hostname));
             return *this;
         }
-        url &set_host(std::string hostname) {
-            m_host = network_address(std::move(hostname)).with_port(m_host.port());
+        url &set_host(const string_parameter &hostname) {
+            m_host = network_address(std::string(hostname)).with_port(m_host.port());
             return *this;
         }
         url &set_port(uint16_t port) {
             m_host.set_port(port);
             return *this;
         }
-        url &set_authority(std::string authority, encoding fmt = encoding::raw) {
+        url &set_authority(const string_parameter &authority, encoding fmt = encoding::raw) {
             size_t start = 0;
             const size_t end = authority.find('@');
 
@@ -785,19 +787,19 @@ namespace skate {
 
             return set_hostname(authority.substr(start));
         }
-        url &set_scheme(std::string scheme, encoding fmt = encoding::raw) {
+        url &set_scheme(const string_parameter &scheme, encoding fmt = encoding::raw) {
             m_scheme = from_string_helper(scheme, fmt);
             return *this;
         }
-        url &set_username(std::string username, encoding fmt = encoding::raw) {
+        url &set_username(const string_parameter &username, encoding fmt = encoding::raw) {
             m_username = from_string_helper(username, fmt);
             return *this;
         }
-        url &set_password(std::string password, encoding fmt = encoding::raw) {
+        url &set_password(const string_parameter &password, encoding fmt = encoding::raw) {
             m_password = from_string_helper(password, fmt);
             return *this;
         }
-        url &set_path(std::string path, encoding fmt = encoding::raw) {
+        url &set_path(const string_parameter &path, encoding fmt = encoding::raw) {
             m_path = from_string_helper(path, fmt);
             m_pathlist = {};
             return *this;
@@ -810,7 +812,7 @@ namespace skate {
             m_pathlist = std::move(path);
             return *this;
         }
-        url &set_query(std::string query, encoding fmt = encoding::raw) {
+        url &set_query(const string_parameter &query, encoding fmt = encoding::raw) {
             m_query = from_string_helper(query, fmt);
             m_querymap = {};
             return *this;
@@ -821,7 +823,7 @@ namespace skate {
             return *this;
         }
         url &clear_queries() { return set_query(std::string{}); }
-        url &set_query(std::string key, std::string value, encoding fmt = encoding::raw) {
+        url &set_query(const string_parameter &key, const string_parameter &value, encoding fmt = encoding::raw) {
             if (m_query.size()) {
                 std::vector<std::string> queries = split(m_query, "&");
 
@@ -840,7 +842,7 @@ namespace skate {
             m_querymap[from_string_helper(key, fmt)] = from_string_helper(value, fmt);
             return *this;
         }
-        url &set_fragment(std::string fragment, encoding fmt = encoding::raw) {
+        url &set_fragment(const string_parameter &fragment, encoding fmt = encoding::raw) {
             m_fragment = from_string_helper(fragment, fmt);
             return *this;
         }
@@ -881,7 +883,7 @@ namespace skate {
                 return result;
 
             // Parse scheme (all lowercase)
-            result.set_scheme(std::string(s.substr(start, end - start)), fmt);
+            result.set_scheme(s.substr(start, end - start), fmt);
             start = end + 1;
 
             for (size_t i = 0; i < result.m_scheme.size(); ++i)
@@ -892,7 +894,7 @@ namespace skate {
                 start += 2;
                 end = s.find_first_of("/?#", start);
 
-                result.set_authority(std::string(s.substr(start, end - start)), fmt);
+                result.set_authority(s.substr(start, end - start), fmt);
                 if (end == s.npos)
                     return result;
 
@@ -903,7 +905,7 @@ namespace skate {
             if (start < s.size() && s[start] == '/') {
                 end = s.find_first_of("?#", ++start);
 
-                result.set_path(std::string(s.substr(start, end - start)), fmt);
+                result.set_path(s.substr(start, end - start), fmt);
                 start = end;
             }
 
@@ -911,7 +913,7 @@ namespace skate {
             if (start < s.size() && s[start] == '?') {
                 end = s.find('#', ++start);
 
-                result.set_query(std::string(s.substr(start, end - start)), fmt);
+                result.set_query(s.substr(start, end - start), fmt);
                 start = end;
             }
 
@@ -919,13 +921,33 @@ namespace skate {
             if (start < s.size() && s[start] == '#') {
                 ++start;
 
-                result.set_fragment(std::string(s.substr(start, end - start)), fmt);
+                result.set_fragment(s.substr(start, end - start), fmt);
             }
 
             return result;
         }
 
     private:
+        uint16_t default_port_for_scheme() const {
+            static const struct scheme {
+                scheme(const char *name, uint16_t port) : name(name), port(port) {}
+
+                const char *name;
+                uint16_t port;
+            } ports[] = {
+                {"http", 80},
+                {"https", 443},
+                {"ftp", 21},
+            };
+
+            for (const auto &match: ports) {
+                if (m_scheme == match.name)
+                    return match.port;
+            }
+
+            return 0;
+        }
+
         network_address m_host;
         std::string m_scheme;
         std::string m_username;
