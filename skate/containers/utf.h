@@ -1196,24 +1196,24 @@ namespace skate {
 
     template<typename String>
     void uppercase_ascii(String &s) {
-        for (size_t i = 0; i < s.size(); ++i)
-            s[i] = toupper(s[i]);
+        for (auto el = begin(s); el != end(s); ++el)
+            *el = toupper(*el);
     }
     template<typename String>
     String uppercase_ascii_copy(const String &s) {
         String copy(s);
-        uppercase_ascii(s);
+        uppercase_ascii(copy);
         return copy;
     }
     template<typename String>
     void lowercase_ascii(String &s) {
-        for (size_t i = 0; i < s.size(); ++i)
-            s[i] = tolower(s[i]);
+        for (auto el = begin(s); el != end(s); ++el)
+            *el = tolower(*el);
     }
     template<typename String>
     String lowercase_ascii_copy(const String &s) {
         String copy(s);
-        lowercase_ascii(s);
+        lowercase_ascii(copy);
         return copy;
     }
 
@@ -1226,6 +1226,17 @@ namespace skate {
     void lowercase_ascii(CharType *s, size_t len) {
         for (size_t i = 0; i < len; ++i)
             s[i] = tolower(s[i]);
+    }
+
+    bool starts_with(const std::string &haystack, const std::string &needle) {
+        return haystack.rfind(needle, 0) == 0;
+    }
+
+    bool ends_with(const std::string &haystack, const std::string &needle) {
+        if (needle.size() > haystack.size())
+            return false;
+
+        return haystack.compare(haystack.size() - needle.size(), needle.size(), needle) == 0;
     }
 
     template<typename IntType, typename std::enable_if<std::is_unsigned<IntType>::value, int>::type = 0>

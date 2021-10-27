@@ -196,7 +196,6 @@ namespace skate {
                 error(ec);
         }
         void do_server_read(std::error_code &ec) {
-            async_fill_read_buffer(ec);
             if (!ec)
                 ready_read(ec);
 
@@ -785,8 +784,6 @@ namespace skate {
     };
 
     class datagram_socket : public socket {
-        constexpr static const size_t READ_BUFFER_SIZE = 4096;
-
     public:
         virtual ~datagram_socket() {}
 
@@ -954,18 +951,13 @@ namespace skate {
 
             socket_address remote;
             std::string data;
-            const size_t pending_bytes = direct_read_pending_bytes(ec);
 
-            if (!ec && pending_bytes <= READ_BUFFER_SIZE) {
-                std::array<char, READ_BUFFER_SIZE> buf;
+            {
+                std::array<char, 65536> buf;
 
                 const size_t bytes_read = direct_read_from(ec, buf.data(), buf.size(), remote);
 
                 data = std::string(buf.data(), bytes_read);
-            } else {
-                data.resize(65535);
-
-                data.resize(direct_read_from(ec, &data[0], data.size(), remote));
             }
 
             if (ec)

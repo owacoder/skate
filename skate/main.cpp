@@ -182,36 +182,35 @@ void network_test() {
     std::cout << "scheme: " << url.get_scheme() << '\n';
     std::cout << "username: " << url.get_username(skate::url::encoding::percent) << '\n';
     std::cout << "password: " << url.get_password(skate::url::encoding::percent) << '\n';
-    std::cout << "host: " << url.get_host(skate::url::encoding::percent) << '\n';
+    std::cout << "host: " << url.get_host() << '\n';
     std::cout << "port: " << url.get_port() << '\n';
     std::cout << "path: " << url.get_path(skate::url::encoding::percent) << '\n';
     std::cout << "query: " << url.get_query(skate::url::encoding::percent) << '\n';
     std::cout << "fragment: " << url.get_fragment(skate::url::encoding::percent) << '\n';
-
-    return;
 
     skate::startup_wrapper wrapper;
     skate::socket_server<> server;
     skate::http_client_socket http;
     std::error_code ec;
 
-    skate::http_request req;
-    req.url.set_hostname("territory.ddns.net");
-    req.headers["Connection"] = "close";
+    skate::http_client_request req;
+    req.set_url("http://territory.ddns.net");
+    req.set_header("Connection", "close");
 
-    auto resolved = http.resolve(ec, { req.url.get_host(skate::url::encoding::raw), req.url.get_port(80) });
+    auto resolved = http.resolve(ec, { req.url().get_host(), req.url().get_port(80) });
     http.set_blocking(ec, false);
     if (resolved.size())
         http.connect_sync(ec, resolved);
 
     auto save = ec;
     std::cout << skate::json(resolved) << save.message() << std::endl;
-    http.write_http_request(ec, std::move(req));
 
     // http.listen(ec);
     std::cout << save.message() << " " << ec.message() << std::endl;
     server.serve_socket(&http);
     std::cout << "server running" << std::endl;
+
+    http.http_write_request(ec, req);
     server.run();
 }
 

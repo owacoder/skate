@@ -133,8 +133,13 @@ namespace skate {
                 if (attempt_write)
                     s->do_server_write(ec);
 
-                if (attempt_read && !s->is_null())
-                    s->do_server_read(ec);
+                if (attempt_read && !s->is_null()) {
+                    s->async_fill_read_buffer(ec); // Fill read buffer to minimize system calls
+
+                    do {
+                        s->do_server_read(ec);     // The read buffer is not filled during do_server_read
+                    } while (!s->is_null() && s->async_pending_read());
+                }
             }
 
             // Was it a hangup, or socket disconnected in callback? If so, unwatch and delete

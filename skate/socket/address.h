@@ -502,6 +502,10 @@ namespace skate {
     };
 
     // TODO: not fully implemented yet
+    //
+    // Only supports absolute URIs (not relative), and doesn't support removing '.' and '..' segments
+    // Also doesn't support applying references to a base URL
+    //
     // https://datatracker.ietf.org/doc/html/rfc3986
     class url {
     public:
@@ -588,15 +592,8 @@ namespace skate {
             }
         }
 
-        void append_host(std::string &append_to, encoding fmt) const {
-            if (m_host.is_resolved())                       // Resolved IP address
-                append_to += m_host.to_string(false, true); // Automatically adds port to resolved name by default
-            else {                                          // Unresolved IP address or hostname
-                switch (fmt) {
-                    default:                append_to += m_host.to_string(false); break;
-                    case encoding::percent: to_percent_encoded(append_to, m_host.to_string(false), subdelims); break;
-                }
-            }
+        void append_host(std::string &append_to) const {
+            append_to += m_host.to_string(false, true);
         }
 
         void append_port(std::string &append_to) const {
@@ -607,8 +604,8 @@ namespace skate {
         }
 
         // Hostname is host [:port]
-        void append_hostname(std::string &append_to, encoding fmt) const {
-            append_host(append_to, fmt);
+        void append_hostname(std::string &append_to) const {
+            append_host(append_to);
             append_port(append_to);
         }
 
@@ -621,7 +618,7 @@ namespace skate {
                 append_to += '@';
             }
 
-            append_hostname(append_to, fmt);
+            append_hostname(append_to);
         }
 
         void append_path(std::string &append_to, encoding fmt) const {
@@ -690,11 +687,8 @@ namespace skate {
 
     public:
         url() {}
-#if __cplusplus >= 201703L
-        url(std::string_view s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
-#else
-        url(const std::string &s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
-#endif
+        url(const char *s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
+        url(const string_parameter &s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
 
         bool valid() const noexcept {
             if (m_scheme.empty() || !isalpha(m_scheme[0] & 0xff))
@@ -726,7 +720,7 @@ namespace skate {
         bool has_userinfo() const noexcept { return has_username() || has_password(); }
         bool has_authority() const noexcept { return has_userinfo() || has_hostname(); }
 
-        std::string get_host(encoding fmt = encoding::raw) const { std::string result; append_host(result, fmt); return result; }
+        std::string get_host() const { std::string result; append_host(result); return result; }
         uint16_t get_port(uint16_t default_port = 0) const {
             const uint16_t p = m_host.port(default_port);
             if (p)
@@ -734,10 +728,13 @@ namespace skate {
 
             return default_port_for_scheme();
         }
-        std::string get_hostname(encoding fmt = encoding::raw) const { std::string result; append_hostname(result, fmt); return result; }
+        // Hostname includes host and optional port
+        std::string get_hostname() const { std::string result; append_hostname(result); return result; }
         std::string get_username(encoding fmt = encoding::raw) const { std::string result; append_username(result, fmt); return result; }
         std::string get_password(encoding fmt = encoding::raw) const { std::string result; append_password(result, fmt); return result; }
+        // Userinfo includes optional username and optional password
         std::string get_userinfo(encoding fmt = encoding::raw) const { std::string result; append_userinfo(result, fmt); return result; }
+        // Authority includes userinfo and hostname
         std::string get_authority(encoding fmt = encoding::raw) const { std::string result; append_authority(result, fmt); return result; }
         std::string get_scheme() const { std::string result; append_scheme(result); return result; }
         std::string get_path(encoding fmt = encoding::raw) const { std::string result; append_path(result, fmt); return result; }
@@ -867,11 +864,7 @@ namespace skate {
         }
 
         // Creates a URL from the given string, but doesn't verify its validity
-#if __cplusplus >= 201703L
-        static url from_string(std::string_view s, encoding fmt = encoding::percent) {
-#else
-        static url from_string(const std::string &s, encoding fmt = encoding::percent) {
-#endif
+        static url from_string(const string_parameter &s, encoding fmt = encoding::percent) {
             url result;
 
             if (s.empty())

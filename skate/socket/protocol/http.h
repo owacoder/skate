@@ -22,6 +22,12 @@ namespace skate {
         };
     }
 
+            // Write body (if any)
+            write(ec, response.body());
+        }
+    };
+
+#if 0
     // Contains one HTTP response header set (not including body, which is signalled separately)
     struct http_response {
         http_response() : major(1), minor(1), code(200) {}
@@ -77,14 +83,6 @@ namespace skate {
 
             {
                 char *end = nullptr;
-
-                if (memcmp(status, "HTTP/", 5) || !isdigit(status[5])) {
-                    ec = std::make_error_code(std::errc::bad_message);
-                    return {};
-                }
-                status += 5;
-
-                // Get HTTP major version
                 response.major = static_cast<unsigned char>(std::max(0L, std::min(strtol(status, &end, 10), 255L)));
                 status = end;
 
@@ -112,14 +110,7 @@ namespace skate {
                 status = end;
 
                 while (*status == ' ')
-                    ++status;
 
-                // Get HTTP status reason
-                const size_t start_offset = status - response_buffer.c_str();
-                const size_t end_of_line = response_buffer.find("\r\n", start_offset);
-                response.status = std::string(status, end_of_line - start_offset);
-                status = response_buffer.c_str() + end_of_line + 2;
-            }
 
             while (1) {
                 const size_t start_offset = status - response_buffer.c_str();
@@ -326,6 +317,7 @@ namespace skate {
             }
         }
     };
+#endif
 }
 
 #endif // SKATE_HTTP_H
