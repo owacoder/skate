@@ -1228,11 +1228,11 @@ namespace skate {
             s[i] = tolower(s[i]);
     }
 
-    bool starts_with(const std::string &haystack, const std::string &needle) {
+    inline bool starts_with(const std::string &haystack, const std::string &needle) {
         return haystack.rfind(needle, 0) == 0;
     }
 
-    bool ends_with(const std::string &haystack, const std::string &needle) {
+    inline bool ends_with(const std::string &haystack, const std::string &needle) {
         if (needle.size() > haystack.size())
             return false;
 

@@ -753,11 +753,11 @@ namespace skate {
         }
 
         url &set_hostname(const string_parameter &hostname) {
-            m_host = network_address(std::string(hostname));
+            m_host = network_address(lowercase_ascii_copy(std::string(hostname)));
             return *this;
         }
         url &set_host(const string_parameter &hostname) {
-            m_host = network_address(std::string(hostname)).with_port(m_host.port());
+            m_host = network_address(lowercase_ascii_copy(std::string(hostname))).with_port(m_host.port());
             return *this;
         }
         url &set_port(uint16_t port) {
