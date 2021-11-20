@@ -562,7 +562,7 @@ namespace skate {
             };
 
             buffer = thread_buffer;
-            thrd = std::move(std::thread(message_loop));
+            thrd = std::thread(message_loop);
         }
 
     public:

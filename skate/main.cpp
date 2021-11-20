@@ -191,6 +191,7 @@ void network_test() {
     skate::startup_wrapper wrapper;
     skate::socket_server<> server;
     skate::http_client_socket http;
+    skate::http_server_socket httpserve;
     std::error_code ec;
 
     skate::http_client_request req;
@@ -202,12 +203,16 @@ void network_test() {
     if (resolved.size())
         http.connect_sync(ec, resolved);
 
+    httpserve.bind(ec, skate::socket_address("192.168.1.100", 80));
+    httpserve.listen(ec);
+
     auto save = ec;
     std::cout << skate::json(resolved) << save.message() << std::endl;
 
     // http.listen(ec);
     std::cout << save.message() << " " << ec.message() << std::endl;
     server.serve_socket(&http);
+    server.serve_socket(&httpserve);
     std::cout << "server running" << std::endl;
 
     http.http_write_request(ec, req);
@@ -220,7 +225,7 @@ struct Point {
 };
 
 template<typename StreamChar>
-void skate_json(std::basic_istream<StreamChar> &is, Point &p) {
+void skate_json(std::basic_istream<StreamChar> &, Point &) {
 
 }
 
@@ -288,7 +293,8 @@ namespace skate {
 
 int main()
 {
-    network_test();
+    abstract_container_test();
+    //network_test();
     return 0;
 
 #if 0
@@ -551,7 +557,8 @@ int main()
     b.write(MoveOnlyString("4"));
     std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
 
-    std::cout << "Interfaces: " << skate::json(skate::socket_address::interfaces(), skate::json_write_options(2)) << std::endl;
+    std::error_code ec;
+    std::cout << "Interfaces: " << skate::json(skate::socket_address::interfaces(ec), skate::json_write_options(2)) << std::endl;
 
 #if 0
     auto buffer = skate::make_threadsafe_pipe<std::string>(3);

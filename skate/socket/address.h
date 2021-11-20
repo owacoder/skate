@@ -312,20 +312,13 @@ namespace skate {
         }
 
         // Returns the local interface addresses for the local computer
-        // Same as the other interfaces() function, but throws a std::system_error if an issue occurs when retrieving interfaces
-        static std::vector<socket_address> interfaces(address_type type = ip_address_unspecified, bool include_loopback = false) {
-            std::error_code ec;
-            auto ifaces = interfaces(ec, type, include_loopback);
-            if (ec)
-                throw std::system_error(ec);
-            return ifaces;
-        }
-
-        // Returns the local interface addresses for the local computer
         // Only active addresses are returned, and the desired types can be filtered with the parameters to this function
         // The error code is updated with the system error that occurred while retrieving interfaces
         // Note that this function may still throw if out of memory due to vector construction
         static std::vector<socket_address> interfaces(std::error_code &ec, address_type type = ip_address_unspecified, bool include_loopback = false) {
+            if (ec)
+                return {};
+
 #if POSIX_OS
             struct ifaddrs *addresses = nullptr, *ptr = nullptr;
             std::vector<socket_address> result;
@@ -784,8 +777,8 @@ namespace skate {
 
             return set_hostname(authority.substr(start));
         }
-        url &set_scheme(const string_parameter &scheme, encoding fmt = encoding::raw) {
-            m_scheme = from_string_helper(scheme, fmt);
+        url &set_scheme(const string_parameter &scheme) {
+            m_scheme = lowercase_ascii_copy(std::string(scheme));
             return *this;
         }
         url &set_username(const string_parameter &username, encoding fmt = encoding::raw) {
@@ -876,7 +869,7 @@ namespace skate {
                 return result;
 
             // Parse scheme (all lowercase)
-            result.set_scheme(s.substr(start, end - start), fmt);
+            result.set_scheme(s.substr(start, end - start));
             start = end + 1;
 
             for (size_t i = 0; i < result.m_scheme.size(); ++i)

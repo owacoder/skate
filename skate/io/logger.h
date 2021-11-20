@@ -9,6 +9,7 @@
 
 #include <fstream>
 #include <mutex>
+#include <thread>
 #include <functional>
 
 #include "buffer.h"
@@ -243,7 +244,7 @@ namespace skate {
         async_logger(Fn fn, StartFn start, EndFn end) : producer_guard(d) {
             set_buffer_limit(5000000); // Default to store and read no more than 5,000,000 log entries at once
 
-            thrd = std::move(std::thread([=]() {
+            thrd = std::thread([=]() {
                 io_threadsafe_buffer_consumer_guard<logger_entry> consumer_guard(d);
 
                 std::vector<logger_entry> entries;
@@ -263,7 +264,7 @@ namespace skate {
 
                 if (started)
                     end();
-            }));
+            });
         }
 
     private:

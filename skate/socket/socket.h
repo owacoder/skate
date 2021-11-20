@@ -258,8 +258,10 @@ namespace skate {
             if (ec)
                 return {};
 
-            if (!is_connected())
-                throw std::logic_error("Socket can only use remote_address() if connected");
+            if (!is_connected()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return {};
+            }
 
             struct sockaddr_storage addr;
             socklen_t addrlen = sizeof(addr);
@@ -280,8 +282,10 @@ namespace skate {
             if (ec)
                 return {};
 
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only use local_address() if connected or bound");
+            if (!is_connected() && !is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return {};
+            }
 
             struct sockaddr_storage addr;
             socklen_t addrlen = sizeof(addr);
@@ -301,8 +305,10 @@ namespace skate {
             if (ec)
                 return;
 
-            if (state() != socket_state::bound)
-                throw std::logic_error("Socket can only use listen() if bound to an address");
+            if (state() != socket_state::bound) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return;
+            }
 
             ec = std::error_code(::listen(sock, backlog), socket_category());
             if (!ec)
@@ -311,11 +317,8 @@ namespace skate {
 
         // Shuts down either the read part of the socket, the write part, or both
         void shutdown(std::error_code &ec, socket_shutdown type = socket_shutdown::both) {
-            if (ec)
+            if (ec || (!is_connected() && !is_bound()))
                 return;
-
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only use shutdown() if connected or bound to an address");
 
             ec = std::error_code(::shutdown(sock, static_cast<int>(type)), socket_category());
         }
@@ -635,8 +638,10 @@ namespace skate {
             if (ec)
                 return;
 
-            if (!is_null() && !is_bound())
-                throw std::logic_error("Socket can only be connected when null or bound to a local socket");
+            if (!is_null() && !is_bound()) {
+                ec = std::make_error_code(std::errc::device_or_resource_busy);
+                return;
+            }
 
             direct_bind(ec, remote, true);
         }
@@ -646,8 +651,10 @@ namespace skate {
             if (ec)
                 return;
 
-            if (!is_null())
-                throw std::logic_error("Socket can only be bound when null");
+            if (!is_null()) {
+                ec = std::make_error_code(std::errc::device_or_resource_busy);
+                return;
+            }
 
             direct_bind(ec, local, false);
         }
@@ -696,8 +703,10 @@ namespace skate {
         // Read data directly from the socket, and return the number of bytes read
         // Returns a "would block" error if the operation would block
         size_t direct_read(std::error_code &ec, char *data, size_t max) {
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only be read from if connected or bound to an address");
+            if (!is_connected() && !is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return 0;
+            }
 
             const size_t original_max = max;
             while (max) {
@@ -726,8 +735,10 @@ namespace skate {
         // Write data directly to the socket, and return the number of bytes written
         // Returns a "would block" error if the operation would block
         size_t direct_write(std::error_code &ec, const char *data, size_t len) {
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only be written to if connected or bound to an address");
+            if (!is_connected() && !is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return 0;
+            }
 
             const size_t original_size = len;
             while (len) {
@@ -891,8 +902,10 @@ namespace skate {
             if (ec)
                 return;
 
-            if (!is_null() && !is_bound())
-                throw std::logic_error("Socket can only be connected when null or bound to a local socket");
+            if (!is_null() && !is_bound()) {
+                ec = std::make_error_code(std::errc::device_or_resource_busy);
+                return;
+            }
 
             direct_bind(ec, remote, true);
         }
@@ -902,8 +915,10 @@ namespace skate {
             if (ec)
                 return;
 
-            if (!is_null())
-                throw std::logic_error("Socket can only be bound when null");
+            if (!is_null()) {
+                ec = std::make_error_code(std::errc::device_or_resource_busy);
+                return;
+            }
 
             direct_bind(ec, local, false);
         }
@@ -946,8 +961,10 @@ namespace skate {
         }
 
         socket_datagram direct_read(std::error_code &ec) {
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only be read from if connected or bound to an address");
+            if (!is_connected() && !is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return {};
+            }
 
             socket_address remote;
             std::string data;
@@ -986,8 +1003,10 @@ namespace skate {
         // Write data directly to the socket, and return the number of bytes written
         // Returns a "would block" error if the operation would block
         size_t direct_write(std::error_code &ec, const char *data, size_t len) {
-            if (!is_connected() && !is_bound())
-                throw std::logic_error("Socket can only be written to if connected or bound to an address");
+            if (!is_connected() && !is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return 0;
+            }
 
             if (len > INT_MAX) {
                 ec = std::make_error_code(std::errc::message_size);
@@ -1007,8 +1026,10 @@ namespace skate {
         // Write data directly to the socket, and return the number of bytes written
         // Returns a "would block" error if the operation would block
         size_t direct_write_to(std::error_code &ec, const char *data, size_t len, const socket_address &remote) {
-            if (!is_bound())
-                throw std::logic_error("Socket can only be written to if bound to an address");
+            if (!is_bound()) {
+                ec = std::make_error_code(std::errc::not_connected);
+                return 0;
+            }
 
             if (len > INT_MAX) {
                 ec = std::make_error_code(std::errc::message_size);
