@@ -175,7 +175,9 @@ void abstract_container_test() {
 #include "socket/protocol/http.h"
 
 void network_test() {
-    skate::url url("http://username:password@www.jw.org?#%20query=%65bc");
+    skate::url url("http://username:password@www.jw.org/../path/content=5/../?#%20query=%65bc");
+
+    url.set_path("/path/content");
 
     std::cout << url.to_string(skate::url::encoding::raw) << '\n';
     std::cout << url.valid() << '\n';
@@ -216,6 +218,22 @@ void network_test() {
     std::cout << "server running" << std::endl;
 
     http.http_write_request(ec, req);
+    server.run();
+}
+
+void server_test() {
+    skate::startup_wrapper wrapper;
+    skate::socket_server<> server;
+    skate::http_server_socket httpserve;
+
+    std::error_code ec;
+
+    httpserve.bind(ec, skate::socket_address("192.168.1.100", 80));
+    httpserve.listen(ec);
+
+    std::cout << ec.message() << "\n";
+
+    server.serve_socket(&httpserve);
     server.run();
 }
 
@@ -293,8 +311,7 @@ namespace skate {
 
 int main()
 {
-    abstract_container_test();
-    //network_test();
+    network_test();
     return 0;
 
 #if 0

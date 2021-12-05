@@ -153,6 +153,13 @@ namespace skate {
                 update_blocking(s, watcher.modify(ec, desc, WatchAll));
             } else if ((flags & WatchWrite) && !s->did_write && !s->async_pending_write()) { // No data queued and no data sent, disable write watching
                 update_blocking(s, watcher.modify(ec, desc, WatchAll & ~WatchWrite));
+
+                if (s->async_closed_read() && s->async_closed_write())
+                    s->disconnect(ec);
+                else if (s->async_closed_read())
+                    s->shutdown(ec, socket_shutdown::read);
+                else if (s->async_closed_write())
+                    s->shutdown(ec, socket_shutdown::write);
             }
 
             if (ec) {

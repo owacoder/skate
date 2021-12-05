@@ -578,10 +578,12 @@ namespace skate {
 
         // Userinfo is user:password
         void append_userinfo(std::string &append_to, encoding fmt) const {
-            if (m_username.size() || m_password.size()) {
+            if (has_userinfo()) {
                 append_username(append_to, fmt);
-                append_to += ':';
-                append_password(append_to, fmt);
+                if (m_has_password) {
+                    append_to += ':';
+                    append_password(append_to, fmt);
+                }
             }
         }
 
@@ -615,19 +617,12 @@ namespace skate {
         }
 
         void append_path(std::string &append_to, encoding fmt) const {
-            if (m_pathlist.size()) {
-                join_append(append_to, m_pathlist, "/", [fmt](std::string &append_to, const std::string &path_element) {
-                    switch (fmt) {
-                        default:                append_to += path_element; break;
-                        case encoding::percent: to_percent_encoded(append_to, path_element, pathdelims); break;
-                    }
-                });
-            } else {
+            join_append(append_to, m_pathlist, "/", [fmt](std::string &append_to, const std::string &path_element) {
                 switch (fmt) {
-                    default:                append_to += m_path; break;
-                    case encoding::percent: to_percent_encoded(append_to, m_path, pathdelimswithslash); break;
+                    default:                append_to += path_element; break;
+                    case encoding::percent: to_percent_encoded(append_to, path_element, pathdelims); break;
                 }
-            }
+            });
         }
 
         void append_query(std::string &append_to, encoding fmt) const {
@@ -679,9 +674,9 @@ namespace skate {
         }
 
     public:
-        url() {}
-        url(const char *s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
-        url(const string_parameter &s, encoding fmt = encoding::percent) { *this = from_string(s, fmt); }
+        url() : m_has_username(false), m_has_password(false), m_has_query(false), m_has_fragment(false) {}
+        url(const char *s, encoding fmt = encoding::percent) : m_has_username(false), m_has_password(false), m_has_query(false), m_has_fragment(false) { *this = from_string(s, fmt); }
+        url(const string_parameter &s, encoding fmt = encoding::percent) : m_has_username(false), m_has_password(false), m_has_query(false), m_has_fragment(false) { *this = from_string(s, fmt); }
 
         bool valid() const noexcept {
             if (m_scheme.empty() || !isalpha(m_scheme[0] & 0xff))
@@ -703,11 +698,11 @@ namespace skate {
 
         bool has_host() const noexcept { return !m_host.is_null(); }
         bool has_port() const noexcept { return m_host.port(); }
-        bool has_username() const noexcept { return m_username.size(); }
-        bool has_password() const noexcept { return m_password.size(); }
+        bool has_username() const noexcept { return m_has_username; }
+        bool has_password() const noexcept { return m_has_password; }
         bool has_scheme() const noexcept { return m_scheme.size(); }
-        bool has_query() const noexcept { return m_query.size(); }
-        bool has_fragment() const noexcept { return m_fragment.size(); }
+        bool has_query() const noexcept { return m_has_query; }
+        bool has_fragment() const noexcept { return m_has_fragment; }
 
         bool has_hostname() const noexcept { return has_host() || has_port(); }
         bool has_userinfo() const noexcept { return has_username() || has_password(); }
@@ -736,14 +731,7 @@ namespace skate {
         std::string get_path_and_query(encoding fmt = encoding::raw) const { std::string result; append_path_and_query(result, fmt); return result; }
         std::string get_path_and_query_and_fragment(encoding fmt = encoding::raw) const { std::string result; append_path_and_query_and_fragment(result, fmt); return result; }
 
-        size_t path_elements() const {
-            if (m_path.size()) {
-                m_pathlist = split(m_path, "/");
-                m_path.clear();
-            }
-
-            return m_pathlist.size();
-        }
+        size_t path_elements() const { return m_pathlist.size(); }
 
         url &set_hostname(const string_parameter &hostname) {
             m_host = network_address(lowercase_ascii_copy(std::string(hostname)));
@@ -781,38 +769,67 @@ namespace skate {
             m_scheme = lowercase_ascii_copy(std::string(scheme));
             return *this;
         }
+        url &clear_username() {
+            m_username.clear();
+            m_has_username = false;
+            return *this;
+        }
         url &set_username(const string_parameter &username, encoding fmt = encoding::raw) {
             m_username = from_string_helper(username, fmt);
+            m_has_username = true;
+            return *this;
+        }
+        url &clear_password() {
+            m_password.clear();
+            m_has_password = false;
             return *this;
         }
         url &set_password(const string_parameter &password, encoding fmt = encoding::raw) {
             m_password = from_string_helper(password, fmt);
+            m_has_password = true;
             return *this;
         }
         url &set_path(const string_parameter &path, encoding fmt = encoding::raw) {
-            m_path = from_string_helper(path, fmt);
-            m_pathlist = {};
-            return *this;
+            std::cout << "Setting path: " << path << "\n";
+
+            return set_path(split(path, "/"), fmt);
         }
         url &set_path(std::vector<std::string> path, encoding fmt = encoding::raw) {
             for (auto &p: path)
                 p = from_string_helper(p, fmt);
 
-            m_path.clear();
-            m_pathlist = std::move(path);
+            m_pathlist.clear();
+            for (size_t i = 0; i < path.size(); ++i) {
+                const auto &element = path[i];
+
+                if (element == "..") {
+                    if (m_pathlist.size())
+                        m_pathlist.pop_back();
+                } else if (element != ".") {
+                    m_pathlist.push_back(element);
+                } else if (i + 1 == path.size())
+                    m_pathlist.push_back("");
+            }
+
             return *this;
         }
         url &set_query(const string_parameter &query, encoding fmt = encoding::raw) {
             m_query = from_string_helper(query, fmt);
             m_querymap = {};
+            m_has_query = true;
             return *this;
         }
         url &set_queries(std::map<std::string, std::string> querymap) {
             m_query.clear();
             m_querymap = std::move(querymap);
+            m_has_query = true;
             return *this;
         }
-        url &clear_queries() { return set_query(std::string{}); }
+        url &clear_queries() {
+            set_query(std::string{});
+            m_has_query = false;
+            return *this;
+        }
         url &set_query(const string_parameter &key, const string_parameter &value, encoding fmt = encoding::raw) {
             if (m_query.size()) {
                 std::vector<std::string> queries = split(m_query, "&");
@@ -830,10 +847,17 @@ namespace skate {
             }
 
             m_querymap[from_string_helper(key, fmt)] = from_string_helper(value, fmt);
+            m_has_query = true;
+            return *this;
+        }
+        url &clear_fragment() {
+            m_fragment.clear();
+            m_has_fragment = false;
             return *this;
         }
         url &set_fragment(const string_parameter &fragment, encoding fmt = encoding::raw) {
             m_fragment = from_string_helper(fragment, fmt);
+            m_has_fragment = true;
             return *this;
         }
 
@@ -850,6 +874,9 @@ namespace skate {
                 result += "//";
                 append_authority(result, fmt);
             }
+
+            if (m_pathlist.size() && !m_pathlist[0].empty())
+                result += '/';
 
             append_path_and_query_and_fragment(result, fmt);
 
@@ -888,12 +915,10 @@ namespace skate {
             }
 
             // Parse path if present
-            if (start < s.size() && s[start] == '/') {
-                end = s.find_first_of("?#", ++start);
+            end = s.find_first_of("?#", start);
 
-                result.set_path(s.substr(start, end - start), fmt);
-                start = end;
-            }
+            result.set_path(s.substr(start, end - start), fmt);
+            start = end;
 
             // Parse query if present
             if (start < s.size() && s[start] == '?') {
@@ -936,18 +961,23 @@ namespace skate {
 
         network_address m_host;
         std::string m_scheme;
+
         std::string m_username;
+        bool m_has_username;
+
         std::string m_password;
+        bool m_has_password;
 
         // Invariant is maintained that (m_path.size() && m_pathlist.size()) == false
-        mutable std::string m_path;
-        mutable std::vector<std::string> m_pathlist;
+        std::vector<std::string> m_pathlist;
 
         // Invariant is maintained that (m_query.size() && m_querymap.size()) == false
         mutable std::string m_query;
         mutable std::map<std::string, std::string> m_querymap;
+        bool m_has_query;
 
         std::string m_fragment;
+        bool m_has_fragment;
     };
 }
 

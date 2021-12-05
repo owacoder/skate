@@ -45,8 +45,45 @@ namespace skate {
             m_data.erase(second);
         }
 
+        class const_array_iterator {
+            const sparse_array *c;
+            const_map_iterator chunk;
+            Key idx;
+
+        public:
+            const_array_iterator(const sparse_array &array, Key pos) : c(array), chunk(array->m_data.lower_bound(pos)), idx(pos) {}
+
+            const_array_iterator &operator++() {
+                if (idx++ == c->chunk_last_index_used(chunk))
+                    ++chunk;
+
+                return *this;
+            }
+            const_array_iterator operator++(int) { const_array_iterator copy(*this); ++*this; return copy; }
+
+//            std::pair<Key, const Value &> operator*() const {
+//                return { pos,  };
+//            }
+
+            bool operator==(const const_array_iterator &other) const {
+                return c == other.c && idx == other.idx;
+            }
+            bool operator!=(const const_array_iterator &other) const { return !(*this == other); }
+        };
+
     public:
+        typedef const_array_iterator const_iterator;
+
         sparse_array() : m_stored(0) {}
+
+        enum start_point {
+            zero,
+            lowest
+        };
+
+        const_iterator begin(start_point p = zero) const { return iter(p == zero ? Key{} : span_begin()); }
+        const_iterator iter(Key k) const { return const_iterator(*this, k); }
+        const_iterator end() const { return iter(span_end()); }
 
         void clear() {
             m_data.clear();

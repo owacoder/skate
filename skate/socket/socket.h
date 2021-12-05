@@ -403,6 +403,10 @@ namespace skate {
         virtual bool async_pending_read() const = 0;
         // Must return true if more data is waiting to be written
         virtual bool async_pending_write() const = 0;
+        // Must return true if read stream is closed
+        virtual bool async_closed_read() const = 0;
+        // Must return true if write stream is closed
+        virtual bool async_closed_write() const = 0;
 
         // Factory to create another socket with this type and protocol, specifically for accepting new connections
         // May return null if creating a new socket is not supported (the default)
@@ -631,7 +635,9 @@ namespace skate {
         }
 
         virtual bool async_pending_read() const override { return read_buffer.size(); }
+        virtual bool async_closed_read() const override { return read_buffer.is_closed(); }
         virtual bool async_pending_write() const override { return write_buffer.size(); }
+        virtual bool async_closed_write() const override { return write_buffer.is_closed(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {
@@ -895,7 +901,9 @@ namespace skate {
         }
 
         virtual bool async_pending_read() const override { return read_buffer.size(); }
+        virtual bool async_closed_read() const override { return read_buffer.is_closed(); }
         virtual bool async_pending_write() const override { return write_buffer.size(); }
+        virtual bool async_closed_write() const override { return write_buffer.is_closed(); }
 
         using socket::connect_sync; // Import so overloads are available, see https://stackoverflow.com/questions/1628768/why-does-an-overridden-function-in-the-derived-class-hide-other-overloads-of-the?rq=1
         virtual void connect_sync(std::error_code &ec, socket_address remote) override {

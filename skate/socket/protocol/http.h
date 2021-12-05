@@ -659,7 +659,14 @@ namespace skate {
             std::cout << std::endl;
             std::cout << request.body() << std::endl;
 
-            return {};
+            http_server_response response;
+
+            response.set_code(200);
+            response.set_status("OK");
+            response.set_header("Server", "skate");
+            response.set_body(std::string("Test OK"));
+
+            return response;
         }
 
         virtual std::unique_ptr<socket> create(system_socket_descriptor desc, socket_state current_state, bool is_blocking) override {

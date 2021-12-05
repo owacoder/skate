@@ -90,13 +90,14 @@ namespace skate {
             : buffer_limit(buffer_limit)
             , buffer_first_element(0)
             , buffer_size(0)
+            , closed(false)
         {}
         virtual ~io_buffer() {}
 
         // Writes a single value to the buffer, returns true if the value was added, false if it could not be added
         template<typename U>
         bool write(U &&v) {
-            if (free_space() == 0)
+            if (free_space() == 0 || is_closed())
                 return false;
 
             if (capacity() == size()) {             // Need to grow buffer
@@ -118,7 +119,7 @@ namespace skate {
         bool write_from(Container &&c) {
             if (c.size() == 0)
                 return true;
-            else if (free_space() < c.size())
+            else if (free_space() < c.size() || is_closed())
                 return false;
 
             if (capacity() - size() < c.size()) {   // Grow buffer and insert elements
@@ -146,7 +147,7 @@ namespace skate {
 
             if (count == 0)
                 return true;
-            else if (free_space() < count)
+            else if (free_space() < count || is_closed())
                 return false;
 
             if (capacity() - size() < count) {      // Grow buffer and insert elements
@@ -285,6 +286,12 @@ namespace skate {
         // Set a custom maximum size for the buffer
         void set_max_size(size_t max) noexcept { buffer_limit = max; }
 
+        // Provides a close-signalling mechanism
+        void close() noexcept { closed = true; }
+
+        // Detects if writes are prevented and therefore is closed
+        bool is_closed() const noexcept { return closed; }
+
         bool empty() const noexcept { return size() == 0; }
         size_t max_size() const noexcept { return buffer_limit? buffer_limit: data.max_size(); }
         size_t free_space() const noexcept {
@@ -302,6 +309,7 @@ namespace skate {
         size_t buffer_limit;                        // Limit to how many elements can be in buffer. If 0, unlimited
         size_t buffer_first_element;                // Position of first element in buffer
         size_t buffer_size;                         // Number of elements in buffer
+        bool closed;                                // Whether the stream is permanently closed
     };
 
     // Provides a one-way buffer from producer threads to consumer threads

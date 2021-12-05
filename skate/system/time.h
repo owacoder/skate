@@ -13,7 +13,7 @@
 #include "includes.h"
 
 namespace skate {
-    std::mutex &time_mutex() {
+    inline std::mutex &time_mutex() {
         // See https://stackoverflow.com/questions/185624/static-variables-in-an-inlined-function
         static std::mutex mtx;
         return mtx;
