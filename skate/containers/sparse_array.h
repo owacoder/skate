@@ -47,8 +47,9 @@ namespace skate {
 
         class const_array_iterator {
             const sparse_array *c;
-            const_map_iterator chunk;
             Key idx;
+
+            const_map_iterator chunk;
 
         public:
             const_array_iterator(const sparse_array &array, Key pos) : c(array), chunk(array->m_data.lower_bound(pos)), idx(pos) {}
