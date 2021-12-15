@@ -10,7 +10,6 @@
 /* ----------------------------------------------------------------------------------------------------
  * Abstract wrappers allow iteration, copy-assign, and move-assign operations
  *
- * operator=() allows assignment to the current abstract map
  * clear() supports clearing a map to empty
  * size() returns the size of the current abstract map (number of key/value pairs)
  * operator[] returns a (possibly new) reference to a value with the specified key in the abstract map
@@ -71,11 +70,21 @@ namespace skate {
         bool operator()(const std::unordered_multimap<ContainerParams...> &c, const K &key) const { return c.find(key) != end(c); }
     };
 
+    template<typename... ContainerParams>
+    struct abstract_reserve<std::unordered_map<ContainerParams...>> {
+        void operator()(std::unordered_map<ContainerParams...> &c, size_t s) const { c.reserve(s); }
+    };
+
+    template<typename... ContainerParams>
+    struct abstract_reserve<std::unordered_multimap<ContainerParams...>> {
+        void operator()(std::unordered_multimap<ContainerParams...> &c, size_t s) const { c.reserve(s); }
+    };
+
     template<typename T>
     struct abstract_value {
         template<typename K, typename V = typename std::decay<decltype(value_of<decltype(begin(std::declval<T>()))>(begin(std::declval<T>())))>::type>
-        V operator()(const T &c, const K &key, const V &default_value = {}) const {
-            const auto it = c.find(key);
+        V operator()(const T &c, K &&key, const V &default_value = {}) const {
+            const auto it = c.find(std::forward<K>(key));
             if (it == c.end())
                 return default_value;
             return value_of<decltype(it)>(it);
@@ -85,6 +94,11 @@ namespace skate {
     namespace abstract {
         template<typename T, typename K, typename V>
         void insert(T &c, K &&key, V &&value) { abstract_map_insert<T>{}(c, std::forward<K>(key), std::forward<V>(value)); }
+
+        template<typename T, typename K, typename V>
+        V value(const T &m, K &&k, const V &default_value = {}) {
+            return abstract_value<T>(m, std::forward<K>(k), default_value);
+        }
 
         namespace impl {
             // Normal key extraction if list type is provided

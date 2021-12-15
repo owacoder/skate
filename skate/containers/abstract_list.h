@@ -30,9 +30,6 @@
 #include <set>
 #include <unordered_set>
 
-// Valarray also supported
-#include <valarray>
-
 #include <algorithm>
 
 #include <memory>
@@ -54,7 +51,6 @@
  * std::unordered_set<T, ...>
  * std::multiset<T, ...>
  * std::unordered_multiset<T, ...>
- * std::valarray<T>
  *
  */
 
@@ -948,11 +944,19 @@ namespace skate {
         template<typename T>
         typename abstract_size_type<T>::type size(const T &c) { return abstract_size<T>{}(c); }
 
-        template<typename T>
-        void reserve(T &c, typename abstract_size_type<T>::type size) { abstract_reserve<T>{}(c, size); }
+        template<typename T, typename Size>
+        void reserve(T &c, Size size) {
+            if (size >= 0)
+                abstract_reserve<T>{}(c, size);
+        }
 
-        template<typename T>
-        void resize(T &c, typename abstract_size_type<T>::type size) { abstract_resize<T>{}(c, size); }
+        template<typename T, typename Size>
+        void resize(T &c, Size size) {
+            if (size < 0)
+                size = 0;
+
+            abstract_resize<T>{}(c, size);
+        }
 
         template<typename T>
         void shrink_to_fit(T &c) { abstract_shrink_to_fit<T>{}(c); }

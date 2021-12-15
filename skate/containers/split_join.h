@@ -27,8 +27,8 @@ namespace skate {
     typedef std::string_view string_parameter;
     typedef std::wstring_view wstring_parameter;
 #else
-    typedef std::string string_parameter;
-    typedef std::wstring wstring_parameter;
+    typedef const std::string &string_parameter;
+    typedef const std::wstring &wstring_parameter;
 #endif
 
     // Base template string join append with `void formatter(String &append_to, const decltype(*begin(range)) &element)`
@@ -133,26 +133,26 @@ namespace skate {
     }
 
     template<typename Container = std::vector<std::string>>
-    Container split(const string_parameter &string, const string_parameter &sep, bool remove_empty = false) {
+    Container split(string_parameter string, string_parameter sep, bool remove_empty = false) {
         Container append_to;
         tsplit_append(append_to, string, sep, remove_empty);
         return append_to;
     }
 
     template<typename Container>
-    void split_append(Container &append_to, const string_parameter &string, const string_parameter &sep, bool remove_empty = false) {
+    void split_append(Container &append_to, string_parameter string, string_parameter sep, bool remove_empty = false) {
         tsplit_append(append_to, string, sep, remove_empty);
     }
 
     template<typename Container = std::vector<std::wstring>>
-    Container split(const wstring_parameter &string, const wstring_parameter &sep, bool remove_empty = false) {
+    Container split(wstring_parameter string, wstring_parameter sep, bool remove_empty = false) {
         Container append_to;
         tsplit_append(append_to, string, sep, remove_empty);
         return append_to;
     }
 
     template<typename Container>
-    void split_append(Container &append_to, const wstring_parameter &string, const wstring_parameter &sep, bool remove_empty = false) {
+    void split_append(Container &append_to, wstring_parameter string, wstring_parameter sep, bool remove_empty = false) {
         tsplit_append(append_to, string, sep, remove_empty);
     }
 }
