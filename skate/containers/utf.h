@@ -417,16 +417,6 @@ namespace skate {
      */
 
 #ifdef __cplusplus
-    // Helpers to get start and end of C-style string
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType begin(StrType c) { return c; }
-
-    inline const char *end(const char *c) { return c + strlen(c); }
-    inline const wchar_t *end(const wchar_t *c) { return c + wcslen(c); }
-
-    template<typename StrType, typename std::enable_if<std::is_pointer<StrType>::value, int>::type = 0>
-    StrType end(StrType c) { while (*c) ++c; return c; }
-
     // Unicode codepoint type
     class unicode_codepoint {
         uint32_t v;

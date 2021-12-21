@@ -86,7 +86,7 @@ namespace skate {
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value, int>::type = 0>
         bool write(std::basic_ostream<StreamChar> &os) const {
             for (const auto &el: ref) {
                 if (!xml(el, options).write(os))
@@ -97,7 +97,7 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
@@ -168,7 +168,7 @@ namespace skate {
                  typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
-                                         is_string_base<_>::value, int>::type = 0>
+                                         is_string<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os, bool is_tag = false) const {
             bool start = true;
 

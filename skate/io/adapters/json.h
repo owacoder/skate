@@ -61,18 +61,18 @@ namespace skate {
 
         // User object overload, skate_to_json(stream, object)
         template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_array_base<_>::value &&
-                                                                                 !is_map_base<_>::value &&
-                                                                                 !is_tuple_base<_>::value, int>::type = 0>
+                                                                                 !is_string<_>::value &&
+                                                                                 !is_array<_>::value &&
+                                                                                 !is_map<_>::value &&
+                                                                                 !is_tuple<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
             // Library user is responsible for validating read JSON in the callback function
             return skate_json(is, ref);
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                                                 !is_tuple_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
+                                                                                 !is_tuple<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
@@ -107,8 +107,8 @@ namespace skate {
         }
 
         // Tuple/pair overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
-                                                                                 !is_array_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
+                                                                                 !is_array<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             bool error = false;
             bool has_read_something = false;
@@ -122,11 +122,11 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
-            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
-            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
+            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type Key;
+            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type Value;
 
             abstract::clear(ref);
 
@@ -173,7 +173,7 @@ namespace skate {
         template<typename StreamChar,
                  typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_string_base<_>::value &&
+                 typename std::enable_if<is_string<_>::value &&
                                          type_exists<decltype(
                                                      // Only if put_unicode is available
                                                      std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
@@ -311,8 +311,8 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_shared_ptr_base<_>::value ||
-                                                                                 is_unique_ptr_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_shared_ptr<_>::value ||
+                                                                                 is_unique_ptr<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
             ref.reset();
             if (!impl::skipws(is))
@@ -332,7 +332,7 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) const {
             ref.reset();
             if (!impl::skipws(is))
@@ -430,17 +430,17 @@ namespace skate {
 
         // User object overload, skate_json(stream, object, options)
         template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::value &&
-                                                                                 !is_string_base<_>::value &&
-                                                                                 !is_array_base<_>::value &&
-                                                                                 !is_map_base<_>::value &&
-                                                                                 !is_tuple_base<_>::value, int>::type = 0>
+                                                                                 !is_string<_>::value &&
+                                                                                 !is_array<_>::value &&
+                                                                                 !is_map<_>::value &&
+                                                                                 !is_tuple<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Library user is responsible for creating valid JSON in the callback function
             return skate_json(os, ref, options);
         }
 
         // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             size_t index = 0;
 
@@ -467,8 +467,8 @@ namespace skate {
         }
 
         // Tuple/pair overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
-                                                                                 !is_array_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
+                                                                                 !is_array<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             bool error = false;
             bool has_written_something = false;
@@ -482,7 +482,7 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
@@ -522,7 +522,7 @@ namespace skate {
                  typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
-                                         is_string_base<_>::value, int>::type = 0>
+                                         is_string<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (os.sputc('"') == std::char_traits<StreamChar>::eof())
                 return false;
@@ -615,10 +615,10 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<(is_shared_ptr_base<_>::value ||
-                                                                                 is_weak_ptr_base<_>::value ||
-                                                                                 is_unique_ptr_base<_>::value ||
-                                                                                 std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<(is_shared_ptr<_>::value ||
+                                                                                 is_weak_ptr<_>::value ||
+                                                                                 is_unique_ptr<_>::value ||
+                                                                                 std::is_pointer<_>::value) && !is_string<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (!ref) {
                 const StreamChar array[] = {'n', 'u', 'l', 'l'};
@@ -630,7 +630,7 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             if (!ref) {
                 const StreamChar array[] = {'n', 'u', 'l', 'l'};
@@ -778,7 +778,7 @@ namespace skate {
         basic_json_value(T v) : t(json_type::int64) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
-        template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
+        template<typename T, typename std::enable_if<is_string<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
             d.p = new String(utf_convert_weak<String>(v).get());
         }
@@ -998,7 +998,7 @@ namespace skate {
         // ---------------------------------------------------
         // Object helpers
         void erase(const String &key) { object_ref().erase(key); }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         void erase(const S &key) { object_ref().erase(utf_convert_weak<String>(key).get()); }
 
         basic_json_value value(const String &key, basic_json_value default_value = {}) const {
@@ -1007,7 +1007,7 @@ namespace skate {
 
             return unsafe_get_object().value(key, default_value);
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         basic_json_value value(const S &key, basic_json_value default_value = {}) const {
             return value(utf_convert_weak<String>(key).get(), default_value);
         }
@@ -1026,11 +1026,11 @@ namespace skate {
         }
         basic_json_value &operator[](const String &key) { return object_ref()[key]; }
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         const basic_json_value &operator[](const S &key) const {
             return (*this)[utf_convert_weak<String>(key).get()];
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         basic_json_value &operator[](const S &key) {
             return (*this)[utf_convert_weak<String>(key).get()];
         }
@@ -1191,7 +1191,7 @@ namespace skate {
 
             return it->second;
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
             return value(utf_convert_weak<String>(key).get(), default_value);
         }
@@ -1210,11 +1210,11 @@ namespace skate {
 
             return v.insert({std::move(key), typename object::mapped_type{}}).first->second;
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         const basic_json_value<String> &operator[](const S &key) const {
             return (*this)[utf_convert_weak<String>(key).get()];
         }
-        template<typename S, typename std::enable_if<is_string_base<S>::value, int>::type = 0>
+        template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> &operator[](const S &key) {
             return (*this)[utf_convert_weak<String>(key).get()];
         }

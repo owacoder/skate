@@ -309,8 +309,61 @@ namespace skate {
 
 #include "math/safeint.h"
 
+namespace skate {
+    class hexencode {
+    public:
+        static constexpr char nibble_to_hexchar(unsigned char nibble, bool uppercase = false) noexcept {
+            return (uppercase ? "0123456789ABCDEF" : "0123456789abcdef")[nibble & 0xf];
+        }
+
+        template<typename InputIterator, typename OutputIterator>
+        static void write_hex(InputIterator first, InputIterator last, OutputIterator output, bool uppercase = false) {
+            for (; first != last; ++first) {
+                const unsigned char value = *first;
+
+                *output++ = nibble_to_hexchar(value >> 4, uppercase);
+                *output++ = nibble_to_hexchar(value & 0xf, uppercase);
+            }
+        }
+
+        template<typename Result = std::string, typename C>
+        static Result to_hex(C &&data, bool uppercase = false) {
+            using std::begin;
+            using std::end;
+            using std::distance;
+
+            auto first = begin(data);
+            auto last = end(data);
+
+            Result result;
+
+            abstract::reserve(result, distance(first, last));
+
+            write_hex(first, last, abstract::back_inserter(result), uppercase);
+
+            return result;
+        }
+    };
+
+    class hexdecode {
+    public:
+        static constexpr unsigned char hexchar_to_nibble(char c) noexcept {
+            return c >= '0' && c <= '9' ? c - '0' :
+                   c >= 'A' && c <= 'F' ? c - 'A' + 10 :
+                   c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+                                          -1;
+        }
+
+
+    };
+}
+
 int main()
 {
+    std::cout << skate::hexencode::to_hex<std::vector>("Data") << std::endl;
+
+    return 0;
+
     network_test();
     return 0;
 
@@ -686,7 +739,7 @@ int main()
 
     std::array<std::string, 10> array;
 
-    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple_base<decltype(std::make_tuple(std::string{}, 0))>::value));
+    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple<decltype(std::make_tuple(std::string{}, 0))>::value));
     std::cout << skate::json(array);
 
     time_t now = time(NULL);

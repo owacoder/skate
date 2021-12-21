@@ -73,6 +73,16 @@ namespace skate {
     template<typename T> struct is_convertible_from_char : public std::integral_constant<bool, std::is_convertible<char, T>::value &&
                                                                                                !std::is_class<T>::value && sizeof(T) == 1> {};
 
+    // Helpers to get start and end of C-style string
+    template<typename T, typename std::enable_if<std::is_pointer<T>::value, int>::type = 0>
+    constexpr T begin(T c) { return c; }
+
+    inline const char *end(const char *c) { return c + strlen(c); }
+    inline const wchar_t *end(const wchar_t *c) { return c + wcslen(c); }
+
+    template<typename T, typename std::enable_if<std::is_pointer<T>::value, int>::type = 0>
+    T end(T c) { while (*c) ++c; return c; }
+
     // Extract an element's type from parameter pack
     template<size_t element, typename T, typename... Types>
     struct parameter_pack_element_type {
@@ -101,28 +111,28 @@ namespace skate {
     };
 
     // Determine if type is a string
-    template<typename T> struct is_string : public std::false_type {};
+    template<typename T> struct is_string_overload : public std::false_type {};
     template<typename... ContainerParams>
-    struct is_string<std::basic_string<ContainerParams...>> : public std::true_type {};
+    struct is_string_overload<std::basic_string<ContainerParams...>> : public std::true_type {};
     template<>
-    struct is_string<char *> : public std::true_type {};
+    struct is_string_overload<char *> : public std::true_type {};
     template<size_t N>
-    struct is_string<char [N]> : public std::true_type {};
+    struct is_string_overload<char [N]> : public std::true_type {};
     template<>
-    struct is_string<wchar_t *> : public std::true_type {};
+    struct is_string_overload<wchar_t *> : public std::true_type {};
     template<size_t N>
-    struct is_string<wchar_t [N]> : public std::true_type {};
+    struct is_string_overload<wchar_t [N]> : public std::true_type {};
     template<>
-    struct is_string<char16_t *> : public std::true_type {};
+    struct is_string_overload<char16_t *> : public std::true_type {};
     template<size_t N>
-    struct is_string<char16_t [N]> : public std::true_type {};
+    struct is_string_overload<char16_t [N]> : public std::true_type {};
     template<>
-    struct is_string<char32_t *> : public std::true_type {};
+    struct is_string_overload<char32_t *> : public std::true_type {};
     template<size_t N>
-    struct is_string<char32_t [N]> : public std::true_type {};
+    struct is_string_overload<char32_t [N]> : public std::true_type {};
 #if __cplusplus >= 201703L
     template<typename... ContainerParams>
-    struct is_string<std::basic_string_view<ContainerParams...>> : public std::true_type {};
+    struct is_string_overload<std::basic_string_view<ContainerParams...>> : public std::true_type {};
 #endif
 #if __cplusplus >= 202002L
     template<>
@@ -133,17 +143,17 @@ namespace skate {
 
     // If base type is pointer, strip const/volatile off pointed-to type
     template<typename T>
-    struct is_string_base_helper : public is_string<T> {};
+    struct is_string_helper : public is_string_overload<T> {};
     template<typename T>
-    struct is_string_base_helper<T *> : public is_string<typename std::remove_cv<T>::type *> {};
+    struct is_string_helper<T *> : public is_string_overload<typename std::remove_cv<T>::type *> {};
 
     // Strip const/volatile off type
     template<typename T>
-    struct is_string_base : public is_string_base_helper<typename std::decay<T>::type> {};
+    struct is_string : public is_string_helper<typename std::decay<T>::type> {};
 
     // Determine if type is a map pair (has first/second members, or key()/value() functions)
     template<typename MapPair>
-    struct is_map_pair_helper {
+    struct is_map_pair {
         struct none {};
 
         // Test for indirect first/second pair
@@ -210,7 +220,7 @@ namespace skate {
     struct is_map_helper {
         struct none {};
 
-        template<typename U, typename _ = Map> static typename std::enable_if<is_map_pair_helper<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
+        template<typename U, typename _ = Map> static typename std::enable_if<is_map_pair<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
         template<typename U> static none test(...);
 
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
@@ -220,13 +230,13 @@ namespace skate {
     struct is_string_map_helper {
         struct none {};
 
-        template<typename U, typename _ = Map> static typename std::enable_if<is_string_base<typename is_map_pair_helper<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
+        template<typename U, typename _ = Map> static typename std::enable_if<is_string<typename is_map_pair<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
         template<typename U> static none test(...);
 
         static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
     };
 
-    template<typename MapPair, typename = typename std::decay<typename is_map_pair_helper<MapPair>::key_type>::type> struct key_of;
+    template<typename MapPair, typename = typename std::decay<typename is_map_pair<MapPair>::key_type>::type> struct key_of;
 
     template<typename MapPair>
     struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->first)>::type> {
@@ -248,7 +258,7 @@ namespace skate {
         decltype(std::declval<MapPair>().key()) operator()(const MapPair &m) const { return m.key(); }
     };
 
-    template<typename MapPair, typename = typename std::decay<typename is_map_pair_helper<MapPair>::value_type>::type> struct value_of;
+    template<typename MapPair, typename = typename std::decay<typename is_map_pair<MapPair>::value_type>::type> struct value_of;
 
     template<typename MapPair>
     struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->second)>::type> {
@@ -270,28 +280,28 @@ namespace skate {
         decltype(std::declval<MapPair>().value()) operator()(const MapPair &m) const { return m.value(); }
     };
 
-    template<typename T> struct is_map : public std::false_type {};
+    template<typename T> struct is_map_overload : public std::false_type {};
 
     // Strip const/volatile off type and determine if it's a map
     template<typename T>
-    struct is_map_base : public std::integral_constant<bool, is_map<typename std::decay<T>::type>::value ||
-                                                             is_map_helper<typename std::decay<T>::type>::value> {};
+    struct is_map : public std::integral_constant<bool, is_map_overload<typename std::decay<T>::type>::value ||
+                                                        is_map_helper<typename std::decay<T>::type>::value> {};
 
     template<typename T>
-    struct is_string_map_base : public std::integral_constant<bool, is_map_base<T>::value &&
-                                                                    is_string_map_helper<T>::value> {};
+    struct is_string_map : public std::integral_constant<bool, is_map<T>::value &&
+                                                               is_string_map_helper<T>::value> {};
 
-    template<typename T> struct is_array : public std::false_type {};
+    template<typename T> struct is_array_overload : public std::false_type {};
 
     // Strip const/volatile off type and determine if it's an array
     template<typename T>
-    struct is_array_base : public std::integral_constant<bool, (is_array<typename std::decay<T>::type>::value ||
-                                                                is_array_helper<typename std::decay<T>::type>::value) &&
-                                                                !is_map_base<T>::value &&
-                                                                !is_string_base<T>::value> {};
+    struct is_array : public std::integral_constant<bool, (is_array_overload<typename std::decay<T>::type>::value ||
+                                                           is_array_helper<typename std::decay<T>::type>::value) &&
+                                                           !is_map<T>::value &&
+                                                           !is_string<T>::value> {};
 
     // Determine if type is tuple
-    template<typename T> struct is_tuple : public std::false_type {};
+    template<typename T> struct is_tuple_overload : public std::false_type {};
     template<typename Tuple>
     struct is_tuple_helper {
         struct none {};
@@ -304,64 +314,64 @@ namespace skate {
 
 
     template<typename T>
-    struct is_tuple_base : public std::integral_constant<bool, is_tuple<typename std::decay<T>::type>::value ||
+    struct is_tuple : public std::integral_constant<bool, is_tuple_overload<typename std::decay<T>::type>::value ||
                                                                is_tuple_helper<typename std::decay<T>::type>::value> {};
 
     // Determine if type is trivial (not a tuple, array, or map)
     template<typename T>
-    struct is_scalar_base : public std::integral_constant<bool, !is_tuple_base<T>::value &&
-                                                                !is_array_base<T>::value &&
-                                                                !is_map_base<T>::value> {};
+    struct is_scalar : public std::integral_constant<bool, !is_tuple<T>::value &&
+                                                           !is_array<T>::value &&
+                                                           !is_map<T>::value> {};
 
     // Determine if type is tuple with trivial elements
     template<typename T = void, typename... Types>
-    struct is_trivial_tuple_helper : public std::integral_constant<bool, is_scalar_base<T>::value &&
+    struct is_trivial_tuple_helper : public std::integral_constant<bool, is_scalar<T>::value &&
                                                                          is_trivial_tuple_helper<Types...>::value> {};
 
     template<typename T>
-    struct is_trivial_tuple_helper<T> : public std::integral_constant<bool, is_scalar_base<T>::value> {};
+    struct is_trivial_tuple_helper<T> : public std::integral_constant<bool, is_scalar<T>::value> {};
 
     template<typename T>
     struct is_trivial_tuple_helper2 : public std::false_type {};
     template<template<typename...> class Tuple, typename... Types>
-    struct is_trivial_tuple_helper2<Tuple<Types...>> : public std::integral_constant<bool, is_tuple_base<Tuple<Types...>>::value &&
-                                                                                          is_trivial_tuple_helper<Types...>::value> {};
+    struct is_trivial_tuple_helper2<Tuple<Types...>> : public std::integral_constant<bool, is_tuple<Tuple<Types...>>::value &&
+                                                                                           is_trivial_tuple_helper<Types...>::value> {};
 
     template<typename T>
-    struct is_trivial_tuple_base : public is_trivial_tuple_helper2<typename std::decay<T>::type> {};
+    struct is_trivial_tuple : public is_trivial_tuple_helper2<typename std::decay<T>::type> {};
 
     // Determine if type is unique_ptr
-    template<typename T> struct is_unique_ptr : public std::false_type {};
-    template<typename T, typename... ContainerParams> struct is_unique_ptr<std::unique_ptr<T, ContainerParams...>> : public std::true_type {};
+    template<typename T> struct is_unique_ptr_overload : public std::false_type {};
+    template<typename T, typename... ContainerParams> struct is_unique_ptr_overload<std::unique_ptr<T, ContainerParams...>> : public std::true_type {};
 
-    template<typename T> struct is_unique_ptr_base : public is_unique_ptr<typename std::decay<T>::type> {};
+    template<typename T> struct is_unique_ptr : public is_unique_ptr_overload<typename std::decay<T>::type> {};
 
     // Determine if type is shared_ptr
-    template<typename T> struct is_shared_ptr : public std::false_type {};
-    template<typename T> struct is_shared_ptr<std::shared_ptr<T>> : public std::true_type {};
+    template<typename T> struct is_shared_ptr_overload : public std::false_type {};
+    template<typename T> struct is_shared_ptr_overload<std::shared_ptr<T>> : public std::true_type {};
 
-    template<typename T> struct is_shared_ptr_base : public is_shared_ptr<typename std::decay<T>::type> {};
+    template<typename T> struct is_shared_ptr : public is_shared_ptr_overload<typename std::decay<T>::type> {};
 
     // Determine if type is weak_ptr
-    template<typename T> struct is_weak_ptr : public std::false_type {};
-    template<typename T> struct is_weak_ptr<std::weak_ptr<T>> : public std::true_type {};
+    template<typename T> struct is_weak_ptr_overload : public std::false_type {};
+    template<typename T> struct is_weak_ptr_overload<std::weak_ptr<T>> : public std::true_type {};
 
-    template<typename T> struct is_weak_ptr_base : public is_weak_ptr<typename std::decay<T>::type> {};
+    template<typename T> struct is_weak_ptr : public is_weak_ptr_overload<typename std::decay<T>::type> {};
 
 #if __cplusplus >= 201703L
     // Determine if type is an optional
-    template<typename T> struct is_optional : public std::false_type {};
-    template<typename T> struct is_optional<std::optional<T>> : public std::true_type {};
+    template<typename T> struct is_optional_overload : public std::false_type {};
+    template<typename T> struct is_optional_overload<std::optional<T>> : public std::true_type {};
 
-    template<typename T> struct is_optional_base : public is_optional<typename std::decay<T>::type> {};
+    template<typename T> struct is_optional : public is_optional_overload<typename std::decay<T>::type> {};
 #endif
 
 #if __cplusplus >= 202002L
     // Determine if type is a variant
-    template<typename T> struct is_variant : public std::false_type {};
-    template<typename... Args> struct is_variant<std::variant<Args...>> : public std::true_type {};
+    template<typename T> struct is_variant_overload : public std::false_type {};
+    template<typename... Args> struct is_variant_overload<std::variant<Args...>> : public std::true_type {};
 
-    template<typename T> struct is_variant_base : public is_variant<typename std::decay<T>::type> {};
+    template<typename T> struct is_variant : public is_variant_overload<typename std::decay<T>::type> {};
 #endif
 
     // Abstract size() method for containers

@@ -119,7 +119,7 @@ namespace skate {
             // Default key extract if list type is not provided (void)
             template<typename Map>
             struct keys<void, Map> {
-                typedef std::vector<typename std::decay<typename is_map_pair_helper<decltype(begin(std::declval<Map>()))>::key_type>::type> List;
+                typedef std::vector<typename std::decay<typename is_map_pair<decltype(begin(std::declval<Map>()))>::key_type>::type> List;
 
                 List get(const Map &m) const { return keys<List, Map>{}.get(m); }
             };
@@ -142,7 +142,7 @@ namespace skate {
             // Default value extract if list type is not provided (void)
             template<typename Map>
             struct values<void, Map> {
-                typedef std::vector<typename std::decay<typename is_map_pair_helper<decltype(begin(std::declval<Map>()))>::value_type>::type> List;
+                typedef std::vector<typename std::decay<typename is_map_pair<decltype(begin(std::declval<Map>()))>::value_type>::type> List;
 
                 List get(const Map &m) const { return values<List, Map>{}.get(m); }
             };

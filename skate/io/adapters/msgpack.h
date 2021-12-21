@@ -92,18 +92,18 @@ namespace skate {
 
         // User object overload, skate_to_msgpack(stream, object)
         template<typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(std::declval<std::streambuf &>(), std::declval<_ &>(), std::declval<msgpack_options>()))>::value &&
-                                                            !is_string_base<_>::value &&
-                                                            !is_array_base<_>::value &&
-                                                            !is_map_base<_>::value &&
-                                                            !is_tuple_base<_>::value, int>::type = 0>
+                                                            !is_string<_>::value &&
+                                                            !is_array<_>::value &&
+                                                            !is_map<_>::value &&
+                                                            !is_tuple<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             // Library user is responsible for validating read MsgPack in the callback function
             return skate_msgpack(is, ref, options);
         }
 
         // Array overload
-        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                            !is_tuple_base<_>::value &&
+        template<typename _ = Type, typename std::enable_if<is_array<_>::value &&
+                                                            !is_tuple<_>::value &&
                                                             !is_convertible_from_char<typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
@@ -152,8 +152,8 @@ namespace skate {
         }
 
         // Array overload (allows binary data)
-        template<typename _ = Type, typename std::enable_if<is_array_base<_>::value &&
-                                                            !is_tuple_base<_>::value &&
+        template<typename _ = Type, typename std::enable_if<is_array<_>::value &&
+                                                            !is_tuple<_>::value &&
                                                             is_convertible_from_char<typename std::decay<decltype(*begin(std::declval<_>()))>::type>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
@@ -238,8 +238,8 @@ namespace skate {
         }
 
         // Tuple/pair overload
-        template<typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
-                                                            !is_array_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
+                                                            !is_array<_>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             bool error = false;
 
@@ -279,11 +279,11 @@ namespace skate {
         }
 
         // Map overload
-        template<typename _ = Type, typename std::enable_if<is_map_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_map<_>::value, int>::type = 0>
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
-            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::key_type>::type Key;
-            typedef typename std::decay<typename is_map_pair_helper<KeyValuePair>::value_type>::type Value;
+            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type Key;
+            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type Value;
 
             abstract::clear(ref);
 
@@ -331,7 +331,7 @@ namespace skate {
         // String overload (byte characters)
         template<typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_string_base<_>::value &&
+                 typename std::enable_if<is_string<_>::value &&
                                          is_convertible_from_char<StringChar>::value &&
                                          type_exists<decltype(
                                                      // Only if put_unicode is available
@@ -391,7 +391,7 @@ namespace skate {
         // String overload (non-byte characters)
         template<typename _ = Type,
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_string_base<_>::value &&
+                 typename std::enable_if<is_string<_>::value &&
                                          !is_convertible_from_char<StringChar>::value &&
                                          type_exists<decltype(
                                                      // Only if put_unicode is available
@@ -618,8 +618,8 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename _ = Type, typename std::enable_if<is_shared_ptr_base<_>::value ||
-                                                                                 is_unique_ptr_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_shared_ptr<_>::value ||
+                                                                                 is_unique_ptr<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             ref.reset();
 
@@ -634,7 +634,7 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
         bool read(std::streambuf &is) const {
             ref.reset();
 
@@ -695,10 +695,10 @@ namespace skate {
 
         // User object overload, skate_msgpack(stream, object, options)
         template<typename _ = Type, typename std::enable_if<type_exists<decltype(skate_msgpack(static_cast<std::streambuf &>(std::declval<std::streambuf &>()), std::declval<const _ &>(), std::declval<msgpack_options>()))>::value &&
-                                                            !is_string_base<_>::value &&
-                                                            !is_array_base<_>::value &&
-                                                            !is_map_base<_>::value &&
-                                                            !is_tuple_base<_>::value, int>::type = 0>
+                                                            !is_string<_>::value &&
+                                                            !is_array<_>::value &&
+                                                            !is_map<_>::value &&
+                                                            !is_tuple<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             // Library user is responsible for creating valid MsgPack in the callback function
             return skate_msgpack(os, ref, options);
@@ -707,8 +707,8 @@ namespace skate {
         // Array overload (non-binary data)
         template<typename _ = Type,
                  typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_array_base<_>::value &&
-                                         !is_tuple_base<_>::value &&
+                 typename std::enable_if<is_array<_>::value &&
+                                         !is_tuple<_>::value &&
                                          !is_convertible_to_char<Element>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 15) {
@@ -735,8 +735,8 @@ namespace skate {
         // Array overload (binary data)
         template<typename _ = Type,
                  typename Element = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_array_base<_>::value &&
-                                         !is_tuple_base<_>::value &&
+                 typename std::enable_if<is_array<_>::value &&
+                                         !is_tuple<_>::value &&
                                          is_convertible_to_char<Element>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (ref.size() <= 0xffu) {
@@ -761,8 +761,8 @@ namespace skate {
         }
 
         // Tuple/pair overload
-        template<typename _ = Type, typename std::enable_if<is_tuple_base<_>::value &&
-                                                            !is_array_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
+                                                            !is_array<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             constexpr size_t size = std::tuple_size<typename std::decay<_>::type>::value;
             bool error = false;
@@ -786,7 +786,7 @@ namespace skate {
         }
 
         // Map overload
-        template<typename _ = Type, typename std::enable_if<is_map_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_map<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
 
@@ -817,7 +817,7 @@ namespace skate {
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          is_convertible_to_char<StringChar>::value &&
-                                         is_string_base<_>::value, int>::type = 0>
+                                         is_string<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             const size_t sz = abstract::size(ref);
 
@@ -850,7 +850,7 @@ namespace skate {
                  typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
                  typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
                                          !is_convertible_to_char<StringChar>::value &&
-                                         is_string_base<_>::value, int>::type = 0>
+                                         is_string<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             const auto s = utf_convert_weak<std::string>(ref);
             const size_t sz = s.get().size();
@@ -1020,10 +1020,10 @@ namespace skate {
         }
 
         // Smart pointer overload
-        template<typename _ = Type, typename std::enable_if<(is_shared_ptr_base<_>::value ||
-                                                             is_weak_ptr_base<_>::value ||
-                                                             is_unique_ptr_base<_>::value ||
-                                                             std::is_pointer<_>::value) && !is_string_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<(is_shared_ptr<_>::value ||
+                                                             is_weak_ptr<_>::value ||
+                                                             is_unique_ptr<_>::value ||
+                                                             std::is_pointer<_>::value) && !is_string<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (!ref) {
                 return os.sputc(static_cast<unsigned char>(0xc0)) != std::char_traits<char>::eof();
@@ -1034,7 +1034,7 @@ namespace skate {
 
 #if __cplusplus >= 201703L
         // std::optional overload
-        template<typename _ = Type, typename std::enable_if<is_optional_base<_>::value, int>::type = 0>
+        template<typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
             if (!ref) {
                 return os.sputc(static_cast<unsigned char>(0xc0)) != std::char_traits<char>::eof();
@@ -1182,7 +1182,7 @@ namespace skate {
         basic_msgpack_value(T v) : t(msgpack_type::int64) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
         basic_msgpack_value(T v) : t(msgpack_type::uint64) { d.u = v; }
-        template<typename T, typename std::enable_if<is_string_base<T>::value, int>::type = 0>
+        template<typename T, typename std::enable_if<is_string<T>::value, int>::type = 0>
         basic_msgpack_value(const T &v) : t(msgpack_type::string) {
             d.p = new String(utf_convert_weak<String>(v).get());
         }
