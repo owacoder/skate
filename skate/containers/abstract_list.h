@@ -30,6 +30,9 @@
 #include <set>
 #include <unordered_set>
 
+// Include streambuf and ostream as abstract lists
+#include <iostream>
+
 #include <algorithm>
 
 #include <memory>
@@ -745,6 +748,34 @@ namespace skate {
         abstract_back_insert_iterator &operator*() { return *this; }
         abstract_back_insert_iterator &operator++() { return *this; }
         abstract_back_insert_iterator &operator++(int) { return *this; }
+    };
+
+    template<typename... ContainerParams>
+    class abstract_back_insert_iterator<std::basic_streambuf<ContainerParams...>> {
+        std::basic_streambuf<ContainerParams...> *c;
+
+    public:
+        using int_type = typename std::basic_streambuf<ContainerParams...>::int_type;
+        using traits_type = typename std::basic_streambuf<ContainerParams...>::traits_type;
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr abstract_back_insert_iterator(std::basic_streambuf<ContainerParams...> &c) : c(&c), last(traits_type::eof()) {}
+
+        template<typename R>
+        abstract_back_insert_iterator &operator=(R &&element) { last = c->sputc(std::forward<R>(element)); return *this; }
+
+        abstract_back_insert_iterator &operator*() { return *this; }
+        abstract_back_insert_iterator &operator++() { return *this; }
+        abstract_back_insert_iterator &operator++(int) { return *this; }
+
+        bool failed() const { return last == traits_type::eof(); }
+
+    private:
+        int_type last;
     };
 
     // Abstract push_front() iterators for containers

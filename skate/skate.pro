@@ -1,5 +1,5 @@
 TEMPLATE = app
-CONFIG += console c++17
+CONFIG += console c++11
 CONFIG -= app_bundle
 CONFIG -= qt
 
@@ -21,7 +21,6 @@ HEADERS += \
     io/adapters/msgpack.h \
     io/buffer.h \
     io/logger.h \
-    io/streams.h \
     math/safeint.h \
     socket/iocp.h \
     socket/protocol/http.h \

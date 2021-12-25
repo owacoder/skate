@@ -50,7 +50,6 @@ std::ostream &operator<<(std::ostream &os, const skate::socket_address &address)
     return os << address.to_string();
 }
 
-#include "io/streams.h"
 #include "containers/abstract_list.h"
 #include "containers/abstract_map.h"
 //#include "containers/MFC/mfc_abstract_list.h"
@@ -310,57 +309,534 @@ namespace skate {
 #include "math/safeint.h"
 
 namespace skate {
-    class hexencode {
+    template<typename Reader, typename Writer>
+    void copy(Reader &reader, Writer &writer) {
+        while (reader.valid()) {
+            writer.push_back(reader.get());
+            reader.next();
+        }
+    }
+
+    template<typename Iterator>
+    class iterator_writer {
+        Iterator m_out;
+
     public:
-        static constexpr char nibble_to_hexchar(unsigned char nibble, bool uppercase = false) noexcept {
-            return (uppercase ? "0123456789ABCDEF" : "0123456789abcdef")[nibble & 0xf];
+        constexpr iterator_writer(Iterator it) : m_out(it) {}
+
+        template<typename T>
+        iterator_writer &push_back(T &&v) { *m_out++ = std::forward<T>(v); return *this; }
+
+        constexpr void start() noexcept {}
+        constexpr void finish() noexcept {}
+        constexpr bool failed() const noexcept { return false; }
+    };
+
+    template<typename Range, typename Iterator = decltype(begin(std::declval<Range>()))>
+    class iterator_reader {
+        Iterator m_begin, m_end;
+
+    public:
+        constexpr iterator_reader(const Range &range) : m_begin(begin(range)), m_end(end(range)) {}
+
+        constexpr bool valid() const noexcept { return m_begin != m_end; }
+        constexpr decltype(*m_begin) get() const { return *m_begin; }
+        constexpr iterator_reader &next() { return ++m_begin, *this; }
+
+        constexpr bool failed() const noexcept { return false; }
+    };
+
+    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
+    template<typename Writer>
+    class le_encode {
+        Writer &m_writer;
+
+    public:
+        constexpr le_encode(Writer &writer) : m_writer(writer) {}
+
+        template<typename T>
+        le_encode &push_back(T &&value) {
+            static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be serialized");
+
+            for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8)
+                m_writer.push_back(uint8_t(value >> i));
+
+            return *this;
         }
 
-        template<typename InputIterator, typename OutputIterator>
-        static void write_hex(InputIterator first, InputIterator last, OutputIterator output, bool uppercase = false) {
-            for (; first != last; ++first) {
-                const unsigned char value = *first;
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_writer.failed(); }
+    };
 
-                *output++ = nibble_to_hexchar(value >> 4, uppercase);
-                *output++ = nibble_to_hexchar(value & 0xf, uppercase);
+    template<typename T, typename Reader>
+    class le_decode {
+        static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be parsed");
+
+        Reader &m_reader;
+        T m_state;
+        bool m_state_valid;
+        bool m_failed;
+
+    public:
+        constexpr le_decode(Reader &reader, T) : m_reader(reader), m_state(0), m_state_valid(false), m_failed(false) {}
+
+        bool valid() {
+            if (m_failed)
+                return true;
+            else if (!m_state_valid) {
+                for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8, m_reader.next()) {
+                    if (!m_reader.valid()) {
+                        m_failed = i > 0;
+                        return false;
+                    }
+
+                    m_state |= T(uint8_t(m_reader.get())) << i;
+                }
+
+                m_state_valid = true;
+            }
+
+            return true;
+        }
+        const T &get() const noexcept { return m_state; }
+        le_decode &next() { return m_state_valid = false, *this; }
+
+        constexpr bool failed() const { return m_failed || m_reader.failed(); }
+    };
+
+    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
+    template<typename Writer>
+    class be_encode {
+        Writer &m_writer;
+
+    public:
+        constexpr be_encode(Writer &writer) : m_writer(writer) {}
+
+        template<typename T>
+        be_encode &push_back(T value) {
+            static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be serialized");
+
+            for (size_t i = std::numeric_limits<T>::digits; i > 0; )
+                m_writer.push_back(uint8_t(value >> (i -= 8)));
+
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_writer.failed(); }
+    };
+
+    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
+    template<typename T, typename Reader>
+    class be_decode {
+        static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be parsed");
+
+        Reader &m_reader;
+        T m_state;
+        bool m_state_valid;
+        bool m_failed;
+
+    public:
+        constexpr be_decode(Reader &reader, T) : m_reader(reader), m_state(0), m_state_valid(false), m_failed(false) {}
+
+        bool valid() {
+            if (m_failed)
+                return true;
+            else if (!m_state_valid) {
+                for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8, m_reader.next()) {
+                    if (!m_reader.valid()) {
+                        m_failed = i > 0;
+                        return false;
+                    }
+
+                    m_state = (m_state << 8) | T(uint8_t(m_reader.get()));
+                }
+
+                m_state_valid = true;
+            }
+
+            return true;
+        }
+        const T &get() const noexcept { return m_state; }
+        be_decode &next() { return m_state_valid = false, *this; }
+
+        constexpr bool failed() const { return m_failed || m_reader.failed(); }
+    };
+
+    class unicode {
+        uint32_t cp;
+
+        // Helper function that calculates the surrogate pair for a codepoint, given the codepoint - 0x10000 (see utf16_surrogates())
+        static constexpr std::pair<uint16_t, uint16_t> utf16_surrogate_helper(uint32_t subtracted_codepoint) noexcept {
+            return { 0xd800u | (subtracted_codepoint >> 10), 0xdc00u | (subtracted_codepoint & 0x3ff) };
+        }
+
+    public:
+        static constexpr uint32_t utf_max = 0x10fffful;
+        static constexpr uint32_t utf_mask = 0x1ffffful;
+        static constexpr unsigned utf_max_bytes = 5;
+        static constexpr uint32_t utf_error = 0x8000fffdul;
+
+        constexpr unicode(uint32_t codepoint = 0) noexcept : cp(codepoint <= utf_max ? codepoint : utf_error) {}
+        template<typename T>
+        constexpr unicode(T hi_surrogate, T lo_surrogate) noexcept
+            : cp((hi_surrogate >= 0xd800u && hi_surrogate <= 0xdbffu) &&
+                 (lo_surrogate >= 0xdc00u && lo_surrogate <= 0xdfffu) ? (((hi_surrogate & 0x3fful) << 10) | (lo_surrogate & 0x3fful)) + 0x10000ul : utf_error)
+        {}
+
+        constexpr bool is_utf16_surrogate() const noexcept { return cp >= 0xd800u && cp <= 0xdfffu; }
+        constexpr bool is_valid() const noexcept { return cp <= utf_max; }
+
+        constexpr uint32_t value() const noexcept { return cp & utf_mask; }
+
+        // Returns number of bytes needed for UTF-8 encoding
+        constexpr unsigned int utf8_size() const noexcept {
+            return cp <= 0x7fu? 1:
+                   cp <= 0xffu? 2:
+                   cp <= 0xffffu? 3:
+                   cp <= utf_max? 4: 0;
+        }
+
+        // Returns number of codepoints (either 1 or 2) needed for UTF-16 encoding
+        constexpr unsigned int utf16_size() const noexcept {
+            return cp <= 0xffffu ? 1 : 2;
+        }
+
+        // Returns pair of surrogates for the given codepoint (utf16_size() == 2), or if no surrogates are needed (utf16_size() == 1), equal codepoints with the actual value of the codepoint
+        // This allows bypassing using utf16_size, just calling this function, and then testing the returned pair for equality
+        constexpr std::pair<uint16_t, uint16_t> utf16_surrogates() const noexcept {
+            return cp <= 0xffffu ? std::pair<uint16_t, uint16_t>{ cp, cp } : utf16_surrogate_helper(cp - 0x10000);
+        }
+
+        constexpr bool operator==(unicode other) const noexcept { return cp == other.cp; }
+        constexpr bool operator!=(unicode other) const noexcept { return cp != other.cp; }
+        constexpr bool operator <(unicode other) const noexcept { return cp  < other.cp; }
+        constexpr bool operator >(unicode other) const noexcept { return cp  > other.cp; }
+        constexpr bool operator<=(unicode other) const noexcept { return cp <= other.cp; }
+        constexpr bool operator>=(unicode other) const noexcept { return cp >= other.cp; }
+    };
+
+    // Writes UTF-8 encoding of unicode codepoints. Consumes objects of type unicode, outputs uint8_t
+    template<typename Writer>
+    class utf8encode {
+        Writer &m_writer;
+        bool m_failed;
+
+    public:
+        constexpr utf8encode(Writer &writer) : m_writer(writer), m_failed(false) {}
+
+        utf8encode &push_back(unicode value) {
+            if (value.is_utf16_surrogate()) {
+                m_failed = true;
+                return *this;
+            }
+
+            switch (value.utf8_size()) {
+                default:
+                    m_failed = true;
+                    break;
+                case 1:
+                    m_writer.push_back(uint8_t(value.value()));
+                    break;
+                case 2:
+                    m_writer.push_back(uint8_t(0xC0 | (value.value() >> 6)));
+                    m_writer.push_back(uint8_t(0x80 | (value.value() & 0x3f)));
+                    break;
+                case 3:
+                    m_writer.push_back(uint8_t(0xE0 | ((value.value() >> 12))));
+                    m_writer.push_back(uint8_t(0x80 | ((value.value() >>  6) & 0x3f)));
+                    m_writer.push_back(uint8_t(0x80 | ((value.value()      ) & 0x3f)));
+                    break;
+                case 4:
+                    m_writer.push_back(uint8_t(0xF0 | ((value.value() >> 18))));
+                    m_writer.push_back(uint8_t(0x80 | ((value.value() >> 12) & 0x3f)));
+                    m_writer.push_back(uint8_t(0x80 | ((value.value() >>  6) & 0x3f)));
+                    m_writer.push_back(uint8_t(0x80 | ((value.value()      ) & 0x3f)));
+                    break;
+            }
+
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_failed || m_writer.failed(); }
+    };
+
+    // Writes UTF-16 encoding of unicode codepoints. Consumes objects of type unicode, outputs uint16_t
+    template<typename Writer>
+    class utf16encode {
+        Writer &m_writer;
+        bool m_failed;
+
+    public:
+        constexpr utf16encode(Writer &writer) : m_writer(writer), m_failed(false) {}
+
+        utf16encode &push_back(unicode value) {
+            if (value.is_utf16_surrogate()) {
+                m_failed = true;
+                return *this;
+            }
+
+            const auto surrogates = value.utf16_surrogates();
+
+            m_writer.push_back(surrogates.first);
+
+            if (surrogates.first != surrogates.second)
+                m_writer.push_back(surrogates.second);
+
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_failed || m_writer.failed(); }
+    };
+
+    inline constexpr char nibble_to_hex(uint8_t nibble) noexcept {
+        return "0123456789ABCDEF"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex_lower(uint8_t nibble) noexcept {
+        return "0123456789abcdef"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex(uint8_t nibble, bool uppercase) noexcept {
+        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
+    }
+
+    inline constexpr int hex_to_nibble(int c) noexcept {
+        return c >= '0' && c <= '9' ? c - '0' :
+               c >= 'A' && c <= 'F' ? c - 'A' + 10 :
+               c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+                                      -1;
+    }
+
+    template<typename Writer>
+    class hexencode {
+        Writer &m_writer;
+
+    public:
+        constexpr hexencode(Writer &writer) : m_writer(writer) {}
+
+        hexencode &push_back(std::uint8_t value) {
+            m_writer.push_back(nibble_to_hex(value >> 4));
+            m_writer.push_back(nibble_to_hex(value & 0xf));
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_writer.failed(); }
+    };
+
+    template<typename Writer>
+    class hexencode_lower {
+        Writer &m_writer;
+
+    public:
+        constexpr hexencode_lower(Writer &writer) : m_writer(writer) {}
+
+        hexencode_lower &push_back(std::uint8_t value) {
+            m_writer.push_back(nibble_to_hex_lower(value >> 4));
+            m_writer.push_back(nibble_to_hex_lower(value & 0xf));
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_writer.failed(); }
+    };
+
+    struct base64options {
+        base64options(const char alpha[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+            : padding('=')
+        {
+            std::copy_n(alpha, alphabet.size(), alphabet.begin());
+        }
+
+        std::array<char, 64> alphabet;
+        char padding;
+    };
+
+    template<typename Writer>
+    class base64encode {
+        Writer &m_writer;
+        unsigned long m_state;
+        unsigned m_bytes_in_state;
+
+        base64options m_options;
+
+    public:
+        base64encode(Writer &writer, base64options options = {}) : m_writer(writer), m_state(0), m_bytes_in_state(0), m_options(options) {}
+        ~base64encode() { finish(); }
+
+        void push_back(uint8_t value) {
+            m_state = (m_state << 8) | value;
+            ++m_bytes_in_state;
+
+            if (m_bytes_in_state == 3) {
+                m_writer.push_back(m_options.alphabet[(m_state >> 18)       ]);
+                m_writer.push_back(m_options.alphabet[(m_state >> 12) & 0x3f]);
+                m_writer.push_back(m_options.alphabet[(m_state >>  6) & 0x3f]);
+                m_writer.push_back(m_options.alphabet[(m_state      ) & 0x3f]);
+
+                m_state = 0;
+                m_bytes_in_state = 0;
             }
         }
 
-        template<typename Result = std::string, typename C>
-        static Result to_hex(C &&data, bool uppercase = false) {
-            using std::begin;
-            using std::end;
-            using std::distance;
+        constexpr void start() { m_writer.start(); }
 
-            auto first = begin(data);
-            auto last = end(data);
+        void finish() {
+            if (m_bytes_in_state) {
+                m_writer.push_back(m_options.alphabet[(m_state >> 18)       ]);
+                m_writer.push_back(m_options.alphabet[(m_state >> 12) & 0x3f]);
 
-            Result result;
+                if (m_bytes_in_state == 2) {
+                    m_writer.push_back(m_options.alphabet[(m_state >>  6) & 0x3f]);
 
-            abstract::reserve(result, distance(first, last));
+                    if (m_options.padding)
+                        m_writer.push_back(m_options.padding);
+                } else if (m_options.padding) {
+                    m_writer.push_back(m_options.padding);
+                    m_writer.push_back(m_options.padding);
+                }
+            }
 
-            write_hex(first, last, abstract::back_inserter(result), uppercase);
+            m_state = 0;
+            m_bytes_in_state = 0;
 
-            return result;
+            m_writer.finish();
         }
+
+        constexpr bool failed() const { return m_writer.failed(); }
     };
 
-    class hexdecode {
+    template<typename Writer>
+    class cstyle_escape {
+        Writer &m_writer;
+
     public:
-        static constexpr unsigned char hexchar_to_nibble(char c) noexcept {
-            return c >= '0' && c <= '9' ? c - '0' :
-                   c >= 'A' && c <= 'F' ? c - 'A' + 10 :
-                   c >= 'a' && c <= 'f' ? c - 'a' + 10 :
-                                          -1;
+        constexpr cstyle_escape(Writer &writer) : m_writer(writer) {}
+
+        cstyle_escape &push_back(uint8_t value) {
+            switch (value) {
+                case 0x07: m_writer.push_back('\\'); m_writer.push_back('a'); break;
+                case 0x08: m_writer.push_back('\\'); m_writer.push_back('b'); break;
+                case 0x09: m_writer.push_back('\\'); m_writer.push_back('t'); break;
+                case 0x0A: m_writer.push_back('\\'); m_writer.push_back('n'); break;
+                case 0x0B: m_writer.push_back('\\'); m_writer.push_back('v'); break;
+                case 0x0C: m_writer.push_back('\\'); m_writer.push_back('f'); break;
+                case 0x0D: m_writer.push_back('\\'); m_writer.push_back('r'); break;
+                case '\\': m_writer.push_back('\\'); m_writer.push_back('\\'); break;
+                case '\"': m_writer.push_back('\\'); m_writer.push_back('\"'); break;
+                default:
+                    if (value < 32 || value >= 127) {
+                        m_writer.push_back('\\');
+                        m_writer.push_back('0' + ((value >> 6)      ));
+                        m_writer.push_back('0' + ((value >> 3) & 0x7));
+                        m_writer.push_back('0' + ((value     ) & 0x7));
+                    } else {
+                        m_writer.push_back(value);
+                    }
+
+                    break;
+            }
+
+            return *this;
         }
 
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_writer.failed(); }
+    };
 
+    template<typename Writer>
+    class json_escape {
+        Writer &m_writer;
+        bool m_failed;
+
+    public:
+        constexpr json_escape(Writer &writer) : m_writer(writer), m_failed(false) {}
+
+        json_escape &push_back(unicode value) {
+            if (!value.is_valid()) {
+                m_failed = true;
+                return *this;
+            }
+
+            switch (value.value()) {
+                case 0x08: m_writer.push_back('\\'); m_writer.push_back('b'); break;
+                case 0x09: m_writer.push_back('\\'); m_writer.push_back('t'); break;
+                case 0x0A: m_writer.push_back('\\'); m_writer.push_back('n'); break;
+                case 0x0C: m_writer.push_back('\\'); m_writer.push_back('f'); break;
+                case 0x0D: m_writer.push_back('\\'); m_writer.push_back('r'); break;
+                case '\\': m_writer.push_back('\\'); m_writer.push_back('\\'); break;
+                case '\"': m_writer.push_back('\\'); m_writer.push_back('\"'); break;
+                default:
+                    if (value.value() < 32 || value.value() >= 127) {
+                        const auto surrogates = value.utf16_surrogates();
+
+                        {
+                            m_writer.push_back('\\');
+                            m_writer.push_back('u');
+
+                            auto hex = hexencode(m_writer);
+                            hex.push_back(surrogates.first >> 8);
+                            hex.push_back(surrogates.first & 0xff);
+                        }
+
+                        if (surrogates.first != surrogates.second) {
+                            m_writer.push_back('\\');
+                            m_writer.push_back('u');
+
+                            auto hex = hexencode(m_writer);
+                            hex.push_back(surrogates.second >> 8);
+                            hex.push_back(surrogates.second & 0xff);
+                        }
+                    } else {
+                        m_writer.push_back(uint8_t(value.value()));
+                    }
+
+                    break;
+            }
+
+            return *this;
+        }
+
+        constexpr void start() { m_writer.start(); }
+        constexpr void finish() { m_writer.finish(); }
+        constexpr bool failed() const { return m_failed || m_writer.failed(); }
     };
 }
 
 int main()
 {
-    std::cout << skate::hexencode::to_hex<std::vector>("Data") << std::endl;
+    std::ostreambuf_iterator cout(std::cout.rdbuf());
+    auto out = skate::iterator_writer(cout);
+    auto hex = skate::hexencode(out);
+    auto be = skate::be_encode(hex);
+
+    std::vector<uint8_t> input = { 0x80, 0x00, 0x80, 0xff };
+
+    auto in_it = skate::iterator_reader(input);
+    auto le = skate::le_decode(in_it, uint16_t());
+
+    for (; le.valid(); le.next()) {
+        be.push_back(le.get());
+        std::cout << std::endl;
+    }
+    std::cout << le.failed() << std::endl;
+
+    auto it = skate::iterator_writer(cout);
+    auto js = skate::json_escape(it);
+
+    js.push_back(0x1F602);
+
+    std::cout << '\n';
 
     return 0;
 
