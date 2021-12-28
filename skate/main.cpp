@@ -309,162 +309,6 @@ namespace skate {
 #include "math/safeint.h"
 
 namespace skate {
-    template<typename Reader, typename Writer>
-    void copy(Reader &reader, Writer &writer) {
-        while (reader.valid()) {
-            writer.push_back(reader.get());
-            reader.next();
-        }
-    }
-
-    template<typename Iterator>
-    class iterator_writer {
-        Iterator m_out;
-
-    public:
-        constexpr iterator_writer(Iterator it) : m_out(it) {}
-
-        template<typename T>
-        iterator_writer &push_back(T &&v) { *m_out++ = std::forward<T>(v); return *this; }
-
-        constexpr void start() noexcept {}
-        constexpr void finish() noexcept {}
-        constexpr bool failed() const noexcept { return false; }
-    };
-
-    template<typename Range, typename Iterator = decltype(begin(std::declval<Range>()))>
-    class iterator_reader {
-        Iterator m_begin, m_end;
-
-    public:
-        constexpr iterator_reader(const Range &range) : m_begin(begin(range)), m_end(end(range)) {}
-
-        constexpr bool valid() const noexcept { return m_begin != m_end; }
-        constexpr decltype(*m_begin) get() const { return *m_begin; }
-        constexpr iterator_reader &next() { return ++m_begin, *this; }
-
-        constexpr bool failed() const noexcept { return false; }
-    };
-
-    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
-    template<typename Writer>
-    class le_encode {
-        Writer &m_writer;
-
-    public:
-        constexpr le_encode(Writer &writer) : m_writer(writer) {}
-
-        template<typename T>
-        le_encode &push_back(T &&value) {
-            static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be serialized");
-
-            for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8)
-                m_writer.push_back(uint8_t(value >> i));
-
-            return *this;
-        }
-
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_writer.failed(); }
-    };
-
-    template<typename T, typename Reader>
-    class le_decode {
-        static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be parsed");
-
-        Reader &m_reader;
-        T m_state;
-        bool m_state_valid;
-        bool m_failed;
-
-    public:
-        constexpr le_decode(Reader &reader, T) : m_reader(reader), m_state(0), m_state_valid(false), m_failed(false) {}
-
-        bool valid() {
-            if (m_failed)
-                return true;
-            else if (!m_state_valid) {
-                for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8, m_reader.next()) {
-                    if (!m_reader.valid()) {
-                        m_failed = i > 0;
-                        return false;
-                    }
-
-                    m_state |= T(uint8_t(m_reader.get())) << i;
-                }
-
-                m_state_valid = true;
-            }
-
-            return true;
-        }
-        const T &get() const noexcept { return m_state; }
-        le_decode &next() { return m_state_valid = false, *this; }
-
-        constexpr bool failed() const { return m_failed || m_reader.failed(); }
-    };
-
-    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
-    template<typename Writer>
-    class be_encode {
-        Writer &m_writer;
-
-    public:
-        constexpr be_encode(Writer &writer) : m_writer(writer) {}
-
-        template<typename T>
-        be_encode &push_back(T value) {
-            static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be serialized");
-
-            for (size_t i = std::numeric_limits<T>::digits; i > 0; )
-                m_writer.push_back(uint8_t(value >> (i -= 8)));
-
-            return *this;
-        }
-
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_writer.failed(); }
-    };
-
-    // Writes little-endian encoding of integers. Consumes unsigned integers, outputs uint8_t
-    template<typename T, typename Reader>
-    class be_decode {
-        static_assert(std::is_unsigned<T>::value, "Only unsigned integer types can be parsed");
-
-        Reader &m_reader;
-        T m_state;
-        bool m_state_valid;
-        bool m_failed;
-
-    public:
-        constexpr be_decode(Reader &reader, T) : m_reader(reader), m_state(0), m_state_valid(false), m_failed(false) {}
-
-        bool valid() {
-            if (m_failed)
-                return true;
-            else if (!m_state_valid) {
-                for (size_t i = 0; i < std::numeric_limits<T>::digits; i += 8, m_reader.next()) {
-                    if (!m_reader.valid()) {
-                        m_failed = i > 0;
-                        return false;
-                    }
-
-                    m_state = (m_state << 8) | T(uint8_t(m_reader.get()));
-                }
-
-                m_state_valid = true;
-            }
-
-            return true;
-        }
-        const T &get() const noexcept { return m_state; }
-        be_decode &next() { return m_state_valid = false, *this; }
-
-        constexpr bool failed() const { return m_failed || m_reader.failed(); }
-    };
-
     class unicode {
         uint32_t cp;
 
@@ -518,81 +362,218 @@ namespace skate {
         constexpr bool operator>=(unicode other) const noexcept { return cp >= other.cp; }
     };
 
-    // Writes UTF-8 encoding of unicode codepoints. Consumes objects of type unicode, outputs uint8_t
-    template<typename Writer>
-    class utf8encode {
-        Writer &m_writer;
+    template<typename OutputIterator>
+    std::pair<OutputIterator, bool> utf8_encode(unicode value, OutputIterator out) {
+        if (value.is_utf16_surrogate())
+            return { out, true };
+
+        switch (value.utf8_size()) {
+            default: return { out, true };
+            case 1:
+                *out++ = std::uint8_t(value.value());
+                break;
+            case 2:
+                *out++ = std::uint8_t(0xC0 | (value.value() >> 6));
+                *out++ = std::uint8_t(0x80 | (value.value() & 0x3f));
+                break;
+            case 3:
+                *out++ = std::uint8_t(0xE0 | ((value.value() >> 12)));
+                *out++ = std::uint8_t(0x80 | ((value.value() >>  6) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value()      ) & 0x3f));
+                break;
+            case 4:
+                *out++ = std::uint8_t(0xF0 | ((value.value() >> 18)));
+                *out++ = std::uint8_t(0x80 | ((value.value() >> 12) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value() >>  6) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value()      ) & 0x3f));
+                break;
+        }
+
+        return { out, false };
+    }
+
+    // Outputs data as uint8_t
+    template<typename OutputIterator>
+    class utf8_encode_iterator {
+        OutputIterator m_out;
         bool m_failed;
 
     public:
-        constexpr utf8encode(Writer &writer) : m_writer(writer), m_failed(false) {}
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
 
-        utf8encode &push_back(unicode value) {
-            if (value.is_utf16_surrogate()) {
-                m_failed = true;
-                return *this;
-            }
+        constexpr utf8_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
 
-            switch (value.utf8_size()) {
-                default:
-                    m_failed = true;
-                    break;
-                case 1:
-                    m_writer.push_back(uint8_t(value.value()));
-                    break;
-                case 2:
-                    m_writer.push_back(uint8_t(0xC0 | (value.value() >> 6)));
-                    m_writer.push_back(uint8_t(0x80 | (value.value() & 0x3f)));
-                    break;
-                case 3:
-                    m_writer.push_back(uint8_t(0xE0 | ((value.value() >> 12))));
-                    m_writer.push_back(uint8_t(0x80 | ((value.value() >>  6) & 0x3f)));
-                    m_writer.push_back(uint8_t(0x80 | ((value.value()      ) & 0x3f)));
-                    break;
-                case 4:
-                    m_writer.push_back(uint8_t(0xF0 | ((value.value() >> 18))));
-                    m_writer.push_back(uint8_t(0x80 | ((value.value() >> 12) & 0x3f)));
-                    m_writer.push_back(uint8_t(0x80 | ((value.value() >>  6) & 0x3f)));
-                    m_writer.push_back(uint8_t(0x80 | ((value.value()      ) & 0x3f)));
-                    break;
-            }
-
-            return *this;
+        constexpr utf8_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this : (std::tie(m_out, m_failed) = utf8_encode(value, m_out), *this);
         }
 
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_failed || m_writer.failed(); }
+        constexpr utf8_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf8_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf8_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr bool failed() const noexcept { return m_failed; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
     };
 
-    // Writes UTF-16 encoding of unicode codepoints. Consumes objects of type unicode, outputs uint16_t
-    template<typename Writer>
-    class utf16encode {
-        Writer &m_writer;
+    template<typename OutputIterator>
+    std::pair<OutputIterator, bool> utf16_encode(unicode value, OutputIterator out) {
+        if (value.is_utf16_surrogate())
+            return { out, true };
+
+        const auto surrogates = value.utf16_surrogates();
+
+        *out++ = surrogates.first;
+
+        if (surrogates.first != surrogates.second)
+            *out++ = surrogates.second;
+
+        return { out, false };
+    }
+
+    // Outputs data as uint16_t
+    template<typename OutputIterator>
+    class utf16_encode_iterator {
+        OutputIterator m_out;
         bool m_failed;
 
     public:
-        constexpr utf16encode(Writer &writer) : m_writer(writer), m_failed(false) {}
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
 
-        utf16encode &push_back(unicode value) {
-            if (value.is_utf16_surrogate()) {
-                m_failed = true;
-                return *this;
-            }
+        constexpr utf16_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
 
-            const auto surrogates = value.utf16_surrogates();
-
-            m_writer.push_back(surrogates.first);
-
-            if (surrogates.first != surrogates.second)
-                m_writer.push_back(surrogates.second);
-
-            return *this;
+        constexpr utf16_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this :
+                              (std::tie(m_out, m_failed) = utf16_encode(value, m_out), *this);
         }
 
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_failed || m_writer.failed(); }
+        constexpr utf16_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf16_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf16_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr bool failed() const noexcept { return m_failed; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    // Outputs data as uint32_t
+    template<typename OutputIterator>
+    class utf32_encode_iterator {
+        OutputIterator m_out;
+        bool m_failed;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr utf32_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
+
+        constexpr utf32_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this :
+                   value.is_utf16_surrogate() ? (m_failed = true, *this) :
+                                                (*m_out++ = value.value(), *this);
+        }
+
+        constexpr utf32_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf32_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf32_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename T, typename OutputIterator>
+    OutputIterator little_endian_encode(T &&value, OutputIterator out) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be serialized");
+
+        for (size_t i = 0; i < std::numeric_limits<DecayedT>::digits; i += 8)
+            *out++ = uint8_t(value >> i);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator little_endian_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = little_endian_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename T, typename OutputIterator>
+    OutputIterator big_endian_encode(T &&value, OutputIterator out) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be serialized");
+
+        for (size_t i = std::numeric_limits<DecayedT>::digits; i > 0; )
+            *out++ = uint8_t(value >> (i -= 8));
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator big_endian_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = big_endian_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class little_endian_encode_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr little_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+
+        template<typename T>
+        constexpr little_endian_encode_iterator &operator=(T &&value) { return m_out = little_endian_encode(std::forward<T>(value), m_out), *this; }
+
+        constexpr little_endian_encode_iterator &operator*() noexcept { return *this; }
+        constexpr little_endian_encode_iterator &operator++() noexcept { return *this; }
+        constexpr little_endian_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    class big_endian_encode_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr big_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+
+        template<typename T>
+        constexpr big_endian_encode_iterator &operator=(T &&value) { return m_out = big_endian_encode(std::forward<T>(value), m_out), *this; }
+
+        constexpr big_endian_encode_iterator &operator*() noexcept { return *this; }
+        constexpr big_endian_encode_iterator &operator++() noexcept { return *this; }
+        constexpr big_endian_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
     };
 
     inline constexpr char nibble_to_hex(uint8_t nibble) noexcept {
@@ -614,45 +595,210 @@ namespace skate {
                                       -1;
     }
 
-    template<typename Writer>
-    class hexencode {
-        Writer &m_writer;
+    template<typename OutputIterator>
+    OutputIterator hex_encode(std::uint8_t byte_value, OutputIterator out) {
+        *out++ = nibble_to_hex(byte_value >> 4);
+        *out++ = nibble_to_hex(byte_value & 0xf);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    OutputIterator hex_encode_lower(std::uint8_t byte_value, OutputIterator out) {
+        *out++ = nibble_to_hex_lower(byte_value >> 4);
+        *out++ = nibble_to_hex_lower(byte_value & 0xf);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator hex_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = hex_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator hex_encode_lower(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = hex_encode_lower(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class hex_encode_iterator {
+        OutputIterator m_out;
 
     public:
-        constexpr hexencode(Writer &writer) : m_writer(writer) {}
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
 
-        hexencode &push_back(std::uint8_t value) {
-            m_writer.push_back(nibble_to_hex(value >> 4));
-            m_writer.push_back(nibble_to_hex(value & 0xf));
-            return *this;
-        }
+        constexpr hex_encode_iterator(OutputIterator out) : m_out(out) {}
 
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_writer.failed(); }
+        constexpr hex_encode_iterator &operator=(std::uint8_t value) { return m_out = hex_encode(value, m_out), *this; }
+
+        constexpr hex_encode_iterator &operator*() noexcept { return *this; }
+        constexpr hex_encode_iterator &operator++() noexcept { return *this; }
+        constexpr hex_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
     };
 
-    template<typename Writer>
-    class hexencode_lower {
-        Writer &m_writer;
+    template<typename OutputIterator>
+    class hex_encode_lower_iterator {
+        OutputIterator m_out;
 
     public:
-        constexpr hexencode_lower(Writer &writer) : m_writer(writer) {}
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
 
-        hexencode_lower &push_back(std::uint8_t value) {
-            m_writer.push_back(nibble_to_hex_lower(value >> 4));
-            m_writer.push_back(nibble_to_hex_lower(value & 0xf));
-            return *this;
-        }
+        constexpr hex_encode_lower_iterator(OutputIterator out) : m_out(out) {}
 
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_writer.failed(); }
+        constexpr hex_encode_lower_iterator &operator=(std::uint8_t value) { return m_out = hex_encode_lower(value, m_out), *this; }
+
+        constexpr hex_encode_lower_iterator &operator*() noexcept { return *this; }
+        constexpr hex_encode_lower_iterator &operator++() noexcept { return *this; }
+        constexpr hex_encode_lower_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
     };
 
-    struct base64options {
-        base64options(const char alpha[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-            : padding('=')
+    template<typename OutputIterator>
+    OutputIterator c_style_escape(std::uint8_t byte_value, OutputIterator out) {
+        switch (byte_value) {
+            case 0x07: *out++ = '\\'; *out++ = 'a'; break;
+            case 0x08: *out++ = '\\'; *out++ = 'b'; break;
+            case 0x09: *out++ = '\\'; *out++ = 't'; break;
+            case 0x0A: *out++ = '\\'; *out++ = 'n'; break;
+            case 0x0B: *out++ = '\\'; *out++ = 'v'; break;
+            case 0x0C: *out++ = '\\'; *out++ = 'f'; break;
+            case 0x0D: *out++ = '\\'; *out++ = 'r'; break;
+            case '\\': *out++ = '\\'; *out++ = '\\'; break;
+            case '\"': *out++ = '\\'; *out++ = '\"'; break;
+            default:
+                if (byte_value < 32 || byte_value >= 127) {
+                    *out++ = '\\';
+                    *out++ = '0' + ((byte_value >> 6)      );
+                    *out++ = '0' + ((byte_value >> 3) & 0x7);
+                    *out++ = '0' + ((byte_value     ) & 0x7);
+                } else {
+                    *out++ = byte_value;
+                }
+
+                break;
+        }
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator c_style_escape(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = c_style_escape(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class c_style_escape_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr c_style_escape_iterator(OutputIterator out) : m_out(out) {}
+
+        constexpr c_style_escape_iterator &operator=(std::uint8_t value) { return m_out = c_style_escape(value, m_out), *this; }
+
+        constexpr c_style_escape_iterator &operator*() noexcept { return *this; }
+        constexpr c_style_escape_iterator &operator++() noexcept { return *this; }
+        constexpr c_style_escape_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    OutputIterator json_escape(unicode value, OutputIterator out) {
+        switch (value.value()) {
+            case 0x08: *out++ = '\\'; *out++ = 'b'; break;
+            case 0x09: *out++ = '\\'; *out++ = 't'; break;
+            case 0x0A: *out++ = '\\'; *out++ = 'n'; break;
+            case 0x0B: *out++ = '\\'; *out++ = 'v'; break;
+            case 0x0C: *out++ = '\\'; *out++ = 'f'; break;
+            case 0x0D: *out++ = '\\'; *out++ = 'r'; break;
+            case '\\': *out++ = '\\'; *out++ = '\\'; break;
+            case '\"': *out++ = '\\'; *out++ = '\"'; break;
+            default:
+                if (value.value() < 32 || value.value() >= 127) {
+                    const auto surrogates = value.utf16_surrogates();
+
+                    {
+                        *out++ = '\\';
+                        *out++ = 'u';
+                        auto hex = hex_encode_iterator(out);
+                        out = big_endian_encode(surrogates.first, hex).underlying();
+                    }
+
+                    if (surrogates.first != surrogates.second) {
+                        *out++ = '\\';
+                        *out++ = 'u';
+                        auto hex = hex_encode_iterator(out);
+                        out = big_endian_encode(surrogates.second, hex).underlying();
+                    }
+                } else {
+                    *out++ = char(value.value());
+                }
+
+                break;
+        }
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator json_escape(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = json_escape(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class json_escape_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr json_escape_iterator(OutputIterator out) : m_out(out) {}
+
+        constexpr json_escape_iterator &operator=(unicode value) { return m_out = json_escape(value, m_out), *this; }
+
+        constexpr json_escape_iterator &operator*() noexcept { return *this; }
+        constexpr json_escape_iterator &operator++() noexcept { return *this; }
+        constexpr json_escape_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    struct base64_options {
+        base64_options(const char alpha[64] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", char padding = '=') : padding(padding)
         {
             std::copy_n(alpha, alphabet.size(), alphabet.begin());
         }
@@ -661,182 +807,88 @@ namespace skate {
         char padding;
     };
 
-    template<typename Writer>
-    class base64encode {
-        Writer &m_writer;
+    template<typename OutputIterator>
+    class base64_encoder {
+        OutputIterator m_out;
         unsigned long m_state;
-        unsigned m_bytes_in_state;
+        unsigned int m_bytes_in_state;
 
-        base64options m_options;
+        base64_options m_options;
 
     public:
-        base64encode(Writer &writer, base64options options = {}) : m_writer(writer), m_state(0), m_bytes_in_state(0), m_options(options) {}
-        ~base64encode() { finish(); }
+        constexpr base64_encoder(OutputIterator out, const base64_options &options = {}) : m_out(out), m_state(0), m_bytes_in_state(0), m_options(options) {}
 
-        void push_back(uint8_t value) {
-            m_state = (m_state << 8) | value;
+        template<typename InputIterator>
+        base64_encoder &append(InputIterator first, InputIterator last) {
+            for (; first != last; ++first)
+                append(*first);
+
+            return *this;
+        }
+
+        base64_encoder &append(std::uint8_t byte_value) {
+            m_state = (m_state << 8) | byte_value;
             ++m_bytes_in_state;
 
             if (m_bytes_in_state == 3) {
-                m_writer.push_back(m_options.alphabet[(m_state >> 18)       ]);
-                m_writer.push_back(m_options.alphabet[(m_state >> 12) & 0x3f]);
-                m_writer.push_back(m_options.alphabet[(m_state >>  6) & 0x3f]);
-                m_writer.push_back(m_options.alphabet[(m_state      ) & 0x3f]);
+                *m_out++ = m_options.alphabet[(m_state >> 18)       ];
+                *m_out++ = m_options.alphabet[(m_state >> 12) & 0x3f];
+                *m_out++ = m_options.alphabet[(m_state >>  6) & 0x3f];
+                *m_out++ = m_options.alphabet[(m_state      ) & 0x3f];
 
                 m_state = 0;
                 m_bytes_in_state = 0;
             }
+
+            return *this;
         }
 
-        constexpr void start() { m_writer.start(); }
-
-        void finish() {
+        base64_encoder &finish() {
             if (m_bytes_in_state) {
-                m_writer.push_back(m_options.alphabet[(m_state >> 18)       ]);
-                m_writer.push_back(m_options.alphabet[(m_state >> 12) & 0x3f]);
+                m_state <<= 8 * (3 - m_bytes_in_state);
+
+                *m_out++ = m_options.alphabet[(m_state >> 18)       ];
+                *m_out++ = m_options.alphabet[(m_state >> 12) & 0x3f];
 
                 if (m_bytes_in_state == 2) {
-                    m_writer.push_back(m_options.alphabet[(m_state >>  6) & 0x3f]);
+                    *m_out++ = m_options.alphabet[(m_state >>  6) & 0x3f];
 
                     if (m_options.padding)
-                        m_writer.push_back(m_options.padding);
+                        *m_out++ = m_options.padding;
                 } else if (m_options.padding) {
-                    m_writer.push_back(m_options.padding);
-                    m_writer.push_back(m_options.padding);
+                    *m_out++ = m_options.padding;
+                    *m_out++ = m_options.padding;
                 }
             }
 
-            m_state = 0;
-            m_bytes_in_state = 0;
-
-            m_writer.finish();
-        }
-
-        constexpr bool failed() const { return m_writer.failed(); }
-    };
-
-    template<typename Writer>
-    class cstyle_escape {
-        Writer &m_writer;
-
-    public:
-        constexpr cstyle_escape(Writer &writer) : m_writer(writer) {}
-
-        cstyle_escape &push_back(uint8_t value) {
-            switch (value) {
-                case 0x07: m_writer.push_back('\\'); m_writer.push_back('a'); break;
-                case 0x08: m_writer.push_back('\\'); m_writer.push_back('b'); break;
-                case 0x09: m_writer.push_back('\\'); m_writer.push_back('t'); break;
-                case 0x0A: m_writer.push_back('\\'); m_writer.push_back('n'); break;
-                case 0x0B: m_writer.push_back('\\'); m_writer.push_back('v'); break;
-                case 0x0C: m_writer.push_back('\\'); m_writer.push_back('f'); break;
-                case 0x0D: m_writer.push_back('\\'); m_writer.push_back('r'); break;
-                case '\\': m_writer.push_back('\\'); m_writer.push_back('\\'); break;
-                case '\"': m_writer.push_back('\\'); m_writer.push_back('\"'); break;
-                default:
-                    if (value < 32 || value >= 127) {
-                        m_writer.push_back('\\');
-                        m_writer.push_back('0' + ((value >> 6)      ));
-                        m_writer.push_back('0' + ((value >> 3) & 0x7));
-                        m_writer.push_back('0' + ((value     ) & 0x7));
-                    } else {
-                        m_writer.push_back(value);
-                    }
-
-                    break;
-            }
-
             return *this;
         }
 
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_writer.failed(); }
+        constexpr OutputIterator underlying() const { return m_out; }
     };
 
-    template<typename Writer>
-    class json_escape {
-        Writer &m_writer;
-        bool m_failed;
-
-    public:
-        constexpr json_escape(Writer &writer) : m_writer(writer), m_failed(false) {}
-
-        json_escape &push_back(unicode value) {
-            if (!value.is_valid()) {
-                m_failed = true;
-                return *this;
-            }
-
-            switch (value.value()) {
-                case 0x08: m_writer.push_back('\\'); m_writer.push_back('b'); break;
-                case 0x09: m_writer.push_back('\\'); m_writer.push_back('t'); break;
-                case 0x0A: m_writer.push_back('\\'); m_writer.push_back('n'); break;
-                case 0x0C: m_writer.push_back('\\'); m_writer.push_back('f'); break;
-                case 0x0D: m_writer.push_back('\\'); m_writer.push_back('r'); break;
-                case '\\': m_writer.push_back('\\'); m_writer.push_back('\\'); break;
-                case '\"': m_writer.push_back('\\'); m_writer.push_back('\"'); break;
-                default:
-                    if (value.value() < 32 || value.value() >= 127) {
-                        const auto surrogates = value.utf16_surrogates();
-
-                        {
-                            m_writer.push_back('\\');
-                            m_writer.push_back('u');
-
-                            auto hex = hexencode(m_writer);
-                            hex.push_back(surrogates.first >> 8);
-                            hex.push_back(surrogates.first & 0xff);
-                        }
-
-                        if (surrogates.first != surrogates.second) {
-                            m_writer.push_back('\\');
-                            m_writer.push_back('u');
-
-                            auto hex = hexencode(m_writer);
-                            hex.push_back(surrogates.second >> 8);
-                            hex.push_back(surrogates.second & 0xff);
-                        }
-                    } else {
-                        m_writer.push_back(uint8_t(value.value()));
-                    }
-
-                    break;
-            }
-
-            return *this;
-        }
-
-        constexpr void start() { m_writer.start(); }
-        constexpr void finish() { m_writer.finish(); }
-        constexpr bool failed() const { return m_failed || m_writer.failed(); }
-    };
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator base64_encode(InputIterator first, InputIterator last, OutputIterator out, const base64_options &options = {}) {
+        return base64_encoder(out, options).append(first, last).finish().underlying();
+    }
 }
 
 int main()
 {
     std::ostreambuf_iterator cout(std::cout.rdbuf());
-    auto out = skate::iterator_writer(cout);
-    auto hex = skate::hexencode(out);
-    auto be = skate::be_encode(hex);
 
-    std::vector<uint8_t> input = { 0x80, 0x00, 0x80, 0xff };
+    std::string input = "The quick brown fox";
 
-    auto in_it = skate::iterator_reader(input);
-    auto le = skate::le_decode(in_it, uint16_t());
+    std::cout << std::endl;
 
-    for (; le.valid(); le.next()) {
-        be.push_back(le.get());
-        std::cout << std::endl;
-    }
-    std::cout << le.failed() << std::endl;
+    const char *p = "\n\r\001Testing";
+    skate::json_escape(0x1F602, cout);
+    skate::json_escape(p, p + strlen(p), cout);
 
-    auto it = skate::iterator_writer(cout);
-    auto js = skate::json_escape(it);
-
-    js.push_back(0x1F602);
+    // js.push_back(0x1F602);
 
     std::cout << '\n';
+    skate::base64_encode(input.begin(), input.end(), cout);
 
     return 0;
 
