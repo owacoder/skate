@@ -1254,6 +1254,251 @@ namespace skate {
 
         return result;
     }
+
+    class unicode {
+        std::uint32_t cp;
+
+        // Helper function that calculates the surrogate pair for a codepoint, given the codepoint - 0x10000 (see utf16_surrogates())
+        static constexpr std::pair<std::uint16_t, std::uint16_t> utf16_surrogate_helper(std::uint32_t subtracted_codepoint) noexcept {
+            return { 0xd800u | (subtracted_codepoint >> 10), 0xdc00u | (subtracted_codepoint & 0x3ff) };
+        }
+
+    public:
+        static constexpr std::uint32_t utf_max = 0x10fffful;
+        static constexpr std::uint32_t utf_mask = 0x1ffffful;
+        static constexpr  unsigned int utf_max_bytes = 5;
+        static constexpr std::uint32_t utf_error = 0x8000fffdul;
+
+        constexpr unicode(std::uint32_t codepoint = 0) noexcept : cp(codepoint <= utf_max ? codepoint : utf_error) {}
+        template<typename T>
+        constexpr unicode(T hi_surrogate, T lo_surrogate) noexcept
+            : cp((hi_surrogate >= 0xd800u && hi_surrogate <= 0xdbffu) &&
+                 (lo_surrogate >= 0xdc00u && lo_surrogate <= 0xdfffu) ? (((hi_surrogate & 0x3fful) << 10) | (lo_surrogate & 0x3fful)) + 0x10000ul : utf_error)
+        {}
+
+        constexpr bool is_utf16_surrogate() const noexcept { return cp >= 0xd800u && cp <= 0xdfffu; }
+        constexpr bool is_valid() const noexcept { return cp <= utf_max; }
+
+        constexpr std::uint32_t value() const noexcept { return cp & utf_mask; }
+
+        // Returns number of bytes needed for UTF-8 encoding
+        constexpr unsigned int utf8_size() const noexcept {
+            return cp <= 0x7fu? 1:
+                   cp <= 0xffu? 2:
+                   cp <= 0xffffu? 3:
+                   cp <= utf_max? 4: 0;
+        }
+
+        // Returns number of codepoints (either 1 or 2) needed for UTF-16 encoding
+        constexpr unsigned int utf16_size() const noexcept {
+            return cp <= 0xffffu ? 1 : 2;
+        }
+
+        // Returns pair of surrogates for the given codepoint (utf16_size() == 2), or if no surrogates are needed (utf16_size() == 1), equal codepoints with the actual value of the codepoint
+        // This allows bypassing using utf16_size, just calling this function, and then testing the returned pair for equality
+        constexpr std::pair<std::uint16_t, std::uint16_t> utf16_surrogates() const noexcept {
+            return cp <= 0xffffu ? std::pair<std::uint16_t, std::uint16_t>{ cp, cp } : utf16_surrogate_helper(cp - 0x10000);
+        }
+
+        constexpr bool operator==(unicode other) const noexcept { return cp == other.cp; }
+        constexpr bool operator!=(unicode other) const noexcept { return cp != other.cp; }
+        constexpr bool operator <(unicode other) const noexcept { return cp  < other.cp; }
+        constexpr bool operator >(unicode other) const noexcept { return cp  > other.cp; }
+        constexpr bool operator<=(unicode other) const noexcept { return cp <= other.cp; }
+        constexpr bool operator>=(unicode other) const noexcept { return cp >= other.cp; }
+    };
+
+    template<typename OutputIterator>
+    std::pair<OutputIterator, bool> utf8_encode(unicode value, OutputIterator out) {
+        if (value.is_utf16_surrogate())
+            return { out, true };
+
+        switch (value.utf8_size()) {
+            default: return { out, true };
+            case 1:
+                *out++ = std::uint8_t(value.value());
+                break;
+            case 2:
+                *out++ = std::uint8_t(0xC0 | (value.value() >> 6));
+                *out++ = std::uint8_t(0x80 | (value.value() & 0x3f));
+                break;
+            case 3:
+                *out++ = std::uint8_t(0xE0 | ((value.value() >> 12)));
+                *out++ = std::uint8_t(0x80 | ((value.value() >>  6) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value()      ) & 0x3f));
+                break;
+            case 4:
+                *out++ = std::uint8_t(0xF0 | ((value.value() >> 18)));
+                *out++ = std::uint8_t(0x80 | ((value.value() >> 12) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value() >>  6) & 0x3f));
+                *out++ = std::uint8_t(0x80 | ((value.value()      ) & 0x3f));
+                break;
+        }
+
+        return { out, false };
+    }
+
+    // Outputs data as uint8_t
+    template<typename OutputIterator>
+    class utf8_encode_iterator {
+        OutputIterator m_out;
+        bool m_failed;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr utf8_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
+
+        constexpr utf8_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this : (std::tie(m_out, m_failed) = utf8_encode(value, m_out), *this);
+        }
+
+        constexpr utf8_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf8_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf8_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr bool failed() const noexcept { return m_failed; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    std::pair<OutputIterator, bool> utf16_encode(unicode value, OutputIterator out) {
+        if (value.is_utf16_surrogate())
+            return { out, true };
+
+        const auto surrogates = value.utf16_surrogates();
+
+        *out++ = surrogates.first;
+
+        if (surrogates.first != surrogates.second)
+            *out++ = surrogates.second;
+
+        return { out, false };
+    }
+
+    // Outputs data as uint16_t
+    template<typename OutputIterator>
+    class utf16_encode_iterator {
+        OutputIterator m_out;
+        bool m_failed;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr utf16_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
+
+        constexpr utf16_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this :
+                              (std::tie(m_out, m_failed) = utf16_encode(value, m_out), *this);
+        }
+
+        constexpr utf16_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf16_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf16_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr bool failed() const noexcept { return m_failed; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    std::pair<OutputIterator, bool> utf32_encode(unicode value, OutputIterator out) {
+        if (value.is_utf16_surrogate())
+            return { out, true };
+
+        *out++ = value.value();
+
+        return { out, false };
+    }
+
+    // Outputs data as uint32_t
+    template<typename OutputIterator>
+    class utf32_encode_iterator {
+        OutputIterator m_out;
+        bool m_failed;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr utf32_encode_iterator(OutputIterator out) : m_out(out), m_failed(false) {}
+
+        constexpr utf32_encode_iterator &operator=(unicode value) {
+            return m_failed ? *this :
+                              (std::tie(m_out, m_failed) = utf32_encode(value, m_out), *this);
+        }
+
+        constexpr utf32_encode_iterator &operator*() noexcept { return *this; }
+        constexpr utf32_encode_iterator &operator++() noexcept { return *this; }
+        constexpr utf32_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename CharT,
+             typename OutputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint8_t), int>::type = 0>
+    constexpr std::pair<OutputIterator, bool> utf_encode(unicode value, OutputIterator out) {
+        return utf8_encode(value, out);
+    }
+
+    template<typename CharT,
+             typename OutputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint16_t), int>::type = 0>
+    constexpr std::pair<OutputIterator, bool> utf_encode(unicode value, OutputIterator out) {
+        return utf16_encode(value, out);
+    }
+
+    template<typename CharT,
+             typename OutputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint32_t), int>::type = 0>
+    constexpr std::pair<OutputIterator, bool> utf_encode(unicode value, OutputIterator out) {
+        return utf32_encode(value, out);
+    }
+
+    namespace detail {
+        template<typename InputIterator, typename OutputIterator, typename Predicate>
+        std::pair<OutputIterator, bool> utf_encode_range(InputIterator first, InputIterator last, OutputIterator out, Predicate p) {
+            bool failed = false;
+
+            for (; first != last && !failed; ++first)
+                std::tie(out, failed) = p(*first, out);
+
+            return { out, failed };
+        }
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    constexpr std::pair<OutputIterator, bool> utf8_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        return detail::utf_encode_range(first, last, out, utf8_encode<OutputIterator>);
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    constexpr std::pair<OutputIterator, bool> utf16_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        return detail::utf_encode_range(first, last, out, utf16_encode<OutputIterator>);
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    constexpr std::pair<OutputIterator, bool> utf32_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        return detail::utf_encode_range(first, last, out, utf32_encode<OutputIterator>);
+    }
+
+    template<typename CharT, typename InputIterator, typename OutputIterator>
+    constexpr std::pair<OutputIterator, bool> utf_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        return detail::utf_encode_range(first, last, out, utf_encode<CharT, OutputIterator>);
+    }
 }
 
 #endif // __cplusplus

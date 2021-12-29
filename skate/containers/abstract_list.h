@@ -1055,6 +1055,108 @@ namespace skate {
         template<typename T>
         void pop_front(T &c) { abstract_pop_front<T>{}(c); }
     }
+
+    namespace detail {
+        template<typename InputIterator>
+        constexpr auto reserve_size(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
+
+        template<typename InputIterator>
+        constexpr std::size_t reserve_size(InputIterator, InputIterator, ...) { return 0; }
+    }
+
+    template<typename InputIterator>
+    constexpr auto reserve_size(InputIterator first, InputIterator last) -> decltype(detail::reserve_size(first, last, 0)) { return detail::reserve_size(first, last, 0); }
+
+    template<typename Container>
+    constexpr auto reserve_size(const Container &c) -> decltype(detail::reserve_size(begin(c), end(c), 0)) { return detail::reserve_size(begin(c), end(c), 0); }
+
+    template<typename SizeT, typename Container>
+    constexpr void reserve(Container &, SizeT) noexcept {}
+
+    template<typename... Params>
+    constexpr void reserve(std::basic_string<Params...> &c, std::size_t s) { c.reserve(s); }
+
+    template<typename... Params>
+    constexpr void reserve(std::vector<Params...> &c, std::size_t s) { c.reserve(s); }
+
+    template<typename... Params>
+    constexpr void reserve(std::unordered_set<Params...> &c, std::size_t s) { c.reserve(s); }
+
+    template<typename... Params>
+    constexpr void reserve(std::unordered_multiset<Params...> &c, std::size_t s) { c.reserve(s); }
+
+    namespace detail {
+        template<typename T, typename Container>
+        constexpr void push_back(Container &c, T &&value) { c.push_back(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::unordered_set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::unordered_multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+    }
+
+    template<typename Container>
+    class back_inserter {
+        Container *m_container;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr back_inserter(Container &c) noexcept : m_container(&c) {}
+
+        template<typename T>
+        constexpr back_inserter &operator=(T &&value) { return skate::detail::push_back(*m_container, std::forward<T>(value)), *this; }
+
+        constexpr back_inserter &operator*() noexcept { return *this; }
+        constexpr back_inserter &operator++() noexcept { return *this; }
+        constexpr back_inserter &operator++(int) noexcept { return *this; }
+    };
+
+    template<typename... Params>
+    class back_inserter<std::forward_list<Params...>> {
+        using Container = std::forward_list<Params...>;
+
+        Container *m_container;
+        typename Container::iterator m_last;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        back_inserter(Container &c) noexcept : m_container(&c), m_last(c.before_begin()) {
+            for (auto unused : c) {
+                (void) unused;
+                ++m_last;
+            }
+        }
+
+        template<typename T>
+        constexpr back_inserter &operator=(T &&value) { return m_last = m_container->insert_after(m_last, std::forward<T>(value)), *this; }
+
+        constexpr back_inserter &operator*() noexcept { return *this; }
+        constexpr back_inserter &operator++() noexcept { return *this; }
+        constexpr back_inserter &operator++(int) noexcept { return *this; }
+    };
+
+    template<typename Container>
+    constexpr back_inserter<Container> make_back_inserter(Container &c) { return back_inserter<Container>(c); }
+
+    template<typename T, typename Container>
+    constexpr void push_back(Container &c, T &&value) { *skate::make_back_inserter(c)++ = std::forward<T>(value); }
 }
 
 #endif // SKATE_ABSTRACT_LIST_H

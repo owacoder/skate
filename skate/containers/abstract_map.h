@@ -154,6 +154,12 @@ namespace skate {
         template<typename List = void, typename Map>
         auto values(const Map &m) -> decltype(impl::values<List, Map>{}.get(m)) { return impl::values<List, Map>{}.get(m); }
     }
+
+    template<typename... Params>
+    constexpr void reserve(std::unordered_map<Params...> &c, std::size_t s) { c.reserve(s); }
+
+    template<typename... Params>
+    constexpr void reserve(std::unordered_multimap<Params...> &c, std::size_t s) { c.reserve(s); }
 }
 
 #endif // SKATE_ABSTRACT_MAP_H
