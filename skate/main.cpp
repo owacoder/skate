@@ -760,8 +760,37 @@ int main()
 {
     std::ostreambuf_iterator cout(std::cout.rdbuf());
 
+    std::wstring widestr;
+    std::string narrowstr;
+
+    narrowstr = "Testing narrow -> wide\xF0\x9F\x98\x82";
+
+    skate::utf_auto_transcode(narrowstr, widestr);
+
+    std::cout << widestr.size() << '\n';
+    for (const auto c : widestr) {
+        skate::big_endian_encode(c, skate::hex_encode_iterator(cout));
+
+        std::cout << ": " << (char) c << '\n';
+    }
+
+    std::wcout << widestr << '\n';
+
+    *skate::utf16_encode_iterator(skate::make_back_inserter(widestr))++ = 0x1F602;
+
+    narrowstr.clear();
+    skate::utf_auto_transcode(widestr, narrowstr);
+
+    for (const uint8_t c : narrowstr) {
+        skate::big_endian_encode(c, skate::hex_encode_iterator(cout));
+
+        std::cout << ": " << (char) c << '\n';
+    }
+
     std::list<char> input = { 'T', 'h', 'e' };
-    std::string result;
+    std::wstring result;
+
+    skate::utf_transcode<uint8_t, uint16_t>(input, skate::make_back_inserter(result));
 
     skate::reserve(result, skate::reserve_size(input));
 
