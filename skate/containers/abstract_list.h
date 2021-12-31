@@ -1056,6 +1056,55 @@ namespace skate {
         void pop_front(T &c) { abstract_pop_front<T>{}(c); }
     }
 
+    // Determine if type is a string
+    template<typename T>
+    constexpr bool is_string_type(T &&) noexcept { return false; }
+
+    template<typename... Params>
+    constexpr bool is_string_type(std::basic_string<Params...>) noexcept { return true; }
+
+    template<std::size_t N>
+    constexpr bool is_string_type(char [N]) noexcept { return true; }
+    constexpr bool is_string_type(char *) noexcept { return true; }
+    template<std::size_t N>
+    constexpr bool is_string_type(const char [N]) noexcept { return true; }
+    constexpr bool is_string_type(const char *) noexcept { return true; }
+
+    template<std::size_t N>
+    constexpr bool is_string_type(wchar_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(wchar_t *) noexcept { return true; }
+    template<std::size_t N>
+    constexpr bool is_string_type(const wchar_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(const wchar_t *) noexcept { return true; }
+
+    template<std::size_t N>
+    constexpr bool is_string_type(char16_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(char16_t *) noexcept { return true; }
+    template<std::size_t N>
+    constexpr bool is_string_type(const char16_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(const char16_t *) noexcept { return true; }
+
+    template<std::size_t N>
+    constexpr bool is_string_type(char32_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(char32_t *) noexcept { return true; }
+    template<std::size_t N>
+    constexpr bool is_string_type(const char32_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(const char32_t *) noexcept { return true; }
+
+#if __cplusplus >= 201703L
+    template<typename... Params>
+    constexpr bool is_string_type(std::basic_string_view<Params...>) noexcept { return true; }
+#endif
+#if __cplusplus >= 202002L
+    template<std::size_t N>
+    constexpr bool is_string_type(char8_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(char8_t *) noexcept { return true; }
+    template<std::size_t N>
+    constexpr bool is_string_type(const char8_t [N]) noexcept { return true; }
+    constexpr bool is_string_type(const char8_t *) noexcept { return true; }
+#endif
+
+    // Abstract operations on containers
     template<typename Container>
     constexpr auto size(const Container &c) -> decltype(c.size()) { return c.size(); }
 

@@ -758,6 +758,16 @@ namespace skate {
 
 int main()
 {
+    const char s[1] = {0};
+
+    std::cout << "Is string: " << skate::is_string_type((char *) "") << std::endl;
+    std::cout << "Is string: " << skate::is_string_type((const uint8_t *) "") << std::endl;
+    std::cout << "Is string: " << skate::is_string_type(s) << std::endl;
+    std::cout << "Is string: " << skate::is_string_type(std::string()) << std::endl;
+    std::cout << "Is string: " << skate::is_string_type(std::string_view()) << std::endl;
+
+    return 0;
+
     std::ostreambuf_iterator cout(std::cout.rdbuf());
 
     std::wstring widestr;
