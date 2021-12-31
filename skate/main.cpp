@@ -767,8 +767,7 @@ int main()
 
     skate::utf_auto_transcode(narrowstr, widestr);
 
-    std::cout << widestr.size() << '\n';
-    for (const auto c : widestr) {
+    for (const auto c : skate::to_utf16(narrowstr).first) {
         skate::big_endian_encode(c, skate::hex_encode_iterator(cout));
 
         std::cout << ": " << (char) c << '\n';

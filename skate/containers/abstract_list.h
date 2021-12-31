@@ -1056,6 +1056,24 @@ namespace skate {
         void pop_front(T &c) { abstract_pop_front<T>{}(c); }
     }
 
+    template<typename Container>
+    constexpr auto size(const Container &c) -> decltype(c.size()) { return c.size(); }
+
+    template<typename... Params>
+    std::size_t size(const std::forward_list<Params...> &c) {
+        std::size_t s = 0;
+
+        for (const auto i : c) {
+            (void) i;
+            ++s;
+        }
+
+        return s;
+    }
+
+    template<typename Container>
+    constexpr void clear(Container &c) { c.clear(); }
+
     namespace detail {
         template<typename InputIterator>
         constexpr auto reserve_size(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
@@ -1073,17 +1091,17 @@ namespace skate {
     template<typename SizeT, typename Container>
     constexpr void reserve(Container &, SizeT) noexcept {}
 
-    template<typename... Params>
-    constexpr void reserve(std::basic_string<Params...> &c, std::size_t s) { c.reserve(s); }
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::basic_string<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
 
-    template<typename... Params>
-    constexpr void reserve(std::vector<Params...> &c, std::size_t s) { c.reserve(s); }
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::vector<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
 
-    template<typename... Params>
-    constexpr void reserve(std::unordered_set<Params...> &c, std::size_t s) { c.reserve(s); }
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::unordered_set<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
 
-    template<typename... Params>
-    constexpr void reserve(std::unordered_multiset<Params...> &c, std::size_t s) { c.reserve(s); }
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::unordered_multiset<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
 
     namespace detail {
         template<typename T, typename Container>
