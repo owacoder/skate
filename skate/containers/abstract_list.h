@@ -61,6 +61,182 @@ namespace skate {
     using std::begin;
     using std::end;
 
+    // Determine if type is a string
+    template<typename T> struct is_string_overload : public std::false_type {};
+    template<typename... ContainerParams>
+    struct is_string_overload<std::basic_string<ContainerParams...>> : public std::true_type {};
+    template<>
+    struct is_string_overload<char *> : public std::true_type {};
+    template<size_t N>
+    struct is_string_overload<char [N]> : public std::true_type {};
+    template<>
+    struct is_string_overload<wchar_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string_overload<wchar_t [N]> : public std::true_type {};
+    template<>
+    struct is_string_overload<char16_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string_overload<char16_t [N]> : public std::true_type {};
+    template<>
+    struct is_string_overload<char32_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string_overload<char32_t [N]> : public std::true_type {};
+#if __cplusplus >= 201703L
+    template<typename... ContainerParams>
+    struct is_string_overload<std::basic_string_view<ContainerParams...>> : public std::true_type {};
+#endif
+#if __cplusplus >= 202002L
+    template<>
+    struct is_string<char8_t *> : public std::true_type {};
+    template<size_t N>
+    struct is_string<char8_t [N]> : public std::true_type {};
+#endif
+
+    namespace detail {
+        // If base type is pointer, strip const/volatile off pointed-to type
+        template<typename T>
+        struct is_string_helper : public skate::is_string_overload<T> {};
+        template<typename T>
+        struct is_string_helper<T *> : public skate::is_string_overload<typename std::remove_cv<T>::type *> {};
+    }
+
+    // Strip const/volatile off type
+    template<typename T>
+    struct is_string : public detail::is_string_helper<typename std::decay<T>::type> {};
+
+    template<typename T>
+    constexpr bool is_string_value(T &&) noexcept { return is_string<T>::value; }
+
+    // Detection if type is array or map
+    namespace detail {
+        // TODO
+    }
+
+    // Abstract operations on containers
+    template<typename Container>
+    constexpr auto size(const Container &c) -> decltype(c.size()) { return c.size(); }
+
+    template<typename... Params>
+    std::size_t size(const std::forward_list<Params...> &c) {
+        std::size_t s = 0;
+
+        for (const auto i : c) {
+            (void) i;
+            ++s;
+        }
+
+        return s;
+    }
+
+    template<typename Container>
+    constexpr void clear(Container &c) { c.clear(); }
+
+    namespace detail {
+        template<typename InputIterator>
+        constexpr auto reserve_size(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
+
+        template<typename InputIterator>
+        constexpr std::size_t reserve_size(InputIterator, InputIterator, ...) { return 0; }
+    }
+
+    template<typename InputIterator>
+    constexpr auto reserve_size(InputIterator first, InputIterator last) -> decltype(detail::reserve_size(first, last, 0)) { return detail::reserve_size(first, last, 0); }
+
+    template<typename Container>
+    constexpr auto reserve_size(const Container &c) -> decltype(detail::reserve_size(begin(c), end(c), 0)) { return detail::reserve_size(begin(c), end(c), 0); }
+
+    template<typename SizeT, typename Container>
+    constexpr void reserve(Container &, SizeT) noexcept {}
+
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::basic_string<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
+
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::vector<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
+
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::unordered_set<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
+
+    template<typename SizeT, typename... Params>
+    constexpr void reserve(std::unordered_multiset<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
+
+    namespace detail {
+        template<typename T, typename Container>
+        constexpr void push_back(Container &c, T &&value) { c.push_back(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::unordered_set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+
+        template<typename T, typename... Params>
+        constexpr void push_back(std::unordered_multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
+    }
+
+    template<typename Container>
+    class back_inserter {
+        Container *m_container;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr back_inserter(Container &c) noexcept : m_container(&c) {}
+
+        template<typename T>
+        constexpr back_inserter &operator=(T &&value) { return skate::detail::push_back(*m_container, std::forward<T>(value)), *this; }
+
+        constexpr back_inserter &operator*() noexcept { return *this; }
+        constexpr back_inserter &operator++() noexcept { return *this; }
+        constexpr back_inserter &operator++(int) noexcept { return *this; }
+    };
+
+    template<typename... Params>
+    class back_inserter<std::forward_list<Params...>> {
+        using Container = std::forward_list<Params...>;
+
+        Container *m_container;
+        typename Container::iterator m_last;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        back_inserter(Container &c) noexcept : m_container(&c), m_last(c.before_begin()) {
+            for (auto unused : c) {
+                (void) unused;
+                ++m_last;
+            }
+        }
+
+        template<typename T>
+        constexpr back_inserter &operator=(T &&value) { return m_last = m_container->insert_after(m_last, std::forward<T>(value)), *this; }
+
+        constexpr back_inserter &operator*() noexcept { return *this; }
+        constexpr back_inserter &operator++() noexcept { return *this; }
+        constexpr back_inserter &operator++(int) noexcept { return *this; }
+    };
+
+    template<typename Container>
+    constexpr back_inserter<Container> make_back_inserter(Container &c) { return back_inserter<Container>(c); }
+
+    template<typename T, typename Container>
+    constexpr void push_back(Container &c, T &&value) { *skate::make_back_inserter(c)++ = std::forward<T>(value); }
+
+    /////////////////////////////////////////////////////////////////////////////////////
+    //                               OLD IMPLEMENTATIONS
+    /////////////////////////////////////////////////////////////////////////////////////
+
     template<typename T> struct type_exists : public std::true_type { typedef int type; };
 
     template<typename U, typename I = typename std::make_signed<U>::type>
@@ -112,47 +288,6 @@ namespace skate {
     struct abstract_list_element_type {
         typedef typename container_pack_element_type<0, T>::type type;
     };
-
-    // Determine if type is a string
-    template<typename T> struct is_string_overload : public std::false_type {};
-    template<typename... ContainerParams>
-    struct is_string_overload<std::basic_string<ContainerParams...>> : public std::true_type {};
-    template<>
-    struct is_string_overload<char *> : public std::true_type {};
-    template<size_t N>
-    struct is_string_overload<char [N]> : public std::true_type {};
-    template<>
-    struct is_string_overload<wchar_t *> : public std::true_type {};
-    template<size_t N>
-    struct is_string_overload<wchar_t [N]> : public std::true_type {};
-    template<>
-    struct is_string_overload<char16_t *> : public std::true_type {};
-    template<size_t N>
-    struct is_string_overload<char16_t [N]> : public std::true_type {};
-    template<>
-    struct is_string_overload<char32_t *> : public std::true_type {};
-    template<size_t N>
-    struct is_string_overload<char32_t [N]> : public std::true_type {};
-#if __cplusplus >= 201703L
-    template<typename... ContainerParams>
-    struct is_string_overload<std::basic_string_view<ContainerParams...>> : public std::true_type {};
-#endif
-#if __cplusplus >= 202002L
-    template<>
-    struct is_string<char8_t *> : public std::true_type {};
-    template<size_t N>
-    struct is_string<char8_t [N]> : public std::true_type {};
-#endif
-
-    // If base type is pointer, strip const/volatile off pointed-to type
-    template<typename T>
-    struct is_string_helper : public is_string_overload<T> {};
-    template<typename T>
-    struct is_string_helper<T *> : public is_string_overload<typename std::remove_cv<T>::type *> {};
-
-    // Strip const/volatile off type
-    template<typename T>
-    struct is_string : public is_string_helper<typename std::decay<T>::type> {};
 
     // Determine if type is a map pair (has first/second members, or key()/value() functions)
     template<typename MapPair>
@@ -1055,175 +1190,6 @@ namespace skate {
         template<typename T>
         void pop_front(T &c) { abstract_pop_front<T>{}(c); }
     }
-
-    // Determine if type is a string
-    template<typename T>
-    constexpr bool is_string_type(T &&) noexcept { return false; }
-
-    template<typename... Params>
-    constexpr bool is_string_type(std::basic_string<Params...>) noexcept { return true; }
-
-    template<std::size_t N>
-    constexpr bool is_string_type(char [N]) noexcept { return true; }
-    constexpr bool is_string_type(char *) noexcept { return true; }
-    template<std::size_t N>
-    constexpr bool is_string_type(const char [N]) noexcept { return true; }
-    constexpr bool is_string_type(const char *) noexcept { return true; }
-
-    template<std::size_t N>
-    constexpr bool is_string_type(wchar_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(wchar_t *) noexcept { return true; }
-    template<std::size_t N>
-    constexpr bool is_string_type(const wchar_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(const wchar_t *) noexcept { return true; }
-
-    template<std::size_t N>
-    constexpr bool is_string_type(char16_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(char16_t *) noexcept { return true; }
-    template<std::size_t N>
-    constexpr bool is_string_type(const char16_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(const char16_t *) noexcept { return true; }
-
-    template<std::size_t N>
-    constexpr bool is_string_type(char32_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(char32_t *) noexcept { return true; }
-    template<std::size_t N>
-    constexpr bool is_string_type(const char32_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(const char32_t *) noexcept { return true; }
-
-#if __cplusplus >= 201703L
-    template<typename... Params>
-    constexpr bool is_string_type(std::basic_string_view<Params...>) noexcept { return true; }
-#endif
-#if __cplusplus >= 202002L
-    template<std::size_t N>
-    constexpr bool is_string_type(char8_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(char8_t *) noexcept { return true; }
-    template<std::size_t N>
-    constexpr bool is_string_type(const char8_t [N]) noexcept { return true; }
-    constexpr bool is_string_type(const char8_t *) noexcept { return true; }
-#endif
-
-    // Abstract operations on containers
-    template<typename Container>
-    constexpr auto size(const Container &c) -> decltype(c.size()) { return c.size(); }
-
-    template<typename... Params>
-    std::size_t size(const std::forward_list<Params...> &c) {
-        std::size_t s = 0;
-
-        for (const auto i : c) {
-            (void) i;
-            ++s;
-        }
-
-        return s;
-    }
-
-    template<typename Container>
-    constexpr void clear(Container &c) { c.clear(); }
-
-    namespace detail {
-        template<typename InputIterator>
-        constexpr auto reserve_size(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
-
-        template<typename InputIterator>
-        constexpr std::size_t reserve_size(InputIterator, InputIterator, ...) { return 0; }
-    }
-
-    template<typename InputIterator>
-    constexpr auto reserve_size(InputIterator first, InputIterator last) -> decltype(detail::reserve_size(first, last, 0)) { return detail::reserve_size(first, last, 0); }
-
-    template<typename Container>
-    constexpr auto reserve_size(const Container &c) -> decltype(detail::reserve_size(begin(c), end(c), 0)) { return detail::reserve_size(begin(c), end(c), 0); }
-
-    template<typename SizeT, typename Container>
-    constexpr void reserve(Container &, SizeT) noexcept {}
-
-    template<typename SizeT, typename... Params>
-    constexpr void reserve(std::basic_string<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
-
-    template<typename SizeT, typename... Params>
-    constexpr void reserve(std::vector<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
-
-    template<typename SizeT, typename... Params>
-    constexpr void reserve(std::unordered_set<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
-
-    template<typename SizeT, typename... Params>
-    constexpr void reserve(std::unordered_multiset<Params...> &c, SizeT s) { c.reserve(s < 0 ? 0 : std::size_t(s)); }
-
-    namespace detail {
-        template<typename T, typename Container>
-        constexpr void push_back(Container &c, T &&value) { c.push_back(std::forward<T>(value)); }
-
-        template<typename T, typename... Params>
-        constexpr void push_back(std::set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
-
-        template<typename T, typename... Params>
-        constexpr void push_back(std::multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
-
-        template<typename T, typename... Params>
-        constexpr void push_back(std::unordered_set<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
-
-        template<typename T, typename... Params>
-        constexpr void push_back(std::unordered_multiset<Params...> &c, T &&value) { c.insert(std::forward<T>(value)); }
-    }
-
-    template<typename Container>
-    class back_inserter {
-        Container *m_container;
-
-    public:
-        using iterator_category = std::output_iterator_tag;
-        using value_type = void;
-        using difference_type = void;
-        using pointer = void;
-        using reference = void;
-
-        constexpr back_inserter(Container &c) noexcept : m_container(&c) {}
-
-        template<typename T>
-        constexpr back_inserter &operator=(T &&value) { return skate::detail::push_back(*m_container, std::forward<T>(value)), *this; }
-
-        constexpr back_inserter &operator*() noexcept { return *this; }
-        constexpr back_inserter &operator++() noexcept { return *this; }
-        constexpr back_inserter &operator++(int) noexcept { return *this; }
-    };
-
-    template<typename... Params>
-    class back_inserter<std::forward_list<Params...>> {
-        using Container = std::forward_list<Params...>;
-
-        Container *m_container;
-        typename Container::iterator m_last;
-
-    public:
-        using iterator_category = std::output_iterator_tag;
-        using value_type = void;
-        using difference_type = void;
-        using pointer = void;
-        using reference = void;
-
-        back_inserter(Container &c) noexcept : m_container(&c), m_last(c.before_begin()) {
-            for (auto unused : c) {
-                (void) unused;
-                ++m_last;
-            }
-        }
-
-        template<typename T>
-        constexpr back_inserter &operator=(T &&value) { return m_last = m_container->insert_after(m_last, std::forward<T>(value)), *this; }
-
-        constexpr back_inserter &operator*() noexcept { return *this; }
-        constexpr back_inserter &operator++() noexcept { return *this; }
-        constexpr back_inserter &operator++(int) noexcept { return *this; }
-    };
-
-    template<typename Container>
-    constexpr back_inserter<Container> make_back_inserter(Container &c) { return back_inserter<Container>(c); }
-
-    template<typename T, typename Container>
-    constexpr void push_back(Container &c, T &&value) { *skate::make_back_inserter(c)++ = std::forward<T>(value); }
 }
 
 #endif // SKATE_ABSTRACT_LIST_H
