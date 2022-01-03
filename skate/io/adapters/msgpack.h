@@ -281,9 +281,8 @@ namespace skate {
         // Map overload
         template<typename _ = Type, typename std::enable_if<is_map<_>::value, int>::type = 0>
         bool read(std::streambuf &is) {
-            typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type Key;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type Value;
+            typedef typename std::decay<decltype(key_of(begin(ref)))>::type Key;
+            typedef typename std::decay<decltype(value_of(begin(ref)))>::type Value;
 
             abstract::clear(ref);
 
@@ -788,8 +787,6 @@ namespace skate {
         // Map overload
         template<typename _ = Type, typename std::enable_if<is_map<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
-            typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
-
             if (ref.size() <= 15) {
                 if (os.sputc(static_cast<unsigned char>(0x80 | ref.size())) == std::char_traits<char>::eof())
                     return false;
@@ -804,8 +801,8 @@ namespace skate {
             }
 
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (!msgpack(key_of<KeyValuePair>{}(el), options).write(os) ||
-                    !msgpack(value_of<KeyValuePair>{}(el), options).write(os))
+                if (!msgpack(key_of(el), options).write(os) ||
+                    !msgpack(value_of(el), options).write(os))
                     return false;
             }
 

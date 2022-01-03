@@ -11,6 +11,192 @@
 #include "../../containers/split_join.h"
 
 namespace skate {
+    template<typename OutputIterator>
+    OutputIterator json_escape(unicode value, OutputIterator out) {
+        switch (value.value()) {
+            case 0x08: *out++ = '\\'; *out++ = 'b'; break;
+            case 0x09: *out++ = '\\'; *out++ = 't'; break;
+            case 0x0A: *out++ = '\\'; *out++ = 'n'; break;
+            case 0x0B: *out++ = '\\'; *out++ = 'v'; break;
+            case 0x0C: *out++ = '\\'; *out++ = 'f'; break;
+            case 0x0D: *out++ = '\\'; *out++ = 'r'; break;
+            case '\\': *out++ = '\\'; *out++ = '\\'; break;
+            case '\"': *out++ = '\\'; *out++ = '\"'; break;
+            default:
+                if (value.value() < 32 || value.value() >= 127) {
+                    const auto surrogates = value.utf16_surrogates();
+
+                    {
+                        *out++ = '\\';
+                        *out++ = 'u';
+                        auto hex = hex_encode_iterator(out);
+                        out = big_endian_encode(surrogates.first, hex).underlying();
+                    }
+
+                    if (surrogates.first != surrogates.second) {
+                        *out++ = '\\';
+                        *out++ = 'u';
+                        auto hex = hex_encode_iterator(out);
+                        out = big_endian_encode(surrogates.second, hex).underlying();
+                    }
+                } else {
+                    *out++ = char(value.value());
+                }
+
+                break;
+        }
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator json_escape(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = json_escape(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class json_escape_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr json_escape_iterator(OutputIterator out) : m_out(out) {}
+
+        constexpr json_escape_iterator &operator=(unicode value) { return m_out = json_escape(value, m_out), *this; }
+
+        constexpr json_escape_iterator &operator*() noexcept { return *this; }
+        constexpr json_escape_iterator &operator++() noexcept { return *this; }
+        constexpr json_escape_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename Container = std::string, typename InputIterator>
+    Container to_json_escape(InputIterator first, InputIterator last) {
+        Container result;
+
+        json_escape(first, last, skate::make_back_inserter(result));
+
+        return result;
+    }
+
+    template<typename Container = std::string, typename Range>
+    constexpr Container to_json_escape(const Range &range) { return to_json_escape<Container>(begin(range), end(range)); }
+
+    struct json_write_options {
+        constexpr json_write_options(unsigned indent = 0, unsigned current_indentation = 0) noexcept
+            : current_indentation(current_indentation)
+            , indent(indent)
+        {}
+
+        constexpr json_write_options indented() const noexcept {
+            return { indent, current_indentation + indent };
+        }
+
+        template<typename OutputIterator>
+        OutputIterator write_indent(OutputIterator out) {
+            *out++ = '\n';
+
+            return std::fill_n(out, current_indentation, ' ');
+        }
+
+        unsigned current_indentation;             // Current indentation depth in number of spaces
+        unsigned indent;                          // Indent per level in number of spaces (0 if no indent desired)
+    };
+
+    template<typename OutputIterator>
+    constexpr std::pair<OutputIterator, result_type> write_json(std::nullptr_t, OutputIterator out, const json_write_options & = {}) {
+        return { std::copy_n("null", 4, out), result_type::success };
+    }
+
+    template<typename OutputIterator>
+    constexpr std::pair<OutputIterator, result_type> write_json(bool b, OutputIterator out, const json_write_options & = {}) {
+        return { (b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out)), result_type::success };
+    }
+
+    // TODO: integer writing
+    template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
+        return { out, result_type::success };
+    }
+
+    // TODO: floating point writing
+    template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+    constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
+
+    }
+
+    template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
+    constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options & = {}) {
+        result_type result = result_type::success;
+
+        *out++ = '"';
+
+        {
+            auto it = json_escape_iterator(out);
+
+            std::tie(it, result) = utf_auto_decode(v, it);
+
+            out = it.underlying();
+        }
+
+        *out++ = '"';
+
+        return { out, result };
+    }
+
+    template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
+    constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
+        const auto start = begin(v);
+        result_type result = result_type::success;
+
+        *out++ = '[';
+
+        for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            if (it != start)
+                *out++ = ',';
+
+            std::tie(out, result) = write_json(*it, out, options.indented());
+        }
+
+        *out++ = ']';
+
+        return { out, result };
+    }
+
+    template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::value, int>::type = 0>
+    constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options & = {}) {
+        const auto start = begin(v);
+        result_type result = result_type::success;
+
+        *out++ = '{';
+
+        for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            if (it != start)
+                *out++ = ',';
+
+            std::tie(out, result) = write_json(key_of(it), out);
+            if (result != result_type::success)
+                return { out, result };
+
+            *out++ = ':';
+
+            std::tie(out, result) = write_json(value_of(it), out);
+        }
+
+        *out++ = '}';
+
+        return { out, result };
+    }
+
     template<typename Type>
     class json_reader;
 
@@ -122,11 +308,10 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && is_string<decltype(key_of(begin(std::declval<_>())))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(begin(std::declval<_>()))>::type KeyValuePair;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type Key;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type Value;
+            typedef typename std::decay<decltype(key_of(begin(ref)))>::type Key;
+            typedef typename std::decay<decltype(value_of(begin(ref)))>::type Value;
 
             abstract::clear(ref);
 
@@ -352,20 +537,6 @@ namespace skate {
 #endif
     };
 
-    struct json_write_options {
-        constexpr json_write_options(size_t indent = 0, size_t current_indentation = 0) noexcept
-            : current_indentation(current_indentation)
-            , indent(indent)
-        {}
-
-        json_write_options indented() const noexcept {
-            return { indent, current_indentation + indent };
-        }
-
-        size_t current_indentation; // Current indentation depth in number of spaces
-        size_t indent; // Indent per level in number of spaces (0 if no indent desired)
-    };
-
     template<typename Type>
     json_writer<Type> json(const Type &, json_write_options options = {});
 
@@ -482,10 +653,8 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && is_string<decltype(key_of(begin(std::declval<_>())))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
-
             size_t index = 0;
 
             if (os.sputc('{') == std::char_traits<StreamChar>::eof())
@@ -498,14 +667,14 @@ namespace skate {
                 if (options.indent && !do_indent(os, options.current_indentation + options.indent))
                     return false;
 
-                if (!json(key_of<KeyValuePair>{}(el), options.indented()).write(os))
+                if (!json(key_of(el), options.indented()).write(os))
                     return false;
 
                 if (os.sputc(':') == std::char_traits<StreamChar>::eof() ||
                     (options.indent && os.sputc(' ') == std::char_traits<StreamChar>::eof()))
                     return false;
 
-                if (!json(value_of<KeyValuePair>{}(el), options.indented()).write(os))
+                if (!json(value_of(el), options.indented()).write(os))
                     return false;
 
                 ++index;

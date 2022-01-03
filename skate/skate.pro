@@ -16,6 +16,7 @@ HEADERS += \
     containers/sparse_array.h \
     containers/split_join.h \
     containers/utf.h \
+    io/adapters/base64.h \
     io/adapters/csv.h \
     containers/tree.h \
     io/adapters/msgpack.h \

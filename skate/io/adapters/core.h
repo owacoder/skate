@@ -28,10 +28,300 @@
 #endif
 
 #include "../../containers/utf.h"
-#include "../../containers/abstract_list.h"
 #include "../../containers/split_join.h"
 
 namespace skate {
+    template<typename T, typename OutputIterator>
+    OutputIterator little_endian_encode(T &&value, OutputIterator out) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be serialized");
+
+        for (std::size_t i = 0; i < std::numeric_limits<DecayedT>::digits; i += 8)
+            *out++ = std::uint8_t(value >> i);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator little_endian_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = little_endian_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename T, typename OutputIterator>
+    OutputIterator big_endian_encode(T &&value, OutputIterator out) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be serialized");
+
+        for (std::size_t i = std::numeric_limits<DecayedT>::digits; i > 0; )
+            *out++ = uint8_t(value >> (i -= 8));
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator big_endian_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = big_endian_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class little_endian_encode_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr little_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+
+        template<typename T>
+        constexpr little_endian_encode_iterator &operator=(T &&value) { return m_out = little_endian_encode(std::forward<T>(value), m_out), *this; }
+
+        constexpr little_endian_encode_iterator &operator*() noexcept { return *this; }
+        constexpr little_endian_encode_iterator &operator++() noexcept { return *this; }
+        constexpr little_endian_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    class big_endian_encode_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr big_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+
+        template<typename T>
+        constexpr big_endian_encode_iterator &operator=(T &&value) { return m_out = big_endian_encode(std::forward<T>(value), m_out), *this; }
+
+        constexpr big_endian_encode_iterator &operator*() noexcept { return *this; }
+        constexpr big_endian_encode_iterator &operator++() noexcept { return *this; }
+        constexpr big_endian_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
+        return "0123456789ABCDEF"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
+        return "0123456789abcdef"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
+        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
+    }
+
+    inline constexpr int hex_to_nibble(int c) noexcept {
+        return c >= '0' && c <= '9' ? c - '0' :
+               c >= 'A' && c <= 'F' ? c - 'A' + 10 :
+               c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+                                      -1;
+    }
+
+    template<typename OutputIterator>
+    OutputIterator hex_encode(std::uint8_t byte_value, OutputIterator out) {
+        *out++ = nibble_to_hex(byte_value >> 4);
+        *out++ = nibble_to_hex(byte_value & 0xf);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    OutputIterator hex_encode_lower(std::uint8_t byte_value, OutputIterator out) {
+        *out++ = nibble_to_hex_lower(byte_value >> 4);
+        *out++ = nibble_to_hex_lower(byte_value & 0xf);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator hex_encode(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = hex_encode(*first, out);
+
+        return out;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator hex_encode_lower(InputIterator first, InputIterator last, OutputIterator out) {
+        for (; first != last; ++first)
+            out = hex_encode_lower(*first, out);
+
+        return out;
+    }
+
+    template<typename Container = std::string, typename InputIterator>
+    Container to_hex(InputIterator first, InputIterator last) {
+        Container result;
+
+        skate::reserve(result, 2 * skate::size_to_reserve(first, last));
+
+        hex_encode(first, last, skate::make_back_inserter(result));
+
+        return result;
+    }
+
+    template<typename Container = std::string, typename Range>
+    constexpr Container to_hex(const Range &range) { return to_hex<Container>(begin(range), end(range)); }
+
+    template<typename Container = std::string, typename InputIterator>
+    Container to_hex_lower(InputIterator first, InputIterator last) {
+        Container result;
+
+        skate::reserve(result, 2 * skate::size_to_reserve(first, last));
+
+        hex_encode_lower(first, last, skate::make_back_inserter(result));
+
+        return result;
+    }
+
+    template<typename Container = std::string, typename Range>
+    constexpr Container to_hex_lower(const Range &range) { return to_hex_lower<Container>(begin(range), end(range)); }
+
+    template<typename OutputIterator>
+    class hex_encode_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr hex_encode_iterator(OutputIterator out) : m_out(out) {}
+
+        constexpr hex_encode_iterator &operator=(std::uint8_t value) { return m_out = hex_encode(value, m_out), *this; }
+
+        constexpr hex_encode_iterator &operator*() noexcept { return *this; }
+        constexpr hex_encode_iterator &operator++() noexcept { return *this; }
+        constexpr hex_encode_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename OutputIterator>
+    class hex_encode_lower_iterator {
+        OutputIterator m_out;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr hex_encode_lower_iterator(OutputIterator out) : m_out(out) {}
+
+        constexpr hex_encode_lower_iterator &operator=(std::uint8_t value) { return m_out = hex_encode_lower(value, m_out), *this; }
+
+        constexpr hex_encode_lower_iterator &operator*() noexcept { return *this; }
+        constexpr hex_encode_lower_iterator &operator++() noexcept { return *this; }
+        constexpr hex_encode_lower_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    std::pair<OutputIterator, result_type> int_encode(T v, OutputIterator out) {
+#if __cplusplus >= 201703L
+        std::array<char, std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value> buf;
+
+        const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+        if (result.ec != std::errc())
+            return false;
+        const auto end = result.ptr;
+#else
+        const std::string buf = std::to_string(v);
+        const auto end = buf.data() + buf.size();
+#endif
+
+        return { std::copy(buf.data(), end, out), result_type::success };
+    }
+
+    namespace detail {
+        template<typename T>
+        constexpr int log10ceil(T num) {
+            return num < 10? 1: 1 + log10ceil(num / 10);
+        }
+
+        // Needed because std::max isn't constexpr
+        template<typename T>
+        constexpr T max(T a, T b) { return a < b? b: a; }
+    }
+
+    template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+    std::pair<OutputIterator, result_type> fp_encode(T v, OutputIterator out, bool allow_inf = true, bool allow_nan = true) {
+        static_assert(std::is_same<typename std::decay<T>::type, float>::value ||
+                      std::is_same<typename std::decay<T>::type, double>::value ||
+                      std::is_same<typename std::decay<T>::type, long double>::value, "floating point type must be float, double, or long double");
+
+        if (std::isinf(v)) {
+            if (!allow_inf)
+                return { out, result_type::failure };
+
+            // Add negative sign as needed
+            if (std::signbit(v))
+                *out++ = '-';
+
+            const char buf[] = "Infinity";
+
+            return { std::copy_n(buf, strlen(buf), out), result_type::success };
+        } else if (std::isnan(v)) {
+            if (!allow_nan)
+                return { out, result_type::failure };
+
+            const char buf[] = "NaN";
+
+            return { std::copy_n(buf, strlen(buf), out), result_type::success };
+        }
+
+        // See https://stackoverflow.com/questions/68472720/stdto-chars-minimal-floating-point-buffer-size/68475665#68475665
+        // The buffer is guaranteed to be a minimally sized buffer for the output string
+        std::array<char, 4 +
+                         std::numeric_limits<T>::max_digits10 +
+                         detail::max(2, detail::log10ceil(std::numeric_limits<T>::max_exponent10)) +
+                         1 // Add for NUL terminator
+                  > buf;
+
+#if __cplusplus >= 201703L
+        const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v, std::chars_format::general, std::numeric_limits<T>::max_digits10);
+        if (result.ec != std::errc())
+            return { out, result_type::failure };
+
+        return { std::copy(buf.data(), result.ptr, out), result_type::success };
+#else
+        // Ideally this would not use snprintf, but there's not really a great (fast) option in C++11
+        auto chars = snprintf(buf.data(), buf.size(),
+                              std::is_same<long double, T>::value? "%.*Lg": "%.*g",
+                              std::numeric_limits<T>::max_digits10, v);
+        if (chars < 0)
+            return { out, result_type::failure };
+
+        return { std::copy_n(buf.begin(), std::size_t(chars), out), result_type::success };
+#endif
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////
+    ///                             OLD IMPLEMENTATIONS
+    /////////////////////////////////////////////////////////////////////////////////
+
     namespace impl {
         template<typename StreamChar>
         bool skipws(std::basic_streambuf<StreamChar> &is) {

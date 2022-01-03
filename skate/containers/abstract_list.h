@@ -61,6 +61,15 @@ namespace skate {
     using std::begin;
     using std::end;
 
+    enum class result_type {
+        success,
+        failure
+    };
+
+    inline constexpr result_type merge_results(result_type a, result_type b) {
+        return a != result_type::success ? a : b != result_type::success ? b : result_type::success;
+    }
+
     // Determine if type is a string
     template<typename T> struct is_string_overload : public std::false_type {};
     template<typename... ContainerParams>
@@ -107,10 +116,123 @@ namespace skate {
     template<typename T>
     constexpr bool is_string_value(T &&) noexcept { return is_string<T>::value; }
 
-    // Detection if type is array or map
+    // Detection if type is map
+    template<typename T> struct is_map_overload : public std::false_type {};
+
     namespace detail {
-        // TODO
+        template<typename T>
+        constexpr auto key_of(T &&v) -> decltype((*v).first) { return (*v).first; }
+
+        template<typename T>
+        constexpr auto key_of(T &&v) -> decltype((*v).key()) { return (*v).key(); }
+
+        template<typename T>
+        constexpr auto key_of(T &&v) -> decltype(v.key()) { return v.key(); }
+
+        template<typename T>
+        constexpr auto value_of(T &&v) -> decltype((*v).second) { return (*v).second; }
+
+        template<typename T>
+        constexpr auto value_of(T &&v) -> decltype((*v).value()) { return (*v).value(); }
+
+        template<typename T>
+        constexpr auto value_of(T &&v) -> decltype(v.value()) { return v.value(); }
     }
+
+    template<typename T>
+    constexpr auto key_of(T &&v) -> decltype(detail::key_of(std::forward<T>(v))) { return detail::key_of(std::forward<T>(v)); }
+
+    template<typename T>
+    constexpr auto value_of(T &&v) -> decltype(detail::value_of(std::forward<T>(v))) { return detail::value_of(std::forward<T>(v)); }
+
+    namespace detail {
+        // Must use top-level key_of
+        template<typename T>
+        constexpr auto is_map_value_helper(T &&v, int) -> std::pair<decltype(skate::key_of(begin(std::forward<T>(v)))), decltype(skate::value_of(begin(std::forward<T>(v))))> {
+            return { skate::key_of(begin(std::forward<T>(v))), skate::value_of(begin(std::forward<T>(v))) };
+        }
+
+        template<typename T>
+        constexpr void is_map_value_helper(T &&, ...) noexcept {}
+
+        template<typename T>
+        struct is_map_helper : public std::integral_constant<bool, is_map_overload<T>::value ||
+                                                                   !std::is_same<void, decltype(is_map_value_helper(std::declval<T>(), 0))>::value> {};
+    }
+
+    template<typename T>
+    struct is_map : public detail::is_map_helper<typename std::decay<T>::type> {};
+
+    template<typename T>
+    constexpr bool is_map_value(T &&) noexcept { return is_map<T>::value; }
+
+    // Detection if type is array
+    template<typename T> struct is_array_overload : public std::false_type {};
+
+    namespace detail {
+        template<typename T>
+        constexpr auto is_array_value_helper(T &&v, int) -> decltype(begin(v)) { return begin(v); }
+
+        template<typename T>
+        constexpr void is_array_value_helper(T &&, ...) noexcept {}
+
+        template<typename T>
+        struct is_array_helper : public std::integral_constant<bool, is_array_overload<T>::value ||
+                                                                     (!std::is_same<void, decltype(is_array_value_helper(std::declval<T>(), 0))>::value &&
+                                                                      !is_string<T>::value &&
+                                                                      !is_map<T>::value)> {};
+    }
+
+    template<typename T>
+    struct is_array : public detail::is_array_helper<typename std::decay<T>::type> {};
+
+    template<typename T>
+    constexpr bool is_array_value(T &&) noexcept { return is_array<T>::value; }
+
+    // Determine if type is tuple
+    template<typename T> struct is_tuple_overload : public std::false_type {};
+
+    namespace detail {
+        template<typename T>
+        constexpr auto is_tuple_value_helper(T &&, int) -> typename std::enable_if<std::tuple_size<T>::value >= 0, int>::type { return 0; }
+
+        template<typename T>
+        constexpr void is_tuple_value_helper(T &&, ...) noexcept {}
+
+        template<typename T>
+        struct is_tuple_helper : public std::integral_constant<bool, is_tuple_overload<T>::value ||
+                                                                     (!std::is_same<void, decltype(is_tuple_value_helper(std::declval<T>(), 0))>::value &&
+                                                                      !is_string<T>::value &&
+                                                                      !is_map<T>::value)> {};
+    }
+
+    template<typename T>
+    struct is_tuple : public detail::is_tuple_helper<typename std::decay<T>::type> {};
+
+    // Determine if type is trivial (not a tuple, array, or map)
+    template<typename T>
+    struct is_scalar : public std::integral_constant<bool, !is_tuple<T>::value &&
+                                                           !is_array<T>::value &&
+                                                           !is_map<T>::value> {};
+
+    // Determine if type is tuple with trivial elements
+    namespace detail {
+        template<typename T = void, typename... Types>
+        struct is_trivial_params_helper : public std::integral_constant<bool, is_scalar<T>::value &&
+                                                                             is_trivial_params_helper<Types...>::value> {};
+
+        template<typename T>
+        struct is_trivial_params_helper<T> : public std::integral_constant<bool, is_scalar<T>::value> {};
+
+        template<typename T>
+        struct is_trivial_tuple_helper : public std::false_type {};
+        template<template<typename...> class Tuple, typename... Types>
+        struct is_trivial_tuple_helper<Tuple<Types...>> : public std::integral_constant<bool, is_tuple<Tuple<Types...>>::value &&
+                                                                                              is_trivial_params_helper<Types...>::value> {};
+    }
+
+    template<typename T>
+    struct is_trivial_tuple : public detail::is_trivial_tuple_helper<typename std::decay<T>::type> {};
 
     // Abstract operations on containers
     template<typename Container>
@@ -133,17 +255,17 @@ namespace skate {
 
     namespace detail {
         template<typename InputIterator>
-        constexpr auto reserve_size(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
+        constexpr auto size_to_reserve(InputIterator first, InputIterator last, int) -> decltype(last - first) { return last - first; }
 
         template<typename InputIterator>
-        constexpr std::size_t reserve_size(InputIterator, InputIterator, ...) { return 0; }
+        constexpr std::size_t size_to_reserve(InputIterator, InputIterator, ...) { return 0; }
     }
 
     template<typename InputIterator>
-    constexpr auto reserve_size(InputIterator first, InputIterator last) -> decltype(detail::reserve_size(first, last, 0)) { return detail::reserve_size(first, last, 0); }
+    constexpr auto size_to_reserve(InputIterator first, InputIterator last) -> decltype(detail::size_to_reserve(first, last, 0)) { return detail::size_to_reserve(first, last, 0); }
 
     template<typename Container>
-    constexpr auto reserve_size(const Container &c) -> decltype(detail::reserve_size(begin(c), end(c), 0)) { return detail::reserve_size(begin(c), end(c), 0); }
+    constexpr auto size_to_reserve(const Container &c) -> decltype(detail::size_to_reserve(begin(c), end(c), 0)) { return detail::size_to_reserve(begin(c), end(c), 0); }
 
     template<typename SizeT, typename Container>
     constexpr void reserve(Container &, SizeT) noexcept {}
@@ -261,222 +383,6 @@ namespace skate {
 
     template<typename T, typename std::enable_if<std::is_pointer<T>::value, int>::type = 0>
     T end(T c) { while (*c) ++c; return c; }
-
-    // Extract an element's type from parameter pack
-    template<size_t element, typename T, typename... Types>
-    struct parameter_pack_element_type {
-        static_assert(element <= sizeof...(Types), "element requested is out of range for size of parameter pack");
-        typedef typename parameter_pack_element_type<element - 1, Types...>::type type;
-    };
-
-    template<typename T, typename... Types>
-    struct parameter_pack_element_type<0, T, Types...> {
-        typedef T type;
-    };
-
-    // Extract an element's type from inside a container's parameter pack
-    template<size_t element, typename T>
-    struct container_pack_element_type {};
-
-    template<size_t element, template<typename...> class Container, typename... Types>
-    struct container_pack_element_type<element, Container<Types...>> {
-        typedef typename parameter_pack_element_type<element, Types...>::type type;
-    };
-
-    // Extract type of element in container
-    template<typename T>
-    struct abstract_list_element_type {
-        typedef typename container_pack_element_type<0, T>::type type;
-    };
-
-    // Determine if type is a map pair (has first/second members, or key()/value() functions)
-    template<typename MapPair>
-    struct is_map_pair {
-        struct none {};
-
-        // Test for indirect first/second pair
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>()->first), decltype(std::declval<_>()->second)> ind_first_second(U *);
-        template<typename U> static none ind_first_second(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->first) ind_first(U *);
-        template<typename U> static none ind_first(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->second) ind_second(U *);
-        template<typename U> static none ind_second(...);
-
-        // Test for member first/second pair
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>().first), decltype(std::declval<_>().second)> mem_first_second(U *);
-        template<typename U> static none mem_first_second(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().first) mem_first(U *);
-        template<typename U> static none mem_first(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().second) mem_second(U *);
-        template<typename U> static none mem_second(...);
-
-        // Test for indirect key()/value() functions
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>()->key()), decltype(std::declval<_>()->value())> ind_key_value(U *);
-        template<typename U> static none ind_key_value(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->key()) ind_key(U *);
-        template<typename U> static none ind_key(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>()->value()) ind_value(U *);
-        template<typename U> static none ind_value(...);
-
-        // Test for member key()/value() functions
-        template<typename U, typename _ = MapPair> static std::pair<decltype(std::declval<_>().key()), decltype(std::declval<_>().value())> mem_key_value(U *);
-        template<typename U> static none mem_key_value(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().key()) mem_key(U *);
-        template<typename U> static none mem_key(...);
-        template<typename U, typename _ = MapPair> static decltype(std::declval<_>().value()) mem_value(U *);
-        template<typename U> static none mem_value(...);
-
-        static constexpr int value = !std::is_same<none, decltype(ind_first_second<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(mem_first_second<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(ind_key_value<MapPair>(nullptr))>::value ||
-                                     !std::is_same<none, decltype(mem_key_value<MapPair>(nullptr))>::value;
-
-        typedef typename std::conditional<!std::is_same<none, decltype(ind_first<MapPair>(nullptr))>::value, decltype(ind_first<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_first<MapPair>(nullptr))>::value, decltype(mem_first<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(ind_key<MapPair>(nullptr))>::value, decltype(ind_key<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_key<MapPair>(nullptr))>::value, decltype(mem_key<MapPair>(nullptr)), void>::type>::type>::type>::type key_type;
-
-        typedef typename std::conditional<!std::is_same<none, decltype(ind_second<MapPair>(nullptr))>::value, decltype(ind_second<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_second<MapPair>(nullptr))>::value, decltype(mem_second<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(ind_value<MapPair>(nullptr))>::value, decltype(ind_value<MapPair>(nullptr)),
-                typename std::conditional<!std::is_same<none, decltype(mem_value<MapPair>(nullptr))>::value, decltype(mem_value<MapPair>(nullptr)), void>::type>::type>::type>::type value_type;
-    };
-
-    // Determine if type is an array (has begin() overload)
-    template<typename Array>
-    struct is_array_helper {
-        struct none {};
-
-        template<typename U, typename _ = Array> static typename std::enable_if<type_exists<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Array>(nullptr))>::value;
-    };
-
-    // Determine if type is a map (iterator has first/second members, or key()/value() functions)
-    template<typename Map>
-    struct is_map_helper {
-        struct none {};
-
-        template<typename U, typename _ = Map> static typename std::enable_if<is_map_pair<decltype(begin(std::declval<_>()))>::value, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
-    };
-
-    template<typename Map>
-    struct is_string_map_helper {
-        struct none {};
-
-        template<typename U, typename _ = Map> static typename std::enable_if<is_string<typename is_map_pair<decltype(begin(std::declval<_>()))>::key_type>::value, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Map>(nullptr))>::value;
-    };
-
-    template<typename MapPair, typename = typename std::decay<typename is_map_pair<MapPair>::key_type>::type> struct key_of;
-
-    template<typename MapPair>
-    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->first)>::type> {
-        const decltype(std::declval<MapPair>()->first) &operator()(const MapPair &m) const { return m->first; }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().first)>::type> {
-        const decltype(std::declval<MapPair>().first) &operator()(const MapPair &m) const { return m.first; }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->key())>::type> {
-        decltype(std::declval<MapPair>()->key()) operator()(const MapPair &m) const { return m->key(); }
-    };
-
-    template<typename MapPair>
-    struct key_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().key())>::type> {
-        decltype(std::declval<MapPair>().key()) operator()(const MapPair &m) const { return m.key(); }
-    };
-
-    template<typename MapPair, typename = typename std::decay<typename is_map_pair<MapPair>::value_type>::type> struct value_of;
-
-    template<typename MapPair>
-    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->second)>::type> {
-        const decltype(std::declval<MapPair>()->second) &operator()(const MapPair &m) const { return m->second; }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().second)>::type> {
-        const decltype(std::declval<MapPair>().second) &operator()(const MapPair &m) const { return m.second; }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>()->value())>::type> {
-        decltype(std::declval<MapPair>()->value()) operator()(const MapPair &m) const { return m->value(); }
-    };
-
-    template<typename MapPair>
-    struct value_of<MapPair, typename std::decay<decltype(std::declval<MapPair>().value())>::type> {
-        decltype(std::declval<MapPair>().value()) operator()(const MapPair &m) const { return m.value(); }
-    };
-
-    template<typename T> struct is_map_overload : public std::false_type {};
-
-    // Strip const/volatile off type and determine if it's a map
-    template<typename T>
-    struct is_map : public std::integral_constant<bool, is_map_overload<typename std::decay<T>::type>::value ||
-                                                        is_map_helper<typename std::decay<T>::type>::value> {};
-
-    template<typename T>
-    struct is_string_map : public std::integral_constant<bool, is_map<T>::value &&
-                                                               is_string_map_helper<T>::value> {};
-
-    template<typename T> struct is_array_overload : public std::false_type {};
-
-    // Strip const/volatile off type and determine if it's an array
-    template<typename T>
-    struct is_array : public std::integral_constant<bool, (is_array_overload<typename std::decay<T>::type>::value ||
-                                                           is_array_helper<typename std::decay<T>::type>::value) &&
-                                                           !is_map<T>::value &&
-                                                           !is_string<T>::value> {};
-
-    // Determine if type is tuple
-    template<typename T> struct is_tuple_overload : public std::false_type {};
-    template<typename Tuple>
-    struct is_tuple_helper {
-        struct none {};
-
-        template<typename U, typename _ = Tuple> static typename std::enable_if<std::tuple_size<_>::value >= 0, int>::type test(U *);
-        template<typename U> static none test(...);
-
-        static constexpr int value = !std::is_same<none, decltype(test<Tuple>(nullptr))>::value;
-    };
-
-
-    template<typename T>
-    struct is_tuple : public std::integral_constant<bool, is_tuple_overload<typename std::decay<T>::type>::value ||
-                                                               is_tuple_helper<typename std::decay<T>::type>::value> {};
-
-    // Determine if type is trivial (not a tuple, array, or map)
-    template<typename T>
-    struct is_scalar : public std::integral_constant<bool, !is_tuple<T>::value &&
-                                                           !is_array<T>::value &&
-                                                           !is_map<T>::value> {};
-
-    // Determine if type is tuple with trivial elements
-    template<typename T = void, typename... Types>
-    struct is_trivial_tuple_helper : public std::integral_constant<bool, is_scalar<T>::value &&
-                                                                         is_trivial_tuple_helper<Types...>::value> {};
-
-    template<typename T>
-    struct is_trivial_tuple_helper<T> : public std::integral_constant<bool, is_scalar<T>::value> {};
-
-    template<typename T>
-    struct is_trivial_tuple_helper2 : public std::false_type {};
-    template<template<typename...> class Tuple, typename... Types>
-    struct is_trivial_tuple_helper2<Tuple<Types...>> : public std::integral_constant<bool, is_tuple<Tuple<Types...>>::value &&
-                                                                                           is_trivial_tuple_helper<Types...>::value> {};
-
-    template<typename T>
-    struct is_trivial_tuple : public is_trivial_tuple_helper2<typename std::decay<T>::type> {};
 
     // Determine if type is unique_ptr
     template<typename T> struct is_unique_ptr_overload : public std::false_type {};

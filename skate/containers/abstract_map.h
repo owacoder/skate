@@ -109,7 +109,7 @@ namespace skate {
 
                     abstract::reserve(result, abstract::size(m));
                     for (auto el = begin(m); el != end(m); ++el) {
-                        abstract::push_back(result, key_of<decltype(el)>{}(el));
+                        abstract::push_back(result, key_of(el));
                     }
 
                     return result;
@@ -119,7 +119,7 @@ namespace skate {
             // Default key extract if list type is not provided (void)
             template<typename Map>
             struct keys<void, Map> {
-                typedef std::vector<typename std::decay<typename is_map_pair<decltype(begin(std::declval<Map>()))>::key_type>::type> List;
+                typedef std::vector<typename std::decay<decltype(key_of(begin(std::declval<Map>())))>::type> List;
 
                 List get(const Map &m) const { return keys<List, Map>{}.get(m); }
             };
@@ -132,7 +132,7 @@ namespace skate {
 
                     abstract::reserve(result, abstract::size(m));
                     for (auto el = begin(m); el != end(m); ++el) {
-                        abstract::push_back(result, value_of<decltype(el)>{}(el));
+                        abstract::push_back(result, value_of(el));
                     }
 
                     return result;
@@ -142,7 +142,7 @@ namespace skate {
             // Default value extract if list type is not provided (void)
             template<typename Map>
             struct values<void, Map> {
-                typedef std::vector<typename std::decay<typename is_map_pair<decltype(begin(std::declval<Map>()))>::value_type>::type> List;
+                typedef std::vector<typename std::decay<decltype(value_of(begin(std::declval<Map>())))>::type> List;
 
                 List get(const Map &m) const { return values<List, Map>{}.get(m); }
             };

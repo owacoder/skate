@@ -116,9 +116,9 @@ namespace skate {
         // Reads the entire CSV document
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
                                                                                  is_array<decltype(*begin(std::declval<_>()))>::value &&
-                                                                                 is_scalar<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
+                                                                                 is_scalar<decltype(*begin(*begin(std::declval<_>())))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
             abstract::clear(ref);
 
@@ -141,7 +141,7 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
                                                                                  is_trivial_tuple<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
             abstract::clear(ref);
 
@@ -160,15 +160,14 @@ namespace skate {
         // Object of arrays overload, reads multiple lines of CSV with header line containing all keys
         // Map contains column names mapped to column values.
         // Reads the entire CSV document
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
-                                                         typename std::enable_if<is_map<_>::value && // Type must be map
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_array<typename is_map_pair<KeyValuePair>::value_type>::value && // Value type must be array
-                                                                                 is_scalar<typename std::decay<decltype(*begin(std::declval<typename is_map_pair<KeyValuePair>::value_type>()))>::type>::value // Elements of value arrays must be scalars
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && // Type must be map
+                                                                                 is_scalar<decltype(key_of(begin(std::declval<_>())))>::value && // Key type must be scalar
+                                                                                 is_array<decltype(value_of(begin(std::declval<_>())))>::value && // Value type must be array
+                                                                                 is_scalar<decltype(*begin(value_of(begin(std::declval<_>()))))>::value // Elements of value arrays must be scalars
                                                                                  , int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type KeyType;
-            typedef typename std::decay<decltype(*begin(std::declval<typename is_map_pair<KeyValuePair>::value_type>()))>::type ValueType;
+            typedef typename std::decay<decltype(key_of(begin(ref)))>::type KeyType;
+            typedef typename std::decay<decltype(*begin(value_of(begin(ref))))>::type ValueType;
 
             std::vector<KeyType> keys;
 
@@ -231,16 +230,15 @@ namespace skate {
 
         // Array of objects overload, reads multiple lines of CSV with header line containing all keys
         // Reads the entire CSV document
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(*begin(std::declval<_>())))>::type,
-                                                         typename std::enable_if<is_array<_>::value && // Base type must be array
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value && // Base type must be array
                                                                                  is_map<decltype(*begin(std::declval<_>()))>::value && // Elements must be maps
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::value_type>::value // Value type must be scalar
+                                                                                 is_scalar<decltype(key_of(begin(*begin(std::declval<_>()))))>::value && // Key type must be scalar
+                                                                                 is_scalar<decltype(value_of(begin(*begin(std::declval<_>()))))>::value // Value type must be scalar
                                                                                  , int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type ObjectType;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type KeyType;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<decltype(*begin(ref))>::type ObjectType;
+            typedef typename std::decay<decltype(key_of(std::declval<ObjectType>()))>::type KeyType;
+            typedef typename std::decay<decltype(value_of(std::declval<ObjectType>()))>::type ValueType;
 
             std::vector<KeyType> keys;
 
@@ -304,14 +302,13 @@ namespace skate {
         // Object of trivial values overload, reads header line and a single data line of CSV
         // Fails if there isn't at least one line with header values in the document
         // Reads the first and second lines of the document
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
-                                                         typename std::enable_if<is_map<_>::value &&
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::value_type>::value // Value type must be scalar
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value &&
+                                                                                 is_scalar<decltype(key_of(begin(std::declval<_>())))>::value && // Key type must be scalar
+                                                                                 is_scalar<decltype(value_of(begin(std::declval<_>())))>::value // Value type must be scalar
                                                                                  , int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type KeyType;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<decltype(key_of(begin(ref)))>::type KeyType;
+            typedef typename std::decay<decltype(value_of(begin(ref)))>::type ValueType;
 
             std::vector<KeyType> keys;
 
@@ -366,7 +363,7 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
                                                                                  is_scalar<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
+            typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
             abstract::clear(ref);
 
@@ -437,7 +434,7 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string<_>::value, int>::type = 0>
         bool read(std::basic_streambuf<StreamChar> &is) {
             // Underlying char type of string
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
+            typedef typename std::decay<decltype(*begin(ref))>::type StringChar;
 
             abstract::clear(ref);
 
@@ -660,7 +657,7 @@ namespace skate {
         // No header is explicitly written, although this can be included in the first inner array
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
                                                                                  is_array<decltype(*begin(std::declval<_>()))>::value &&
-                                                                                 is_scalar<typename std::decay<decltype(*begin(*begin(std::declval<_>())))>::type>::value, int>::type = 0>
+                                                                                 is_scalar<decltype(*begin(*begin(std::declval<_>())))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             for (auto el = begin(ref); el != end(ref); ++el) {
                 if (!csv(*el, options).write(os))
@@ -687,15 +684,14 @@ namespace skate {
         // Array of objects overload, writes multiple lines of CSV with header line containing all keys
         // The set of all object keys is gathered, then data is written for all columns names, inserting default-constructed elements as row items where no data exists for a column
         // Requires that objects have a find() method that returns end() if key not found
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(*begin(std::declval<_>())))>::type,
-                                                         typename std::enable_if<is_array<_>::value && // Base type must be array
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value && // Base type must be array
                                                                                  is_map<decltype(*begin(std::declval<_>()))>::value && // Elements must be maps
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::value_type>::value // Value type must be scalar
+                                                                                 is_scalar<decltype(key_of(begin(*begin(std::declval<_>()))))>::value && // Key type must be scalar
+                                                                                 is_scalar<decltype(value_of(begin(*begin(std::declval<_>()))))>::value // Value type must be scalar
                                                                                  , int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::key_type>::type KeyType;
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<decltype(key_of(begin(*begin(ref))))>::type KeyType;
+            typedef typename std::decay<decltype(value_of(begin(*begin(ref))))>::type ValueType;
 
             std::unordered_set<KeyType> header_set;
             std::vector<KeyType> headers;
@@ -703,9 +699,9 @@ namespace skate {
             // First gather all headers
             for (auto map = begin(ref); map != end(ref); ++map) {
                 for (auto el = begin(*map); el != end(*map); ++el) {
-                    if (header_set.find(key_of<KeyValuePair>{}(el)) == header_set.end()) {
-                        header_set.insert(key_of<KeyValuePair>{}(el));
-                        headers.push_back(key_of<KeyValuePair>{}(el));
+                    if (header_set.find(key_of(el)) == header_set.end()) {
+                        header_set.insert(key_of(el));
+                        headers.push_back(key_of(el));
                     }
                 }
             }
@@ -726,7 +722,7 @@ namespace skate {
                     const auto it = (*map).find(header);
 
                     if (it != (*map).end()) {
-                        if (!csv(value_of<KeyValuePair>{}(it), options).write(os))
+                        if (!csv(value_of(it), options).write(os))
                             return false;
                     } else {
                         if (!csv(ValueType{}, options).write(os))
@@ -746,14 +742,13 @@ namespace skate {
 
         // Object of arrays overload, writes multiple lines of CSV with header line containing all keys
         // Map contains column names mapped to column values. Since column data can be jagged, default-constructed elements are written for row items that don't have column data specified
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
-                                                         typename std::enable_if<is_map<_>::value && // Type must be map
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_array<typename is_map_pair<KeyValuePair>::value_type>::value && // Value type must be array
-                                                                                 is_scalar<typename std::decay<decltype(*begin(std::declval<typename is_map_pair<KeyValuePair>::value_type>()))>::type>::value // Elements of value arrays must be scalars
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && // Type must be map
+                                                                                 is_scalar<decltype(key_of(begin(std::declval<_>())))>::value &&  // Key type must be scalar
+                                                                                 is_array<decltype(value_of(begin(std::declval<_>())))>::value && // Value type must be array
+                                                                                 is_scalar<decltype(*begin(value_of(begin(std::declval<_>()))))>::value // Elements of value arrays must be scalars
                                                                                  , int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename std::decay<typename is_map_pair<KeyValuePair>::value_type>::type ValueType;
+            typedef typename std::decay<decltype(value_of(begin(ref)))>::type ValueType;
             typedef typename std::decay<decltype(*begin(std::declval<ValueType>()))>::type ElementType;
 
             std::vector<typename std::decay<decltype(begin(std::declval<ValueType>()))>::type> iterators, end_iterators;
@@ -765,12 +760,12 @@ namespace skate {
                 if (index && !put_unicode<StreamChar>{}(os, options.separator))
                     return false;
 
-                if (!csv(key_of<KeyValuePair>{}(el), options).write(os))
+                if (!csv(key_of(el), options).write(os))
                     return false;
 
                 // Add start iterator of array to iterator store
-                iterators.push_back(begin(value_of<KeyValuePair>{}(el)));
-                end_iterators.push_back(end(value_of<KeyValuePair>{}(el)));
+                iterators.push_back(begin(value_of(el)));
+                end_iterators.push_back(end(value_of(el)));
                 has_data |= iterators.back() != end_iterators.back();
 
                 ++index;
@@ -849,10 +844,9 @@ namespace skate {
         }
 
         // Object of trivial values overload, writes header line and a single data line of CSV
-        template<typename StreamChar, typename _ = Type, typename KeyValuePair = typename std::decay<decltype(begin(std::declval<_>()))>::type,
-                                                         typename std::enable_if<is_map<_>::value &&
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::key_type>::value && // Key type must be scalar
-                                                                                 is_scalar<typename is_map_pair<KeyValuePair>::value_type>::value // Value type must be scalar
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value &&
+                                                                                 is_scalar<decltype(key_of(begin(std::declval<_>())))>::value && // Key type must be scalar
+                                                                                 is_scalar<decltype(value_of(begin(std::declval<_>())))>::value  // Value type must be scalar
                                                                                  , int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // First write all keys as headers
@@ -861,7 +855,7 @@ namespace skate {
                 if (index && !put_unicode<StreamChar>{}(os, options.separator))
                     return false;
 
-                if (!csv(key_of<KeyValuePair>{}(el), options).write(os))
+                if (!csv(key_of(el), options).write(os))
                     return false;
 
                 ++index;
@@ -877,7 +871,7 @@ namespace skate {
                 if (index && !put_unicode<StreamChar>{}(os, options.separator))
                     return false;
 
-                if (!csv(value_of<KeyValuePair>{}(el), options).write(os))
+                if (!csv(value_of(el), options).write(os))
                     return false;
 
                 ++index;
@@ -894,7 +888,7 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string<_>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
             // Underlying char type of string
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type StringChar;
+            typedef typename std::decay<decltype(*begin(ref))>::type StringChar;
 
             const size_t sz = std::distance(begin(ref), end(ref));
 

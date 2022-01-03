@@ -97,10 +97,8 @@ namespace skate {
         }
 
         // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_string_map<_>::value, int>::type = 0>
+        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && is_string<decltype(key_of(begin(std::declval<_>())))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            typedef typename std::decay<decltype(begin(ref))>::type KeyValuePair;
-
             size_t index = 0;
 
             for (auto el = begin(ref); el != end(ref); ++el) {
@@ -111,7 +109,7 @@ namespace skate {
                 if (os.sputc('<') == std::char_traits<StreamChar>::eof())
                     return false;
 
-                if (!xml(key_of<KeyValuePair>{}(el), options.indented()).write(os, true))
+                if (!xml(key_of(el), options.indented()).write(os, true))
                     return false;
 
                 if (os.sputc('>') == std::char_traits<StreamChar>::eof())
@@ -125,7 +123,7 @@ namespace skate {
                         std::basic_ostringstream<StreamChar> s;
 
                         // Write body to temporary stream
-                        s << xml(value_of<KeyValuePair>{}(el), options.indented());
+                        s << xml(value_of(el), options.indented());
 
                         str = s.str();
                     }
@@ -141,7 +139,7 @@ namespace skate {
                             return false;
                     }
                 } else {
-                    if (!xml(value_of<KeyValuePair>{}(el), options).write(os))
+                    if (!xml(value_of(el), options).write(os))
                         return false;
                 }
 
@@ -151,7 +149,7 @@ namespace skate {
                 if (os.sputn(close_tag, 2) != 2)
                     return false;
 
-                if (!xml(key_of<KeyValuePair>{}(el), options.indented()).write(os, true))
+                if (!xml(key_of(el), options.indented()).write(os, true))
                     return false;
 
                 if (os.sputc('>') == std::char_traits<StreamChar>::eof())
