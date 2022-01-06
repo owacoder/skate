@@ -121,7 +121,7 @@ namespace skate {
 
     namespace detail {
         template<typename T>
-        constexpr auto key_of(T &&v) -> decltype((*v).first) { return (*v).first; }
+        constexpr auto key_of(T &&v) noexcept -> const decltype((*v).first) & { return (*v).first; }
 
         template<typename T>
         constexpr auto key_of(T &&v) -> decltype((*v).key()) { return (*v).key(); }
@@ -130,7 +130,7 @@ namespace skate {
         constexpr auto key_of(T &&v) -> decltype(v.key()) { return v.key(); }
 
         template<typename T>
-        constexpr auto value_of(T &&v) -> decltype((*v).second) { return (*v).second; }
+        constexpr auto value_of(T &&v) noexcept -> const decltype((*v).second) & { return (*v).second; }
 
         template<typename T>
         constexpr auto value_of(T &&v) -> decltype((*v).value()) { return (*v).value(); }
@@ -312,7 +312,7 @@ namespace skate {
 
         constexpr back_inserter(Container &c) noexcept : m_container(&c) {}
 
-        template<typename T>
+        template<typename T, typename std::enable_if<!std::is_same<typename std::decay<T>::type, back_inserter>::value, int>::type = 0>
         constexpr back_inserter &operator=(T &&value) { return skate::detail::push_back(*m_container, std::forward<T>(value)), *this; }
 
         constexpr back_inserter &operator*() noexcept { return *this; }
@@ -341,7 +341,7 @@ namespace skate {
             }
         }
 
-        template<typename T>
+        template<typename T, typename std::enable_if<!std::is_same<typename std::decay<T>::type, back_inserter>::value, int>::type = 0>
         constexpr back_inserter &operator=(T &&value) { return m_last = m_container->insert_after(m_last, std::forward<T>(value)), *this; }
 
         constexpr back_inserter &operator*() noexcept { return *this; }

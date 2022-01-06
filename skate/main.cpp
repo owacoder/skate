@@ -383,6 +383,14 @@ namespace skate {
 
 int main()
 {
+    std::string xzz;
+
+    skate::int_encode(11, skate::make_back_inserter(xzz));
+
+    std::cout << xzz << std::endl;
+
+    return 0;
+
     std::cout << skate::json(skate::split<std::vector<std::string>>("Header, Test,,, None 2", ",", true)) << std::endl;
 
     return 0;
@@ -415,8 +423,6 @@ int main()
 
     std::wcout << widestr << '\n';
 
-    *skate::utf16_encode_iterator(skate::make_back_inserter(widestr))++ = 0x1F602;
-
     narrowstr.clear();
     skate::utf_auto_transcode(widestr, narrowstr);
 
@@ -441,9 +447,6 @@ int main()
 
     std::cout << '\n';
 
-    const auto h = skate::to_hex<std::string>(std::string_view("Data"));
-
-    std::cout << h << '\n';
     skate::utf_encode<uint16_t>(0x1F602, skate::big_endian_encode_iterator(skate::hex_encode_iterator(cout)));
     // js.push_back(0x1F602);
 

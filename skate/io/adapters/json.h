@@ -122,16 +122,14 @@ namespace skate {
         return { (b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out)), result_type::success };
     }
 
-    // TODO: integer writing
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-        return { out, result_type::success };
+        return int_encode(v, out);
     }
 
-    // TODO: floating point writing
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-
+        return fp_encode(v, out, false, false);
     }
 
     template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>

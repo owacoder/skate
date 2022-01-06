@@ -239,20 +239,37 @@ namespace skate {
     };
 
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-    std::pair<OutputIterator, result_type> int_encode(T v, OutputIterator out) {
-#if __cplusplus >= 201703L
+    std::pair<OutputIterator, result_type> int_encode(T v, OutputIterator out, int base = 10) {
+        if (base < 2 || base > 35)
+            return { out, result_type::failure };
+
         std::array<char, std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value> buf;
 
-        const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+#if __cplusplus >= 201703L
+        const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v, base);
         if (result.ec != std::errc())
-            return false;
+            return { out, result_type::failure };
+
+        const auto begin = buf.data();
         const auto end = result.ptr;
 #else
-        const std::string buf = std::to_string(v);
-        const auto end = buf.data() + buf.size();
+        if (v < 0) {
+            *out++ = '-';
+
+            return int_encode(static_cast<typename std::make_unsigned<T>::type>(-v), out, base);
+        }
+
+        const char *alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+        char *end = buf.data() + buf.size();
+        char *begin = end;
+
+        do {
+            *(--begin) = alphabet[v % base];
+            v /= base;
+        } while (v);
 #endif
 
-        return { std::copy(buf.data(), end, out), result_type::success };
+        return { std::copy(begin, end, out), result_type::success };
     }
 
     namespace detail {
@@ -308,9 +325,9 @@ namespace skate {
         return { std::copy(buf.data(), result.ptr, out), result_type::success };
 #else
         // Ideally this would not use snprintf, but there's not really a great (fast) option in C++11
-        auto chars = snprintf(buf.data(), buf.size(),
-                              std::is_same<long double, T>::value? "%.*Lg": "%.*g",
-                              std::numeric_limits<T>::max_digits10, v);
+        auto chars = std::snprintf(buf.data(), buf.size(),
+                                   std::is_same<long double, T>::value? "%.*Lg": "%.*g",
+                                   std::numeric_limits<T>::max_digits10, v);
         if (chars < 0)
             return { out, result_type::failure };
 
