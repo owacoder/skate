@@ -126,31 +126,19 @@ void abstract_container_test() {
     // CList<int, int> cl;
     // CString s;
 
-    std::cout << "map: " << skate::json(skate::abstract::keys(m)) << '\n';
-    std::cout << "map: " << skate::json(skate::abstract::values(m)) << '\n';
-
-    namespace abstract = skate::abstract;
+    std::cout << "map: " << skate::json(skate::keys(m)) << '\n';
+    std::cout << "map: " << skate::json(skate::values(m)) << '\n';
 
     //for (const auto el : il) {
     //    abstract::push_back(ca, el);
     //    abstract::push_back(cl, el);
     //}
 
-    abstract::push_back(v, 6);
-    abstract::push_back(l, 6);
-    abstract::push_back(fl, 6);
+    skate::push_back(v, 6);
+    skate::push_back(l, 6);
+    skate::push_back(fl, 6);
     //abstract::push_back(ca, 6);
     //abstract::push_back(cl, 6);
-    abstract::pop_front(v);
-    abstract::pop_front(l);
-    abstract::pop_front(fl);
-    //abstract::pop_front(ca);
-    //abstract::pop_front(cl);
-    abstract::reverse(v);
-    abstract::reverse(l);
-    abstract::reverse(fl);
-    //abstract::reverse(ca);
-    //abstract::reverse(cl);
 
     //for (const auto &el: "CString test")
     //    abstract::push_back(s, el);
@@ -164,9 +152,9 @@ void abstract_container_test() {
     //std::cout << skate::json(cl) << std::endl;
     //std::cout << skate::json(s) << std::endl;
 
-    std::cout << skate::json(abstract::element(v, 5)) << std::endl;
-    std::cout << skate::json(abstract::element(l, 5)) << std::endl;
-    std::cout << skate::json(abstract::element(fl, 5)) << std::endl;
+    //std::cout << skate::json(abstract::element(v, 5)) << std::endl;
+    //std::cout << skate::json(abstract::element(l, 5)) << std::endl;
+    //std::cout << skate::json(abstract::element(fl, 5)) << std::endl;
     //std::cout << skate::json(abstract::element(ca, 5)) << std::endl;
     //std::cout << skate::json(abstract::element(cl, 5)) << std::endl;
     //std::cout << skate::json(abstract::back(s)) << std::endl;
@@ -384,8 +372,11 @@ namespace skate {
 int main()
 {
     std::string xzz;
+    std::vector<std::map<std::string, int>> vec;
 
-    skate::int_encode(11, skate::make_back_inserter(xzz));
+    vec.push_back({{"test", 2}, {"b", -3}});
+
+    skate::write_json(vec, skate::make_back_inserter(xzz));
 
     std::cout << xzz << std::endl;
 

@@ -108,7 +108,7 @@ namespace skate {
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            abstract::clear(ref);
+            clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -137,7 +137,7 @@ namespace skate {
                 }
             }
 
-            abstract::reserve(ref, size);
+            reserve(ref, size);
 
             for (uint_fast32_t i = 0; i < size; ++i) {
                 Element element;
@@ -145,7 +145,7 @@ namespace skate {
                 if (!msgpack(element).read(is))
                     return false;
 
-                abstract::push_back(ref, std::move(element));
+                push_back(ref, std::move(element));
             }
 
             return true;
@@ -158,7 +158,7 @@ namespace skate {
         bool read(std::streambuf &is) {
             typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
 
-            abstract::clear(ref);
+            clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -212,7 +212,7 @@ namespace skate {
                 }
             }
 
-            abstract::reserve(ref, size);
+            reserve(ref, size);
 
             if (is_binary) {
                 for (uint_fast32_t i = 0; i < size; ++i) {
@@ -221,7 +221,7 @@ namespace skate {
                     if (element == std::char_traits<char>::eof())
                         return false;
 
-                    abstract::push_back(ref, static_cast<unsigned char>(element));
+                    push_back(ref, static_cast<unsigned char>(element));
                 }
             } else {
                 for (uint_fast32_t i = 0; i < size; ++i) {
@@ -230,7 +230,7 @@ namespace skate {
                     if (!msgpack(element).read(is))
                         return false;
 
-                    abstract::push_back(ref, std::move(element));
+                    push_back(ref, std::move(element));
                 }
             }
 
@@ -284,7 +284,7 @@ namespace skate {
             typedef typename std::decay<decltype(key_of(begin(ref)))>::type Key;
             typedef typename std::decay<decltype(value_of(begin(ref)))>::type Value;
 
-            abstract::clear(ref);
+            clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -337,7 +337,7 @@ namespace skate {
                                                      std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
                                                      )>::value, int>::type = 0>
         bool read(std::streambuf &is) {
-            abstract::clear(ref);
+            clear(ref);
 
             const int c = sbump_byte(is);
             uint_fast32_t size = 0;
@@ -373,7 +373,7 @@ namespace skate {
                 }
             }
 
-            abstract::reserve(ref, size);
+            reserve(ref, size);
 
             for (uint_fast32_t i = 0; i < size; ++i) {
                 const int ch = sbump_byte(is);
@@ -381,7 +381,7 @@ namespace skate {
                 if (ch < 0)
                     return false;
 
-                abstract::push_back(ref, char(ch));
+                push_back(ref, char(ch));
             }
 
             return true;
@@ -816,7 +816,7 @@ namespace skate {
                                          is_convertible_to_char<StringChar>::value &&
                                          is_string<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
-            const size_t sz = abstract::size(ref);
+            const size_t sz = size(ref);
 
             if (sz <= 31) {
                 if (os.sputc(static_cast<unsigned char>(0xa0 | sz)) == std::char_traits<char>::eof())

@@ -120,7 +120,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
-            abstract::clear(ref);
+            clear(ref);
 
             while (is.sgetc() != std::char_traits<StreamChar>::eof()) {
                 Element el;
@@ -128,7 +128,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                abstract::push_back(ref, std::move(el));
+                push_back(ref, std::move(el));
             }
 
             return true;
@@ -143,7 +143,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
-            abstract::clear(ref);
+            clear(ref);
 
             while (is.sgetc() != std::char_traits<StreamChar>::eof()) {
                 Element el;
@@ -151,7 +151,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                abstract::push_back(ref, std::move(el));
+                push_back(ref, std::move(el));
             }
 
             return true;
@@ -171,7 +171,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            abstract::clear(ref);
+            clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -198,7 +198,7 @@ namespace skate {
                             return false;
 
                         if (index < keys.size())
-                            abstract::push_back(ref[keys[index++]], std::move(el));
+                            push_back(ref[keys[index++]], std::move(el));
 
                         if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
                             break;
@@ -222,7 +222,7 @@ namespace skate {
 
                 // Fill blank elements as needed
                 while (index < keys.size())
-                    abstract::push_back(ref[keys[index++]], ValueType{});
+                    push_back(ref[keys[index++]], ValueType{});
             }
 
             return false;
@@ -242,7 +242,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            abstract::clear(ref);
+            clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -293,7 +293,7 @@ namespace skate {
                     }
                 }
 
-                abstract::push_back(ref, std::move(object));
+                push_back(ref, std::move(object));
             }
 
             return false;
@@ -312,7 +312,7 @@ namespace skate {
 
             std::vector<KeyType> keys;
 
-            abstract::clear(ref);
+            clear(ref);
 
             // Read all keys on first line
             if (!csv(keys, options).read(is))
@@ -365,7 +365,7 @@ namespace skate {
         bool read(std::basic_streambuf<StreamChar> &is) {
             typedef typename std::decay<decltype(*begin(ref))>::type Element;
 
-            abstract::clear(ref);
+            clear(ref);
 
             switch (is.sgetc()) {
                 case '\r': return is.snextc() != '\n' || is.sbumpc() == '\n';
@@ -381,7 +381,7 @@ namespace skate {
                 if (!csv(el, options).read(is))
                     return false;
 
-                abstract::push_back(ref, std::move(el));
+                push_back(ref, std::move(el));
 
                 if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
                     return true;
@@ -436,7 +436,7 @@ namespace skate {
             // Underlying char type of string
             typedef typename std::decay<decltype(*begin(ref))>::type StringChar;
 
-            abstract::clear(ref);
+            clear(ref);
 
             bool in_quotes = false;
             bool only_whitespace = true;
@@ -458,7 +458,7 @@ namespace skate {
                     return is.sungetc() != std::char_traits<StreamChar>::eof();
                 } else if (c == options.quote && only_whitespace) {
                     in_quotes = true;
-                    abstract::clear(ref);
+                    clear(ref);
                     continue;
                 } else if (c == options.separator) {
                     return get_unicode<StreamChar>{}.unget(is, c);

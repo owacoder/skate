@@ -335,6 +335,30 @@ namespace skate {
 #endif
     }
 
+    namespace detail {
+        // Allows using apply() on a tuple object
+        template<typename F, size_t size_of_tuple>
+        class tuple_apply : private tuple_apply<F, size_of_tuple - 1> {
+        public:
+            template<typename Tuple>
+            tuple_apply(Tuple &&t, F f) : tuple_apply<F, size_of_tuple - 1>(std::forward<Tuple>(t), f) {
+                f(std::get<size_of_tuple - 1>(std::forward<Tuple>(t)));
+            }
+        };
+
+        template<typename F>
+        class tuple_apply<F, 0> {
+        public:
+            template<typename Tuple>
+            constexpr tuple_apply(Tuple &&, F) noexcept {}
+        };
+    }
+
+    template<typename F, typename Tuple>
+    void apply(F f, Tuple &&tuple) {
+        detail::tuple_apply<F, std::tuple_size<typename std::decay<Tuple>::type>::value>(std::forward<Tuple>(tuple), f);
+    }
+
     /////////////////////////////////////////////////////////////////////////////////
     ///                             OLD IMPLEMENTATIONS
     /////////////////////////////////////////////////////////////////////////////////

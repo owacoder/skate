@@ -504,7 +504,7 @@ namespace skate {
     template<typename String>
     inline bool utf8append(String &utf8, unicode_codepoint codepoint) {
         if (codepoint.value() < 0x80) { // Shortcut for speed, not strictly necessary
-            abstract::push_back(utf8, static_cast<char>(codepoint.value()));
+            push_back(utf8, static_cast<char>(codepoint.value()));
             return true;
         } else if (!codepoint.valid())
             return false;
@@ -520,10 +520,10 @@ namespace skate {
         const size_t bytesInCode = utf8size(codepoint.value());
         const size_t continuationBytesInCode = bytesInCode - 1;
 
-        abstract::push_back(utf8, static_cast<unsigned char>(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6))));
+        push_back(utf8, static_cast<unsigned char>(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6))));
 
         for (size_t i = continuationBytesInCode; i > 0; --i) {
-            abstract::push_back(utf8, static_cast<unsigned char>(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6)))));
+            push_back(utf8, static_cast<unsigned char>(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6)))));
         }
 
         return true;
@@ -818,8 +818,8 @@ namespace skate {
             unsigned int hi = 0, lo = 0;
 
             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
-                case 2: abstract::push_back(s, hi); // fallthrough
-                case 1: abstract::push_back(s, lo); break;
+                case 2: push_back(s, hi); // fallthrough
+                case 1: push_back(s, lo); break;
                 default: return false;
             }
 
@@ -844,7 +844,7 @@ namespace skate {
             if (!codepoint.valid())
                 return false;
 
-            abstract::push_back(s, codepoint.value());
+            push_back(s, codepoint.value());
 
             return true;
         }

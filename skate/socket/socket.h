@@ -526,7 +526,7 @@ namespace skate {
                 return 0;
 
             // First read from read buffer and reduce remaining max
-            size_t total_bytes_read = read_buffer.read_into(max, abstract::back_inserter(c));
+            size_t total_bytes_read = read_buffer.read_into(max, make_back_inserter(c));
             max -= total_bytes_read;
 
             if (max) {
@@ -538,7 +538,7 @@ namespace skate {
                     bytes_read = direct_read(ec, buf.data(), std::min(buf.size(), max));
 
                     // Copy what was read into buf into the container and reduce remaining max
-                    std::copy(buf.data(), buf.data() + bytes_read, abstract::back_inserter(c));
+                    std::copy(buf.data(), buf.data() + bytes_read, make_back_inserter(c));
                     total_bytes_read += bytes_read;
                     max -= bytes_read;
                 } while (bytes_read == buf.size() && !ec); // If everything was read and no error, try again
