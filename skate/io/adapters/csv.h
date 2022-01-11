@@ -10,16 +10,6 @@
 #include "core.h"
 
 namespace skate {
-    // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
-    // with the following exceptions:
-    //   - leading or trailing spaces on a quoted field are trimmed when reading
-    //   - input lines are not required to be delimited with CRLF, they can be delimited with just LF, just CR, or LFCR if desired
-    template<typename Type>
-    class csv_reader;
-
-    template<typename Type>
-    class csv_writer;
-
     enum class csv_bool_type {
         numeric, // 1/0
         truefalse, // true/false
@@ -36,18 +26,298 @@ namespace skate {
     };
 
     struct csv_options {
-        constexpr csv_options(unicode_codepoint separator = ',', unicode_codepoint quote = '"', bool crlf_line_endings = true, csv_bool_type bool_fmt = csv_bool_type::numeric) noexcept
+        constexpr csv_options(unicode separator = ',', unicode quote = '"', bool crlf_line_endings = false, csv_bool_type bool_fmt = csv_bool_type::numeric) noexcept
             : separator(separator)
             , quote(quote)
             , crlf_line_endings(crlf_line_endings)
             , bool_fmt(bool_fmt)
         {}
 
-        unicode_codepoint separator; // Supports Unicode characters as separator
-        unicode_codepoint quote;     // Supports Unicode characters as quote
+        template<typename OutputIterator>
+        OutputIterator write_line_ending(OutputIterator out) const {
+            if (crlf_line_endings)
+                *out++ = '\r';
+
+            *out++ = '\n';
+
+            return out;
+        }
+
+        unicode separator;           // Supports Unicode characters as separator
+        unicode quote;               // Supports Unicode characters as quote
         bool crlf_line_endings;      // Whether to write line endings as CRLF (1) or just LF (0)
         csv_bool_type bool_fmt;      // Format of booleans when writing (any bool is matched when reading)
     };
+
+    template<typename OutputIterator>
+    OutputIterator csv_escape(unicode value, OutputIterator out, const csv_options &options = {}) {
+        if (options.quote.value() && value == options.quote)
+            *out++ = value;
+
+        *out++ = value;
+
+        return out;
+    }
+
+    template<typename InputIterator>
+    bool csv_requires_escaping(InputIterator first, InputIterator last, const csv_options &options = {}) {
+        if (first == last)
+            return false;
+
+        if (*first == ' ' || *first == '\t')
+            return true;
+
+        for (++first; first != last; ++first)
+            if (*first == '\r' ||
+                *first == '\n' ||
+                *first == options.separator ||
+                (options.quote.value() && *first == options.quote))
+                return true;
+
+        return false;
+    }
+
+    template<typename InputIterator, typename OutputIterator>
+    OutputIterator csv_escape(InputIterator first, InputIterator last, OutputIterator out, const csv_options &options = {}) {
+        for (; first != last; ++first)
+            out = csv_escape(*first, out, options);
+
+        return out;
+    }
+
+    template<typename OutputIterator>
+    class csv_escape_iterator {
+        OutputIterator m_out;
+        csv_options m_options;
+
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using value_type = void;
+        using difference_type = void;
+        using pointer = void;
+        using reference = void;
+
+        constexpr csv_escape_iterator(OutputIterator out, csv_options options) : m_out(out), m_options(std::move(options)) {}
+
+        constexpr csv_escape_iterator &operator=(unicode value) { return m_out = csv_escape(value, m_out, m_options), *this; }
+
+        constexpr csv_escape_iterator &operator*() noexcept { return *this; }
+        constexpr csv_escape_iterator &operator++() noexcept { return *this; }
+        constexpr csv_escape_iterator &operator++(int) noexcept { return *this; }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
+
+    template<typename Container = std::string, typename InputIterator>
+    Container to_csv_escape(InputIterator first, InputIterator last, const csv_options &options = {}) {
+        Container result;
+
+        csv_escape(first, last, skate::make_back_inserter(result), options);
+
+        return result;
+    }
+
+    template<typename T, typename OutputIterator>
+    std::pair<OutputIterator, result_type> write_csv(const T &, OutputIterator, const csv_options & = {});
+
+    namespace detail {
+        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+        template<typename OutputIterator>
+        class csv_write_tuple {
+            OutputIterator &m_out;
+            result_type &m_result;
+            bool &m_has_written_something;
+            const csv_options &m_options;
+
+        public:
+            constexpr csv_write_tuple(OutputIterator &out, result_type &result, bool &has_written_something, const csv_options &options) noexcept
+                : m_out(out)
+                , m_result(result)
+                , m_has_written_something(has_written_something)
+                , m_options(options)
+            {}
+
+            template<typename Param>
+            void operator()(const Param &p) {
+                if (m_result == result_type::failure)
+                    return;
+
+                if (m_has_written_something)
+                    *m_out++ = m_options.separator;
+
+                m_has_written_something = true;
+
+                std::tie(m_out, m_result) = skate::write_csv(p, m_out, m_options);
+            }
+        };
+
+        template<typename OutputIterator>
+        constexpr std::pair<OutputIterator, result_type> write_csv(std::nullptr_t, OutputIterator out, const csv_options & = {}) {
+            return { out, result_type::success };
+        }
+
+        template<typename OutputIterator>
+        std::pair<OutputIterator, result_type> write_csv(bool b, OutputIterator out, const csv_options &options = {}) {
+            switch (options.bool_fmt) {
+                default:                        *out++ = b ? '1' : '0'; return { out, result_type::success };
+                case csv_bool_type::truefalse:  return { b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out), result_type::success };
+                case csv_bool_type::TrueFalse:  return { b ? std::copy_n("True", 4, out) : std::copy_n("False", 5, out), result_type::success };
+                case csv_bool_type::TRUEFALSE:  return { b ? std::copy_n("TRUE", 4, out) : std::copy_n("FALSE", 5, out), result_type::success };
+                case csv_bool_type::TF:         *out++ = b ? 'T' : 'F'; return { out, result_type::success };
+                case csv_bool_type::yesno:      return { b ? std::copy_n("yes", 3, out) : std::copy_n("no", 2, out), result_type::success };
+                case csv_bool_type::YesNo:      return { b ? std::copy_n("Yes", 3, out) : std::copy_n("No", 2, out), result_type::success };
+                case csv_bool_type::YESNO:      return { b ? std::copy_n("YES", 3, out) : std::copy_n("NO", 2, out), result_type::success };
+                case csv_bool_type::YN:         *out++ = b ? 'Y' : 'N'; return { out, result_type::success };
+                case csv_bool_type::onoff:      return { b ? std::copy_n("on", 2, out) : std::copy_n("off", 3, out), result_type::success };
+                case csv_bool_type::OnOff:      return { b ? std::copy_n("On", 2, out) : std::copy_n("Off", 3, out), result_type::success };
+                case csv_bool_type::ONOFF:      return { b ? std::copy_n("ON", 2, out) : std::copy_n("OFF", 3, out), result_type::success };
+            }
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+        constexpr std::pair<OutputIterator, result_type> write_csv(T v, OutputIterator out, const csv_options & = {}) {
+            return int_encode(v, out);
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+        constexpr std::pair<OutputIterator, result_type> write_csv(T v, OutputIterator out, const csv_options & = {}) {
+            return fp_encode(v, out);
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            result_type result = result_type::success;
+
+            // TODO: remove quotes if unnecessary for string
+            *out++ = '"';
+
+            {
+                auto it = csv_escape_iterator(out, options);
+
+                std::tie(it, result) = utf_auto_decode(v, it);
+
+                out = it.underlying();
+            }
+
+            if (result == result_type::success) {
+                *out++ = '"';
+            }
+
+            return { out, result };
+        }
+
+        // Array of scalars, simple CSV row
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value && skate::is_scalar<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            const auto start = begin(v);
+
+            result_type result = result_type::success;
+
+            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+                if (it != start)
+                    *out++ = options.separator;
+
+                std::tie(out, result) = skate::write_csv(*it, out, options);
+            }
+
+            if (result == result_type::success) {
+                out = options.write_line_ending(out);
+            }
+
+            return { out, result };
+        }
+
+        // Tuple of scalars, simple CSV row
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_trivial_tuple<T>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            result_type result = result_type::success;
+            bool has_written_something = false;
+
+            skate::apply(csv_write_tuple(out, result, has_written_something, options), v);
+
+            if (result == result_type::success) {
+                out = options.write_line_ending(out);
+            }
+
+            return { out, result };
+        }
+
+        // Array of arrays of scalars, CSV document
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value &&
+                                                                              skate::is_array<decltype(*begin(std::declval<T>()))>::value &&
+                                                                              skate::is_scalar<decltype(*begin(*begin(std::declval<T>())))>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            result_type result = result_type::success;
+
+            for (auto it = begin(v); it != end(v) && result == result_type::success; ++it) {
+                std::tie(out, result) = skate::write_csv(*it, out, options);
+            }
+
+            return { out, result };
+        }
+
+        // Array of tuples of scalars, CSV document
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value &&
+                                                                              skate::is_trivial_tuple<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            result_type result = result_type::success;
+
+            for (auto it = begin(v); it != end(v) && result == result_type::success; ++it) {
+                std::tie(out, result) = skate::write_csv(*it, out, options);
+            }
+
+            return { out, result };
+        }
+
+        // Object of scalars, writes line with keys as header values and single data line following with values
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value &&
+                                                                              skate::is_scalar<decltype(key_of(begin(std::declval<T>())))>::value &&
+                                                                              skate::is_scalar<decltype(value_of(begin(std::declval<T>())))>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
+            const auto start = begin(v);
+
+            result_type result = result_type::success;
+
+            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+                if (it != start)
+                    *out++ = options.separator;
+
+                std::tie(out, result) = skate::write_csv(key_of(it), out, options);
+            }
+
+            if (result == result_type::success) {
+                out = options.write_line_ending(out);
+            }
+
+            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+                if (it != start)
+                    *out++ = options.separator;
+
+                std::tie(out, result) = skate::write_csv(value_of(it), out, options);
+            }
+
+            if (result == result_type::success) {
+                out = options.write_line_ending(out);
+            }
+
+            return { out, result };
+        }
+    }
+
+    template<typename T, typename OutputIterator>
+    std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options) {
+        return detail::write_csv(v, out, options);
+    }
+
+    // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
+    // with the following exceptions:
+    //   - leading or trailing spaces on a quoted field are trimmed when reading
+    //   - input lines are not required to be delimited with CRLF, they can be delimited with just LF, just CR, or LFCR if desired
+    template<typename Type>
+    class csv_reader;
+
+    template<typename Type>
+    class csv_writer;
 
     template<typename Type>
     csv_reader<Type> csv(Type &, csv_options options = {});
@@ -73,7 +343,7 @@ namespace skate {
                 template<typename Param>
                 void operator()(Param &p) {
                     unicode_codepoint c;
-                    if (error || (has_read_something && (!get_unicode<StreamChar>{}(is, c) || c != options.separator))) {
+                    if (error || (has_read_something && (!get_unicode<StreamChar>{}(is, c) || c != options.separator.value()))) {
                         error = true;
                         return;
                     }
@@ -214,7 +484,7 @@ namespace skate {
                                 return false;
 
                             break;
-                        } else if (c != options.separator) {
+                        } else if (c != options.separator.value()) {
                             return false;
                         }
                     }
@@ -287,7 +557,7 @@ namespace skate {
                                 return false;
 
                             break;
-                        } else if (c != options.separator) {
+                        } else if (c != options.separator.value()) {
                             return false;
                         }
                     }
@@ -353,7 +623,7 @@ namespace skate {
 
                     return true;
                 }
-            } while (c == options.separator);
+            } while (c == options.separator.value());
 
             return false;
         }
@@ -398,7 +668,7 @@ namespace skate {
 
                     return true;
                 }
-            } while (c == options.separator);
+            } while (c == options.separator.value());
 
             return false;
         }
@@ -444,23 +714,23 @@ namespace skate {
 
             while (get_unicode<StreamChar>{}(is, c)) {
                 if (in_quotes) {
-                    if (c == options.quote) {
+                    if (c == options.quote.value()) {
                         if (is.sgetc() == std::char_traits<StreamChar>::eof())  // At end, no further character
                             return true;
                         else if (!get_unicode<StreamChar>{}(is, c))             // Failed to read next character
                             return false;
                         else if (isspace_or_tab(c))                             // End of quoted string, just eat whitespace
                             return impl::skip_spaces_and_tabs(is);
-                        else if (c != options.quote)                            // Not an escaped quote, end of string
+                        else if (c != options.quote.value())                    // Not an escaped quote, end of string
                             return get_unicode<StreamChar>{}.unget(is, c);
                     }
                 } else if (c == '\r' || c == '\n') {
                     return is.sungetc() != std::char_traits<StreamChar>::eof();
-                } else if (c == options.quote && only_whitespace) {
+                } else if (c == options.quote.value() && only_whitespace) {
                     in_quotes = true;
                     clear(ref);
                     continue;
-                } else if (c == options.separator) {
+                } else if (c == options.separator.value()) {
                     return get_unicode<StreamChar>{}.unget(is, c);
                 } else {
                     only_whitespace &= isspace_or_tab(c);
@@ -716,7 +986,7 @@ namespace skate {
                 size_t index = 0;
 
                 for (const auto &header: headers) {
-                    if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                    if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                         return false;
 
                     const auto it = (*map).find(header);
@@ -757,7 +1027,7 @@ namespace skate {
             size_t index = 0;
             bool has_data = false;
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                     return false;
 
                 if (!csv(key_of(el), options).write(os))
@@ -780,7 +1050,7 @@ namespace skate {
                 has_data = false;
 
                 for (index = 0; index < iterators.size(); ++index) {
-                    if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                    if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                         return false;
 
                     if (iterators[index] != end_iterators[index]) { // Still more in this column
@@ -810,7 +1080,7 @@ namespace skate {
             size_t index = 0;
 
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                     return false;
 
                 if (!csv(*el, options).write(os))
@@ -852,7 +1122,7 @@ namespace skate {
             // First write all keys as headers
             size_t index = 0;
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                     return false;
 
                 if (!csv(key_of(el), options).write(os))
@@ -868,7 +1138,7 @@ namespace skate {
             // Then write all values as data
             index = 0;
             for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && !put_unicode<StreamChar>{}(os, options.separator))
+                if (index && !put_unicode<StreamChar>{}(os, options.separator.value()))
                     return false;
 
                 if (!csv(value_of(el), options).write(os))
@@ -901,26 +1171,26 @@ namespace skate {
 
                 if (codepoint == '\n' ||
                     codepoint == '\r' ||
-                    codepoint == options.quote ||
-                    codepoint == options.separator)
+                    codepoint == options.quote.value() ||
+                    codepoint == options.separator.value())
                     needs_quotes = true;
             }
 
-            if (needs_quotes && !put_unicode<StreamChar>{}(os, options.quote))
+            if (needs_quotes && !put_unicode<StreamChar>{}(os, options.quote.value()))
                 return false;
 
             // Then write out the actual string, escaping quotes
             for (auto it = begin(ref); it != end_iterator; ) {
                 const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
 
-                if (codepoint == options.quote && !put_unicode<StreamChar>{}(os, codepoint))
+                if (codepoint == options.quote.value() && !put_unicode<StreamChar>{}(os, codepoint))
                     return false;
 
                 if (!put_unicode<StreamChar>{}(os, codepoint))
                     return false;
             }
 
-            if (needs_quotes && !put_unicode<StreamChar>{}(os, options.quote))
+            if (needs_quotes && !put_unicode<StreamChar>{}(os, options.quote.value()))
                 return false;
 
             return true;

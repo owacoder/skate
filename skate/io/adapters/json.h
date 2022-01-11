@@ -183,7 +183,8 @@ namespace skate {
                 out = it.underlying();
             }
 
-            *out++ = '"';
+            if (result == result_type::success)
+                *out++ = '"';
 
             return { out, result };
         }
@@ -204,9 +205,11 @@ namespace skate {
                 std::tie(out, result) = skate::write_json(*it, nested_options.write_indent(out), nested_options);
             }
 
-            out = options.write_indent(out);
+            if (result == result_type::success) {
+                out = options.write_indent(out);
 
-            *out++ = ']';
+                *out++ = ']';
+            }
 
             return { out, result };
         }
@@ -220,9 +223,11 @@ namespace skate {
 
             skate::apply(json_write_tuple(out, result, has_written_something, options.indented()), v);
 
-            out = options.write_indent(out);
+            if (result == result_type::success) {
+                out = options.write_indent(out);
 
-            *out++ = ']';
+                *out++ = ']';
+            }
 
             return { out, result };
         }
@@ -255,9 +260,11 @@ namespace skate {
                 std::tie(out, result) = skate::write_json(value_of(it), out);
             }
 
-            out = options.write_indent(out);
+            if (result == result_type::success) {
+                out = options.write_indent(out);
 
-            *out++ = '}';
+                *out++ = '}';
+            }
 
             return { out, result };
         }

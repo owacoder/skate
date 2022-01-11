@@ -1607,9 +1607,9 @@ namespace skate {
                 }
 
                 switch (bytes_in_code) {
-                    case 2:  codepoint = (std::uint32_t(start_byte & 0x1F) <<  6) | (continuation_bytes[0]      ); break;
-                    case 3:  codepoint = (std::uint32_t(start_byte & 0x0F) << 12) | (continuation_bytes[0] <<  6) | (continuation_bytes[1]     ); break;
-                    case 4:  codepoint = (std::uint32_t(start_byte & 0x07) << 18) | (continuation_bytes[0] << 12) | (continuation_bytes[1] << 6) | (continuation_bytes[2]); break;
+                    case 2: codepoint = (std::uint32_t(start_byte & 0x1F) <<  6) | (continuation_bytes[0]      ); break;
+                    case 3: codepoint = (std::uint32_t(start_byte & 0x0F) << 12) | (continuation_bytes[0] <<  6) | (continuation_bytes[1]     ); break;
+                    case 4: codepoint = (std::uint32_t(start_byte & 0x07) << 18) | (continuation_bytes[0] << 12) | (continuation_bytes[1] << 6) | (continuation_bytes[2]); break;
                 }
 
                 return { first, codepoint };
