@@ -372,11 +372,11 @@ namespace skate {
 int main()
 {
     std::string xzz;
-    std::vector<std::map<std::string, int>> vec;
+    std::tuple<std::string, float, bool> txx = {"text", 1.222, false};
 
-    vec.push_back({{"test", 2}, {"b", -3}});
+    // vec.push_back({{"test", 2}, {"b", -3.1}});
 
-    skate::write_json(vec, skate::make_back_inserter(xzz));
+    skate::write_json(txx, skate::make_back_inserter(xzz), 2);
 
     std::cout << xzz << std::endl;
 

@@ -102,8 +102,9 @@ namespace skate {
         }
 
         template<typename OutputIterator>
-        OutputIterator write_indent(OutputIterator out) {
-            *out++ = '\n';
+        OutputIterator write_indent(OutputIterator out) const {
+            if (indent)
+                *out++ = '\n';
 
             return std::fill_n(out, current_indentation, ' ');
         }
@@ -113,22 +114,22 @@ namespace skate {
     };
 
     template<typename T, typename OutputIterator>
-    std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options &options = {});
+    std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options & = {});
 
     namespace detail {
         // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
         template<typename OutputIterator>
         class json_write_tuple {
-            OutputIterator m_out;
-            result_type m_result;
-            bool m_has_written_something;
+            OutputIterator &m_out;
+            result_type &m_result;
+            bool &m_has_written_something;
             const json_write_options &m_options;
 
         public:
-            constexpr json_write_tuple(OutputIterator out, const json_write_options &options) noexcept
+            constexpr json_write_tuple(OutputIterator &out, result_type &result, bool &has_written_something, const json_write_options &options) noexcept
                 : m_out(out)
-                , m_result(result_type::success)
-                , m_has_written_something(false)
+                , m_result(result)
+                , m_has_written_something(has_written_something)
                 , m_options(options)
             {}
 
@@ -141,12 +142,11 @@ namespace skate {
                     *m_out++ = ',';
 
                 m_has_written_something = true;
+
+                m_out = m_options.write_indent(m_out);
+
                 std::tie(m_out, m_result) = skate::write_json(p, m_out, m_options);
             }
-
-            result_type result() const noexcept { return m_result; }
-            bool has_written() const noexcept { return m_has_written_something; }
-            OutputIterator underlying() const { return m_out; }
         };
 
         template<typename OutputIterator>
@@ -191,6 +191,8 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
             const auto start = begin(v);
+            const auto nested_options = options.indented();
+
             result_type result = result_type::success;
 
             *out++ = '[';
@@ -199,8 +201,10 @@ namespace skate {
                 if (it != start)
                     *out++ = ',';
 
-                std::tie(out, result) = skate::write_json(*it, out, options.indented());
+                std::tie(out, result) = skate::write_json(*it, nested_options.write_indent(out), nested_options);
             }
+
+            out = options.write_indent(out);
 
             *out++ = ']';
 
@@ -210,16 +214,13 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
             result_type result = result_type::success;
+            bool has_written_something = false;
 
             *out++ = '[';
 
-            {
-                auto it = json_write_tuple<T>(out, options);
+            skate::apply(json_write_tuple(out, result, has_written_something, options.indented()), v);
 
-                apply(it, v);
-
-                out = it.underlying();
-            }
+            out = options.write_indent(out);
 
             *out++ = ']';
 
@@ -227,8 +228,10 @@ namespace skate {
         }
 
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options & = {}) {
+        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
             const auto start = begin(v);
+            const auto nested_options = options.indented();
+
             result_type result = result_type::success;
 
             *out++ = '{';
@@ -237,14 +240,22 @@ namespace skate {
                 if (it != start)
                     *out++ = ',';
 
+                out = nested_options.write_indent(out);
+
                 std::tie(out, result) = skate::write_json(key_of(it), out);
+
                 if (result != result_type::success)
                     return { out, result };
 
                 *out++ = ':';
 
+                if (options.indent)
+                    *out++ = ' ';
+
                 std::tie(out, result) = skate::write_json(value_of(it), out);
             }
+
+            out = options.write_indent(out);
 
             *out++ = '}';
 
