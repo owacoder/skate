@@ -51,7 +51,7 @@ namespace skate {
 
     template<typename OutputIterator>
     OutputIterator csv_escape(unicode value, OutputIterator out, const csv_options &options = {}) {
-        if (options.quote.value() && value == options.quote)
+        if (value == options.quote)
             *out++ = value;
 
         *out++ = value;
@@ -71,7 +71,7 @@ namespace skate {
             if (*first == '\r' ||
                 *first == '\n' ||
                 *first == options.separator ||
-                (options.quote.value() && *first == options.quote))
+                *first == options.quote)
                 return true;
 
         return false;
