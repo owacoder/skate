@@ -1261,15 +1261,10 @@ namespace skate {
 
         const basic_json_value &operator[](const String &key) const {
             static const basic_json_value null;
-
             if (!is_object())
                 return null;
 
-            const auto it = unsafe_get_object().find(key);
-            if (it == unsafe_get_object().end())
-                return null;
-
-            return it->second;
+            return unsafe_get_object()[key];
         }
         basic_json_value &operator[](const String &key) { return object_ref()[key]; }
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
@@ -1443,6 +1438,14 @@ namespace skate {
             return value(utf_convert_weak<String>(key).get(), default_value);
         }
 
+        const basic_json_value<String> &operator[](const String &key) const {
+            static const basic_json_value<String> null;
+            const auto it = v.find(key);
+            if (it == v.end())
+                return null;
+
+            return it->second;
+        }
         basic_json_value<String> &operator[](const String &key) {
             const auto it = v.find(key);
             if (it != v.end())
