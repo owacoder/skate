@@ -61,18 +61,24 @@ namespace skate {
 
     template<typename InputIterator>
     bool csv_requires_escaping(InputIterator first, InputIterator last, const csv_options &options = {}) {
+        unicode u;
+
         if (first == last)
             return false;
 
+        // Checking for ASCII characters is safe regardless of the UTF encoding
         if (*first == ' ' || *first == '\t')
             return true;
 
-        for (++first; first != last; ++first)
-            if (*first == '\r' ||
-                *first == '\n' ||
-                *first == options.separator ||
-                *first == options.quote)
+        while (first != last) {
+            std::tie(first, u) = utf_auto_decode_next(first, last);
+
+            if (u == '\r' ||
+                u == '\n' ||
+                u == options.separator ||
+                u == options.quote)
                 return true;
+        }
 
         return false;
     }
@@ -187,20 +193,24 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             result_type result = result_type::success;
+            const auto requires_escaping = csv_requires_escaping(begin(v), end(v));
 
-            // TODO: remove quotes if unnecessary for string
-            *out++ = '"';
-
-            {
-                auto it = csv_escape_iterator(out, options);
-
-                std::tie(it, result) = utf_auto_decode(v, it);
-
-                out = it.underlying();
-            }
-
-            if (result == result_type::success) {
+            if (requires_escaping) {
                 *out++ = '"';
+
+                {
+                    auto it = csv_escape_iterator(out, options);
+
+                    std::tie(it, result) = utf_auto_decode(v, it);
+
+                    out = it.underlying();
+                }
+
+                if (result == result_type::success) {
+                    *out++ = '"';
+                }
+            } else {
+                std::tie(out, result) = utf_auto_decode(v, out);
             }
 
             return { out, result };
@@ -210,10 +220,11 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value && skate::is_scalar<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             const auto start = begin(v);
+            const auto end_iterator = end(v);
 
             result_type result = result_type::success;
 
-            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
                 if (it != start)
                     *out++ = options.separator;
 
@@ -248,8 +259,9 @@ namespace skate {
                                                                               skate::is_scalar<decltype(*begin(*begin(std::declval<T>())))>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             result_type result = result_type::success;
+            const auto end_iterator = end(v);
 
-            for (auto it = begin(v); it != end(v) && result == result_type::success; ++it) {
+            for (auto it = begin(v); it != end_iterator && result == result_type::success; ++it) {
                 std::tie(out, result) = skate::write_csv(*it, out, options);
             }
 
@@ -261,8 +273,9 @@ namespace skate {
                                                                               skate::is_trivial_tuple<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             result_type result = result_type::success;
+            const auto end_iterator = end(v);
 
-            for (auto it = begin(v); it != end(v) && result == result_type::success; ++it) {
+            for (auto it = begin(v); it != end_iterator && result == result_type::success; ++it) {
                 std::tie(out, result) = skate::write_csv(*it, out, options);
             }
 
@@ -275,10 +288,11 @@ namespace skate {
                                                                               skate::is_scalar<decltype(value_of(begin(std::declval<T>())))>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             const auto start = begin(v);
+            const auto end_iterator = end(v);
 
             result_type result = result_type::success;
 
-            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
                 if (it != start)
                     *out++ = options.separator;
 
@@ -289,7 +303,7 @@ namespace skate {
                 out = options.write_line_ending(out);
             }
 
-            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
                 if (it != start)
                     *out++ = options.separator;
 
@@ -929,7 +943,9 @@ namespace skate {
                                                                                  is_array<decltype(*begin(std::declval<_>()))>::value &&
                                                                                  is_scalar<decltype(*begin(*begin(std::declval<_>())))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            for (auto el = begin(ref); el != end(ref); ++el) {
+            const auto end_iterator = end(ref);
+
+            for (auto el = begin(ref); el != end_iterator; ++el) {
                 if (!csv(*el, options).write(os))
                     return false;
             }
@@ -943,7 +959,9 @@ namespace skate {
         template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
                                                                                  is_trivial_tuple<decltype(*begin(std::declval<_>()))>::value, int>::type = 0>
         bool write(std::basic_streambuf<StreamChar> &os) const {
-            for (auto el = begin(ref); el != end(ref); ++el) {
+            const auto end_iterator = end(ref);
+
+            for (auto el = begin(ref); el != end_iterator; ++el) {
                 if (!csv(*el, options).write(os))
                     return false;
             }

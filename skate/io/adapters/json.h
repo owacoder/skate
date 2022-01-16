@@ -192,13 +192,14 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
             const auto start = begin(v);
+            const auto end_iterator = end(v);
             const auto nested_options = options.indented();
 
             result_type result = result_type::success;
 
             *out++ = '[';
 
-            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
                 if (it != start)
                     *out++ = ',';
 
@@ -235,13 +236,14 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
             const auto start = begin(v);
+            const auto end_iterator = end(v);
             const auto nested_options = options.indented();
 
             result_type result = result_type::success;
 
             *out++ = '{';
 
-            for (auto it = start; it != end(v) && result == result_type::success; ++it) {
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
                 if (it != start)
                     *out++ = ',';
 

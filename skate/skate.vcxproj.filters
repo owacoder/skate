@@ -43,6 +43,9 @@
     <ClInclude Include="socket\address.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="io\adapters\base64.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="system\benchmark.h">
       <Filter>Header Files</Filter>
     </ClInclude>

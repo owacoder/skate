@@ -1188,7 +1188,8 @@ namespace skate {
 
     template<typename String>
     void uppercase_ascii(String &s) {
-        for (auto el = begin(s); el != end(s); ++el)
+        const auto end_iterator = end(s);
+        for (auto el = begin(s); el != end_iterator; ++el)
             *el = toupper(*el);
     }
     template<typename String>
@@ -1199,7 +1200,8 @@ namespace skate {
     }
     template<typename String>
     void lowercase_ascii(String &s) {
-        for (auto el = begin(s); el != end(s); ++el)
+        const auto end_iterator = end(s);
+        for (auto el = begin(s); el != end_iterator; ++el)
             *el = tolower(*el);
     }
     template<typename String>
@@ -1666,6 +1668,11 @@ namespace skate {
         typename std::enable_if<sizeof(CharT) == sizeof(std::uint32_t), int>::type = 0>
         constexpr std::pair<InputIterator, unicode> utf_decode_next(InputIterator first, InputIterator last) {
         return utf32_decode_next(first, last);
+    }
+
+    template<typename InputIterator>
+    constexpr std::pair<InputIterator, unicode> utf_auto_decode_next(InputIterator first, InputIterator last) {
+        return utf_decode_next<decltype(*first), InputIterator>(first, last);
     }
 
     namespace detail {

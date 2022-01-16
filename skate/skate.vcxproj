@@ -66,12 +66,12 @@
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <QtInstall>6.2.1_msvc2019_64</QtInstall>
+    <QtInstall>6.2.2_msvc2019_64</QtInstall>
     <QtModules>
     </QtModules>
   </PropertyGroup>
   <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <QtInstall>6.2.1_msvc2019_64</QtInstall>
+    <QtInstall>6.2.2_msvc2019_64</QtInstall>
     <QtModules>
     </QtModules>
   </PropertyGroup>
