@@ -372,7 +372,7 @@ namespace skate {
 int main()
 {
     std::string xzz;
-    std::vector<std::tuple<std::string, float, bool>> txx = {{"text", 1.222f, false}, {"second", -1.7123, true}};
+    std::vector<std::tuple<std::string, float, bool>> txx = {{"text\nnew", 1.222f, false}, {"second", -1.7123, true}};
     std::map<std::string, float> mxx = {{"Header 1", NAN}, {"Header 2", INFINITY}};
 
     // vec.push_back({{"test", 2}, {"b", -3.1}});

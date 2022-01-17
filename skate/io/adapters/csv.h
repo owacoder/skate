@@ -193,9 +193,8 @@ namespace skate {
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             result_type result = result_type::success;
-            const auto requires_escaping = csv_requires_escaping(begin(v), end(v));
 
-            if (requires_escaping) {
+            if (csv_requires_escaping(begin(v), end(v))) {
                 *out++ = '"';
 
                 {
@@ -209,11 +208,11 @@ namespace skate {
                 if (result == result_type::success) {
                     *out++ = '"';
                 }
-            } else {
-                std::tie(out, result) = utf_auto_decode(v, out);
-            }
 
-            return { out, result };
+                return { out, result };
+            } else {
+                return utf_auto_decode(v, out);
+            }
         }
 
         // Array of scalars, simple CSV row
@@ -322,6 +321,10 @@ namespace skate {
     std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options) {
         return detail::write_csv(v, out, options);
     }
+
+    ///////////////////////////////////////////////////////////////////////
+    ///  OLD IMPLEMENTATION
+    ///////////////////////////////////////////////////////////////////////
 
     // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
     // with the following exceptions:

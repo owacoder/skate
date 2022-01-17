@@ -31,6 +31,116 @@
 #include "../../containers/split_join.h"
 
 namespace skate {
+    template<typename InputIterator>
+    InputIterator skip_spaces_or_tabs(InputIterator first, InputIterator last) {
+        for (; first != last; ++first)
+            if (*first != ' ' &&
+                *first != '\t')
+                return first;
+
+        return first;
+    }
+
+    template<typename InputIterator>
+    InputIterator skip_whitespace(InputIterator first, InputIterator last) {
+        for (; first != last; ++first)
+            if (*first != ' ' &&
+                *first != '\t' &&
+                *first != '\n' &&
+                *first != '\r')
+                return first;
+
+        return first;
+    }
+
+    template<typename InputIterator>
+    std::pair<InputIterator, result_type> starts_with(InputIterator first, InputIterator last, char c) {
+        const bool matches = first != last ? *first == c : false;
+        if (!matches)
+            return { first, result_type::failure };
+
+        return { ++first, result_type::success };
+    }
+
+    template<typename InputIterator>
+    std::pair<InputIterator, bool> starts_with(InputIterator first, InputIterator last, const char *s) {
+        for (; first != last && *s; ++first, ++s) {
+            if (*first != *s)
+                return { first, result_type::failure };
+        }
+
+        return { first, result_type::success };
+    }
+
+    template<typename T, typename InputIterator>
+    std::tuple<InputIterator, T, result_type> little_endian_decode_next(InputIterator first, InputIterator last) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
+
+        T value = 0;
+
+        for (std::size_t i = 0; i < std::numeric_limits<DecayedT>::digits; i += 8, ++first) {
+            if (first == last)
+                return { first, value, result_type::failure };
+
+            value |= T(std::uint8_t(*first)) << i;
+        }
+
+        return { first, value, result_type::success };
+    }
+
+    template<typename T, typename InputIterator, typename OutputIterator>
+    std::tuple<InputIterator, OutputIterator, result_type> little_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
+        result_type result = result_type::success;
+
+        while (first != last) {
+            T value = 0;
+
+            std::tie(first, value, result) = little_endian_decode_next(first, last);
+            if (result != result_type::success)
+                break;
+
+            *out++ = value;
+        }
+
+        return { first, out, result };
+    }
+
+    template<typename T, typename InputIterator>
+    std::tuple<InputIterator, T, result_type> big_endian_decode_next(InputIterator first, InputIterator last) {
+        using DecayedT = typename std::decay<T>::type;
+        static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
+
+        T value = 0;
+
+        for (std::size_t i = std::numeric_limits<DecayedT>::digits; i > 0; i -= 8) {
+            if (first == last) {
+                return { first, value << (i % std::numeric_limits<DecayedT>::digits), result_type::failure };
+            } else {
+                value = (value << 8) | std::uint8_t(*first++);
+            }
+        }
+
+        return { first, value, result_type::success };
+    }
+
+    template<typename T, typename InputIterator, typename OutputIterator>
+    std::tuple<InputIterator, OutputIterator, result_type> big_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
+        result_type result = result_type::success;
+
+        while (first != last) {
+            T value = 0;
+
+            std::tie(first, value, result) = big_endian_decode_next(first, last);
+            if (result != result_type::success)
+                break;
+
+            *out++ = value;
+        }
+
+        return { first, out, result };
+    }
+
     template<typename T, typename OutputIterator>
     OutputIterator little_endian_encode(T &&value, OutputIterator out) {
         using DecayedT = typename std::decay<T>::type;
