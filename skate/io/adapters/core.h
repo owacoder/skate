@@ -28,6 +28,7 @@
 #endif
 
 #include "../../containers/utf.h"
+#include "../../containers/abstract_map.h"
 #include "../../containers/split_join.h"
 
 namespace skate {

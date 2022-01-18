@@ -40,14 +40,29 @@
  */
 
 namespace skate {
-    namespace impl {
+    namespace detail {
+        template<typename Map, typename Key, typename Value>
+        constexpr void insert(Map &m, Key &&k, Value &&v) {
+            m.insert(std::forward<Key>(k), std::forward<Value>(v));
+        }
+
+        template<typename Map, typename Key, typename Value>
+        constexpr void erase(Map &m, Key &&k) {
+            m.erase(std::forward<Key>(k));
+        }
+
+        template<typename Map, typename Key, typename Value>
+        constexpr bool contains(const Map &m, Key &&k) {
+            return m.find(std::forward<Key>(k)) != end(m);
+        }
+
         // Normal key extraction if list type is provided
         template<typename List, typename Map>
         struct keys {
             List get(const Map &m) const {
                 List result;
 
-                reserve(result, size_to_reserve(m));
+                reserve(result, skate::size_to_reserve(m));
                 for (auto el = begin(m); el != end(m); ++el) {
                     push_back(result, key_of(el));
                 }
@@ -59,7 +74,7 @@ namespace skate {
         // Default key extract if list type is not provided (void)
         template<typename Map>
         struct keys<void, Map> {
-            typedef std::vector<typename std::decay<decltype(key_of(begin(std::declval<Map>())))>::type> List;
+            typedef std::vector<typename std::decay<decltype(skate::key_of(begin(std::declval<Map>())))>::type> List;
 
             List get(const Map &m) const { return keys<List, Map>{}.get(m); }
         };
@@ -70,7 +85,7 @@ namespace skate {
             List get(const Map &m) const {
                 List result;
 
-                reserve(result, size_to_reserve(m));
+                reserve(result, skate::size_to_reserve(m));
                 for (auto el = begin(m); el != end(m); ++el) {
                     push_back(result, value_of(el));
                 }
@@ -82,17 +97,17 @@ namespace skate {
         // Default value extract if list type is not provided (void)
         template<typename Map>
         struct values<void, Map> {
-            typedef std::vector<typename std::decay<decltype(value_of(begin(std::declval<Map>())))>::type> List;
+            typedef std::vector<typename std::decay<decltype(skate::value_of(begin(std::declval<Map>())))>::type> List;
 
             List get(const Map &m) const { return values<List, Map>{}.get(m); }
         };
     }
 
     template<typename List = void, typename Map>
-    auto keys(const Map &m) -> decltype(impl::keys<List, Map>{}.get(m)) { return impl::keys<List, Map>{}.get(m); }
+    auto keys(const Map &m) -> decltype(detail::keys<List, Map>{}.get(m)) { return detail::keys<List, Map>{}.get(m); }
 
     template<typename List = void, typename Map>
-    auto values(const Map &m) -> decltype(impl::values<List, Map>{}.get(m)) { return impl::values<List, Map>{}.get(m); }
+    auto values(const Map &m) -> decltype(detail::values<List, Map>{}.get(m)) { return detail::values<List, Map>{}.get(m); }
 }
 
 #endif // SKATE_ABSTRACT_MAP_H
