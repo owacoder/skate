@@ -63,7 +63,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, bool> starts_with(InputIterator first, InputIterator last, const char *s) {
+    std::pair<InputIterator, result_type> starts_with(InputIterator first, InputIterator last, const char *s) {
         for (; first != last && *s; ++first, ++s) {
             if (*first != *s)
                 return { first, result_type::failure };
@@ -237,7 +237,8 @@ namespace skate {
         return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
     }
 
-    inline constexpr int hex_to_nibble(int c) noexcept {
+    template<typename Char>
+    inline constexpr int hex_to_nibble(Char c) noexcept {
         return c >= '0' && c <= '9' ? c - '0' :
                c >= 'A' && c <= 'F' ? c - 'A' + 10 :
                c >= 'a' && c <= 'f' ? c - 'a' + 10 :

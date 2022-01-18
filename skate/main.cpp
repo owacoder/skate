@@ -382,6 +382,17 @@ int main()
 
     std::cout << xzz << std::endl;
 
+    skate::clear(xzz);
+
+    const auto json_string = "   \"string\\n\\ud83d\\ude02abc\"";
+    const auto json_result = skate::detail::read_json(json_string, json_string + strlen(json_string), xzz);
+
+    if (json_result.second == skate::result_type::failure) {
+        std::cout << "JSON error at " << json_result.first << '\n';
+    } else {
+        std::cout << skate::to_json(xzz);
+    }
+
     return 0;
 
     std::cout << skate::json(skate::split<std::vector<std::string>>("Header, Test,,, None 2", ",", true)) << std::endl;

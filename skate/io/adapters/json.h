@@ -117,6 +117,122 @@ namespace skate {
     std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options & = {});
 
     namespace detail {
+        template<typename InputIterator>
+        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
+            return starts_with(skip_whitespace(first, last), last, "null");
+        }
+
+        template<typename InputIterator>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, bool &b) {
+            first = skip_whitespace(first, last);
+
+            if (starts_with(first, last, 't').second == result_type::success) {
+                b = true;
+                return starts_with(++first, last, "rue");
+            } else {
+                b = false;
+                return starts_with(first, last, "false");
+            }
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
+            first = skip_whitespace(first, last);
+
+            // TODO: int_decode
+            return int_decode(first, last, i);
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
+            first = skip_whitespace(first, last);
+
+            // TODO: fp_decode
+            return fp_decode(first, last, f);
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &s) {
+            using OutputCharT = decltype(*begin(s));
+
+            result_type result = result_type::success;
+            unicode u;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"');
+            if (result != result_type::success)
+                return { first, result };
+
+            clear(s);
+            auto back_inserter = make_back_inserter(s);
+
+            while (first != last && result == result_type::success) {
+                std::tie(first, u) = utf_auto_decode_next(first, last);
+                if (!u.is_valid() || u.is_utf16_surrogate())
+                    return { first, result_type::failure };
+
+                switch (u.value()) {
+                    case '"': return { ++first, result_type::success };
+                    case '\\': {
+                        std::tie(first, u) = utf_auto_decode_next(first, last);
+                        switch (u.value()) {
+                            default: return { first, result_type::failure };
+                            case '"':
+                            case '\\':
+                            case '/': break;
+                            case 'b': u = '\b'; break;
+                            case 'f': u = '\f'; break;
+                            case 'n': u = '\n'; break;
+                            case 'r': u = '\r'; break;
+                            case 't': u = '\t'; break;
+                            case 'u': {
+                                std::array<unicode, 4> hex;
+                                std::uint16_t hi = 0, lo = 0;
+
+                                // Parse 4 hex characters after '\u'
+                                for (auto &h : hex) {
+                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    const auto nibble = hex_to_nibble(h.value());
+                                    if (nibble < 0)
+                                        return { first, result_type::failure };
+
+                                    hi = (hi << 4) | std::uint8_t(nibble);
+                                }
+
+                                if (!unicode(hi).is_utf16_surrogate()) {
+                                    u = hi;
+                                    break;
+                                }
+
+                                // If it's a surrogate, parse 4 hex characters after another '\u'
+                                std::tie(first, result) = starts_with(first, last, "\\u");
+                                if (result != result_type::success)
+                                    return { first, result };
+
+                                for (auto &h : hex) {
+                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    const auto nibble = hex_to_nibble(h.value());
+                                    if (nibble < 0)
+                                        return { first, result_type::failure };
+
+                                    lo = (lo << 4) | std::uint8_t(nibble);
+                                }
+
+                                u = unicode(hi, lo);
+                                break;
+                            }
+                        }
+
+                        break;
+                    }
+                    default: break;
+                }
+
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter);
+            }
+
+            return { first, result_type::failure };
+        }
+
         // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
         template<typename OutputIterator>
         class json_write_tuple {
@@ -135,7 +251,7 @@ namespace skate {
 
             template<typename Param>
             void operator()(const Param &p) {
-                if (m_result == result_type::failure)
+                if (m_result != result_type::success)
                     return;
 
                 if (m_has_written_something)
@@ -469,11 +585,12 @@ namespace skate {
                         case std::char_traits<StreamChar>::eof(): return false;
                         case '"':
                         case '\\':
-                        case 'b':
-                        case 'f':
-                        case 'n':
-                        case 'r':
-                        case 't': codepoint = c; break;
+                        case '/': codepoint = c; break;
+                        case 'b': codepoint = '\b'; break;
+                        case 'f': codepoint = '\f'; break;
+                        case 'n': codepoint = '\n'; break;
+                        case 'r': codepoint = '\r'; break;
+                        case 't': codepoint = '\t'; break;
                         case 'u': {
                             StreamChar digits[4] = { 0 };
                             unsigned int hi = 0;

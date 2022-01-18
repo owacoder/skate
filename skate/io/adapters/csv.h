@@ -145,7 +145,7 @@ namespace skate {
 
             template<typename Param>
             void operator()(const Param &p) {
-                if (m_result == result_type::failure)
+                if (m_result != result_type::success)
                     return;
 
                 if (m_has_written_something)
