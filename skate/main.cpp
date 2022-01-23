@@ -369,8 +369,18 @@ namespace skate {
     constexpr Container to_c_style_escape(const Range &range) { return to_c_style_escape<Container>(begin(range), end(range)); }
 }
 
+void test_containers() {
+    std::map<std::string, std::string> m;
+
+    skate::insert(m, "key", "value");
+
+    std::cout << skate::json(m) << '\n';
+}
+
 int main()
 {
+    test_containers();
+
     std::string xzz;
     std::vector<std::tuple<std::string, float, bool>> txx = {{"text\nnew", 1.222f, false}, {"second", -1.7123, true}};
     std::map<std::string, float> mxx = {{"Header 1", NAN}, {"Header 2", INFINITY}};

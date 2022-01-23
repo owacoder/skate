@@ -129,7 +129,7 @@ namespace skate {
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, bool &b) {
             first = skip_whitespace(first, last);
 
-            if (starts_with(first, last, 't').second == result_type::success) {
+            if (first != last && *first == 't') {
                 b = true;
                 return starts_with(++first, last, "rue");
             } else {
@@ -240,34 +240,39 @@ namespace skate {
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
             using ElementType = typename std::decay<decltype(*begin(a))>::type;
 
+            clear(a);
+
             result_type result = result_type::success;
+            auto back_inserter = make_back_inserter(a);
+            bool has_element = false;
 
             std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
             if (result != result_type::success)
                 return { first, result };
 
-            clear(a);
-            auto back_inserter = make_back_inserter(a);
+            while (true) {
+                first = skip_whitespace(first, last);
 
-            bool has_element = false;
-
-            while (first != last && result == result_type::success) {
-                if (*first == ']')
+                if (first == last) {
+                    break;
+                } else if (*first == ']') {
                     return { ++first, result_type::success };
-                else if (has_element && *first != ',')
-                    return { first, result_type::failure };
+                } else if (has_element) {
+                    if (*first != ',')
+                        break;
 
-                if (has_element)
                     ++first;
-                else
+                } else {
                     has_element = true;
+                }
 
                 ElementType element;
 
                 std::tie(first, result) = skate::read_json(first, last, element);
+                if (result != result_type::success)
+                    return { first, result };
 
-                if (result == result_type::success)
-                    *back_inserter++ = std::move(element);
+                *back_inserter++ = std::move(element);
             }
 
             return { first, result_type::failure };
@@ -278,44 +283,47 @@ namespace skate {
             using KeyType = typename std::decay<decltype(key_of(begin(o)))>::type;
             using ValueType = typename std::decay<decltype(value_of(begin(o)))>::type;
 
+            clear(o);
+
             result_type result = result_type::success;
+            bool has_element = false;
 
             std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{');
             if (result != result_type::success)
                 return { first, result };
 
-            clear(o);
+            while (true) {
+                first = skip_whitespace(first, last);
 
-            bool has_element = false;
-
-            while (first != last && result == result_type::success) {
-                if (*first == '}')
+                if (first == last) {
+                    break;
+                } else if (*first == '}') {
                     return { ++first, result_type::success };
-                else if (has_element && *first != ',')
-                    return { first, result_type::failure };
+                } else if (has_element) {
+                    if (*first != ',')
+                        break;
 
-                if (has_element)
                     ++first;
-                else
+                } else {
                     has_element = true;
+                }
 
                 KeyType key;
                 ValueType value;
 
                 std::tie(first, result) = skate::read_json(first, last, key);
                 if (result != result_type::success)
-                    break;
+                    return { first, result };
 
                 std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':');
                 if (result != result_type::success)
-                    break;
+                    return { first, result };
 
                 std::tie(first, result) = skate::read_json(first, last, value);
                 if (result == result_type::success)
-                    break;
+                    return { first, result };
 
-                // TODO: insert
-                // skate::insert(o, std::move(key), std::move(value));
+                insert(o, std::move(key), std::move(value));
             }
 
             return { first, result_type::failure };

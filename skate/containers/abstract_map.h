@@ -40,22 +40,60 @@
  */
 
 namespace skate {
+    template<typename Map, typename Key, typename Value>
+    constexpr void insert(Map &m, Key &&k, Value &&v) {
+        m.insert(std::make_pair(std::forward<Key>(k), std::forward<Value>(v)));
+    }
+
+    template<typename Map, typename Key, typename Value>
+    constexpr void erase(Map &m, Key &&k) {
+        m.erase(std::forward<Key>(k));
+    }
+
+    template<typename Map, typename Key, typename Value>
+    constexpr bool contains(const Map &m, Key &&k) {
+        return m.find(std::forward<Key>(k)) != end(m);
+    }
+
+    template<typename Map, typename Key>
+    auto value_of(const Map &m, Key &&k) -> decltype(value_of(begin(m))) {
+        static const typename std::decay<decltype(value_of(begin(m)))>::type empty{};
+
+        const auto it = m.find(std::forward<Key>(k));
+        if (it == end(m))
+            return empty;
+
+        return value_of(it);
+    }
+
+    template<typename Map, typename Key, typename Value>
+    auto value_of(const Map &m, Key &&k, Value &&v) -> typename std::decay<decltype(value_of(begin(std::declval<const Map &>())))>::type {
+        const auto it = m.find(std::forward<Key>(k));
+        if (it == end(m))
+            return std::forward<Value>(v);
+
+        return value_of(it);
+    }
+
+    template<typename To, typename From>
+    To &map_merge(To &dest, From &&source) {
+        const auto last = end(source);
+
+        for (auto it = begin(source); it != last; ++it) {
+            insert(dest, key_of(it), value_of(it));
+        }
+
+        return dest;
+    }
+
+    template<typename To, typename From>
+    To map_copy(From &&source) {
+        To dest;
+
+        return map_merge(dest, std::forward<From>(source));
+    }
+
     namespace detail {
-        template<typename Map, typename Key, typename Value>
-        constexpr void insert(Map &m, Key &&k, Value &&v) {
-            m.insert(std::forward<Key>(k), std::forward<Value>(v));
-        }
-
-        template<typename Map, typename Key, typename Value>
-        constexpr void erase(Map &m, Key &&k) {
-            m.erase(std::forward<Key>(k));
-        }
-
-        template<typename Map, typename Key, typename Value>
-        constexpr bool contains(const Map &m, Key &&k) {
-            return m.find(std::forward<Key>(k)) != end(m);
-        }
-
         // Normal key extraction if list type is provided
         template<typename List, typename Map>
         struct keys {

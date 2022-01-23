@@ -350,9 +350,30 @@ namespace skate {
         constexpr OutputIterator underlying() const { return m_out; }
     };
 
+    template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    std::pair<const char *, result_type> int_decode(const char *first, const char *last, T &v, int base = 10) {
+#if __cplusplus >= 201703L
+        const auto result = std::from_chars(first, last, v, base);
+
+        return { result.ptr, result.ec != std::errc() ? result_type::success : result_type::failure };
+#else
+        std::array<char, std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value> buf;
+
+        return { first, result_type::failure };
+#endif
+    }
+
+    template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    std::pair<InputIterator, result_type> int_decode(InputIterator first, InputIterator last, T &v, int base = 10) {
+        if (base < 2 || base > 36)
+            return { first, result_type::failure };
+
+        return { first, result_type::failure };
+    }
+
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<OutputIterator, result_type> int_encode(T v, OutputIterator out, int base = 10) {
-        if (base < 2 || base > 35)
+        if (base < 2 || base > 36)
             return { out, result_type::failure };
 
         std::array<char, std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value> buf;
