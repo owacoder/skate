@@ -598,7 +598,7 @@ namespace skate {
             if (!impl::skipws(is) || is.sbumpc() != '[')
                 return false;
 
-            impl::apply(impl::json::read_tuple<StreamChar>(is, error, has_read_something), ref);
+            skate::apply(impl::json::read_tuple<StreamChar>(is, error, has_read_something), ref);
 
             return !error && impl::skipws(is) && is.sbumpc() == ']';
         }
@@ -944,7 +944,7 @@ namespace skate {
             if (os.sputc('[') == std::char_traits<StreamChar>::eof())
                 return false;
 
-            impl::apply(impl::json::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
+            skate::apply(impl::json::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
 
             return !error && os.sputc(']') != std::char_traits<StreamChar>::eof();
         }

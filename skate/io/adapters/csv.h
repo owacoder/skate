@@ -701,7 +701,7 @@ namespace skate {
             if (is.sgetc() == std::char_traits<StreamChar>::eof())
                 return false;
 
-            impl::apply(impl::csv::read_tuple<StreamChar>(is, error, has_read_something, options), ref);
+            skate::apply(impl::csv::read_tuple<StreamChar>(is, error, has_read_something, options), ref);
 
             if (error)
                 return false;
@@ -1124,7 +1124,7 @@ namespace skate {
             bool error = false;
             bool has_written_something = false;
 
-            impl::apply(impl::csv::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
+            skate::apply(impl::csv::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
 
             if (error ||
                 (options.crlf_line_endings && os.sputc('\r') == std::char_traits<StreamChar>::eof()) ||

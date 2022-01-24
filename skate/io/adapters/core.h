@@ -350,25 +350,78 @@ namespace skate {
         constexpr OutputIterator underlying() const { return m_out; }
     };
 
+    inline constexpr char int_to_base36(std::uint8_t v) noexcept {
+        return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[v & 0xf];
+    }
+
+    inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
+        return "0123456789abcdefghijklmnopqrstuvwxyz"[v & 0xf];
+    }
+
+    inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
+        return uppercase ? int_to_base36(v) : int_to_base36_lower(v);
+    }
+
+    template<typename Char>
+    inline constexpr int base36_to_int(Char c) noexcept {
+        return c >= '0' && c <= '9' ? c - '0' :
+               c >= 'A' && c <= 'Z' ? c - 'A' + 10 :
+               c >= 'a' && c <= 'z' ? c - 'a' + 10 :
+                                      -1;
+    }
+
+#if 0 && __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<const char *, result_type> int_decode(const char *first, const char *last, T &v, int base = 10) {
-#if __cplusplus >= 201703L
         const auto result = std::from_chars(first, last, v, base);
 
-        return { result.ptr, result.ec != std::errc() ? result_type::success : result_type::failure };
-#else
-        std::array<char, std::numeric_limits<T>::digits10 + 1 + std::is_signed<T>::value> buf;
-
-        return { first, result_type::failure };
-#endif
+        return { result.ptr, result.ec == std::errc() ? result_type::success : result_type::failure };
     }
+#endif
 
     template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<InputIterator, result_type> int_decode(InputIterator first, InputIterator last, T &v, int base = 10) {
-        if (base < 2 || base > 36)
+        if (base < 2 || base > 36 || first == last)
             return { first, result_type::failure };
 
-        return { first, result_type::failure };
+        // TODO: detect overflow properly
+        if (*first == '-') {
+            ++first;
+
+            T temp = 0;
+            auto it = first;
+
+            for (; it != last; ++it) {
+                const auto d = base36_to_int(*it);
+                if (d < 0 || d >= base)
+                    break;
+
+                temp = T((temp * base) - d);
+            }
+
+            if (std::is_unsigned<T>::value)
+                return { it, result_type::failure };
+            else if (it != first)
+                v = temp;
+
+            return { it, it != first ? result_type::success : result_type::failure };
+        } else {
+            T temp = 0;
+            auto it = first;
+
+            for (; it != last; ++it) {
+                const auto d = base36_to_int(*it);
+                if (d < 0 || d >= base)
+                    break;
+
+                temp = T((temp * base) + d);
+            }
+
+            if (it != first)
+                v = temp;
+
+            return { it, it != first ? result_type::success : result_type::failure };
+        }
     }
 
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
@@ -386,20 +439,23 @@ namespace skate {
         const auto begin = buf.data();
         const auto end = result.ptr;
 #else
-        if (v < 0) {
-            *out++ = '-';
-
-            return int_encode(static_cast<typename std::make_unsigned<T>::type>(-v), out, base);
-        }
-
         const char *alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
         char *end = buf.data() + buf.size();
         char *begin = end;
 
-        do {
-            *(--begin) = alphabet[v % base];
-            v /= base;
-        } while (v);
+        if (v < 0) {
+            *out++ = '-';
+
+            do {
+                *(--begin) = alphabet[-(v % base)];
+                v /= base;
+            } while (v);
+        } else {
+            do {
+                *(--begin) = alphabet[v % base];
+                v /= base;
+            } while (v);
+        }
 #endif
 
         return { std::copy(begin, end, out), result_type::success };
@@ -784,28 +840,6 @@ namespace skate {
 
             return true;
 #endif
-        }
-
-        // Allows using apply() on a tuple object
-        template<typename F, size_t size_of_tuple>
-        class tuple_apply : private tuple_apply<F, size_of_tuple - 1> {
-        public:
-            template<typename Tuple>
-            tuple_apply(Tuple &&t, F f) : tuple_apply<F, size_of_tuple - 1>(std::forward<Tuple>(t), f) {
-                f(std::get<size_of_tuple - 1>(std::forward<Tuple>(t)));
-            }
-        };
-
-        template<typename F>
-        class tuple_apply<F, 0> {
-        public:
-            template<typename Tuple>
-            constexpr tuple_apply(Tuple &&, F) noexcept {}
-        };
-
-        template<typename F, typename Tuple>
-        void apply(F f, Tuple &&tuple) {
-            tuple_apply<F, std::tuple_size<typename std::decay<Tuple>::type>::value>(std::forward<Tuple>(tuple), f);
         }
     }
 }

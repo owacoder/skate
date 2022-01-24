@@ -375,6 +375,15 @@ void test_containers() {
     skate::insert(m, "key", "value");
 
     std::cout << skate::json(m) << '\n';
+
+    const char *s = "-0321x";
+    int v;
+    const auto result = skate::int_decode(s, s + strlen(s), v);
+
+    if (result.second == skate::result_type::failure)
+        std::cout << "Failed" << '\n';
+    else
+        std::cout << "Success: " << v << ' ' << result.first << '\n';
 }
 
 int main()
@@ -382,7 +391,7 @@ int main()
     test_containers();
 
     std::string xzz;
-    std::vector<std::tuple<std::string, float, bool>> txx = {{"text\nnew", 1.222f, false}, {"second", -1.7123, true}};
+    std::vector<std::tuple<std::string, int, bool>> txx = {{"text\nnew", 1222, false}, {"second", INT_MIN, true}};
     std::map<std::string, float> mxx = {{"Header 1", NAN}, {"Header 2", INFINITY}};
 
     // vec.push_back({{"test", 2}, {"b", -3.1}});

@@ -25,6 +25,7 @@
 #include <deque>
 #include <forward_list>
 #include <list>
+#include <array>
 
 // Include ordered and unordered sets as (ordered) abstract lists
 #include <set>

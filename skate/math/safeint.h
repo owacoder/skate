@@ -7,6 +7,26 @@
 #include <exception>
 
 namespace skate {
+    template<typename L, typename R, typename std::enable_if<std::is_integral<L>::value && std::is_integral<R>::value && std::is_signed<L>::value == std::is_signed<R>::value, int>::type = 0>
+    constexpr static bool safe_less_than(L l, R r) noexcept {
+        return l < r;
+    }
+
+    template<typename L, typename R, typename std::enable_if<std::is_integral<L>::value && std::is_integral<R>::value && std::is_signed<L>::value && std::is_unsigned<R>::value, int>::type = 0>
+    constexpr static bool safe_less_than(L l, R r) noexcept {
+        return l < L(0) || static_cast<typename std::make_unsigned<L>::type>(l) < r;
+    }
+
+    template<typename L, typename R, typename std::enable_if<std::is_integral<L>::value && std::is_integral<R>::value && std::is_unsigned<L>::value && std::is_signed<R>::value, int>::type = 0>
+    constexpr static bool safe_less_than(L l, R r) noexcept {
+        return R(0) < r && l < static_cast<typename std::make_unsigned<L>::type>(r);
+    }
+
+    template<typename L, typename R>
+    constexpr static int safe_compare(L l, R r) noexcept {
+        return safe_less_than(l, r) ? -1 : safe_less_than(r, l) ? 1 : 0;
+    }
+
     enum class safeint_mode {
         mask,           // Uses the lowest bits of the representation, just truncating higher bits as needed (i.e. an 8 bit unsigned safeint would transform 0xfecd to 0xcd)
         saturate,       // Saturates the representation to the high or low end of the range (i.e. an 8 bit unsigned safeint would transform 0xfecd to 0xff)

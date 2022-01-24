@@ -273,7 +273,7 @@ namespace skate {
             if (size != std::tuple_size<typename std::decay<_>::type>::value)
                 return false;
 
-            impl::apply(impl::msgpack::read_tuple(is, error, options), ref);
+            skate::apply(impl::msgpack::read_tuple(is, error, options), ref);
 
             return !error;
         }
@@ -779,7 +779,7 @@ namespace skate {
                 return false;
             }
 
-            impl::apply(impl::msgpack::write_tuple(os, error, options), ref);
+            skate::apply(impl::msgpack::write_tuple(os, error, options), ref);
 
             return !error;
         }

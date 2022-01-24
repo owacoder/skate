@@ -78,6 +78,28 @@
 # define MSVC_COMPILER 0
 #endif
 
+#if __cplusplus >= 202002L
+# define CONSTEXPR20 constexpr
+#else
+# define CONSTEXPR20
+#endif
+
+#if __cplusplus >= 201703L
+# define CONSTEXPR17 constexpr
+#else
+# define CONSTEXPR17
+#endif
+
+#if __cplusplus >= 201402L
+# define CONSTEXPR14 constexpr
+#else
+# define CONSTEXPR14
+#endif
+
+#if __cplusplus < 201103L
+# error Skate requires a compiler that supports C++11
+#endif
+
 /* Operating system */
 #if defined(macintosh) | defined(Macintosh)
 # define IOS_SIMULATOR_OS 0
