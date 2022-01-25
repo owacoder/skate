@@ -239,11 +239,11 @@ namespace skate {
     }
 
     template<typename Char>
-    inline constexpr int hex_to_nibble(Char c) noexcept {
+    inline constexpr std::uint8_t hex_to_nibble(Char c) noexcept {
         return c >= '0' && c <= '9' ? c - '0' :
                c >= 'A' && c <= 'F' ? c - 'A' + 10 :
                c >= 'a' && c <= 'f' ? c - 'a' + 10 :
-                                      -1;
+                                      16;
     }
 
     template<typename OutputIterator>
@@ -363,11 +363,11 @@ namespace skate {
     }
 
     template<typename Char>
-    inline constexpr int base36_to_int(Char c) noexcept {
+    inline constexpr std::uint8_t base36_to_int(Char c) noexcept {
         return c >= '0' && c <= '9' ? c - '0' :
                c >= 'A' && c <= 'Z' ? c - 'A' + 10 :
                c >= 'a' && c <= 'z' ? c - 'a' + 10 :
-                                      -1;
+                                      36;
     }
 
 #if 0 && __cplusplus >= 201703L
@@ -384,7 +384,7 @@ namespace skate {
         if (base < 2 || base > 36 || first == last)
             return { first, result_type::failure };
 
-        // TODO: detect overflow properly
+        // TODO: detect overflow/underflow properly
         if (*first == '-') {
             ++first;
 
@@ -393,7 +393,7 @@ namespace skate {
 
             for (; it != last; ++it) {
                 const auto d = base36_to_int(*it);
-                if (d < 0 || d >= base)
+                if (d >= base)
                     break;
 
                 temp = T((temp * base) - d);
@@ -411,7 +411,7 @@ namespace skate {
 
             for (; it != last; ++it) {
                 const auto d = base36_to_int(*it);
-                if (d < 0 || d >= base)
+                if (d >= base)
                     break;
 
                 temp = T((temp * base) + d);

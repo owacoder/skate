@@ -195,7 +195,7 @@ namespace skate {
                                 for (auto &h : hex) {
                                     std::tie(first, h) = utf_auto_decode_next(first, last);
                                     const auto nibble = hex_to_nibble(h.value());
-                                    if (nibble < 0)
+                                    if (nibble > 15)
                                         return { first, result_type::failure };
 
                                     hi = (hi << 4) | std::uint8_t(nibble);
@@ -214,7 +214,7 @@ namespace skate {
                                 for (auto &h : hex) {
                                     std::tie(first, h) = utf_auto_decode_next(first, last);
                                     const auto nibble = hex_to_nibble(h.value());
-                                    if (nibble < 0)
+                                    if (nibble > 15)
                                         return { first, result_type::failure };
 
                                     lo = (lo << 4) | std::uint8_t(nibble);

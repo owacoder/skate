@@ -33,40 +33,17 @@
 
 namespace skate {
     template<>
-    struct is_string<QString> : public std::true_type {};
+    struct is_string_overload<QString> : public std::true_type {};
 
     // ------------------------------------------------
     // Specialization for QSet<T>
     // ------------------------------------------------
-    template<typename... ContainerParams>
-    class abstract_front_insert_iterator<QSet<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
-        QSet<ContainerParams...> *c;
-
-    public:
-        constexpr abstract_front_insert_iterator(QSet<ContainerParams...> &c) : c(&c) {}
-
-        template<typename R>
-        abstract_front_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
-
-        abstract_front_insert_iterator &operator*() { return *this; }
-        abstract_front_insert_iterator &operator++() { return *this; }
-        abstract_front_insert_iterator &operator++(int) { return *this; }
-    };
-
-    template<typename... ContainerParams>
-    class abstract_back_insert_iterator<QSet<ContainerParams...>> : public std::iterator<std::output_iterator_tag, void, void, void, void> {
-        QSet<ContainerParams...> *c;
-
-    public:
-        constexpr abstract_back_insert_iterator(QSet<ContainerParams...> &c) : c(&c) {}
-
-        template<typename R>
-        abstract_back_insert_iterator &operator=(R &&element) { c->insert(std::forward<R>(element)); return *this; }
-
-        abstract_back_insert_iterator &operator*() { return *this; }
-        abstract_back_insert_iterator &operator++() { return *this; }
-        abstract_back_insert_iterator &operator++(int) { return *this; }
-    };
+    namespace detail {
+        template<typename T, typename... ContainerParams>
+        constexpr void push_back(QSet<T, ContainerParams...> &c, T &&v) {
+            c.insert(std::forward<T>(v));
+        }
+    }
 }
 
 #endif // SKATE_QT_ABSTRACT_LIST_H
