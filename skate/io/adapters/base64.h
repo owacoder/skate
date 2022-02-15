@@ -28,12 +28,12 @@ namespace skate {
         template<typename InputIterator>
         base64_encoder &append(InputIterator first, InputIterator last) {
             for (; first != last; ++first)
-                append(*first);
+                push_back(*first);
 
             return *this;
         }
 
-        base64_encoder &append(std::uint8_t byte_value) {
+        base64_encoder &push_back(std::uint8_t byte_value) {
             m_state = (m_state << 8) | byte_value;
             ++m_bytes_in_state;
 
@@ -66,6 +66,9 @@ namespace skate {
                     *m_out++ = m_options.padding;
                     *m_out++ = m_options.padding;
                 }
+
+                m_state = 0;
+                m_bytes_in_state = 0;
             }
 
             return *this;
@@ -92,6 +95,61 @@ namespace skate {
 
     template<typename Container = std::string, typename Range>
     constexpr Container to_base64(const Range &range, const base64_options &options = {}) { return to_base64<Container>(begin(range), end(range), options); }
+
+    template<typename OutputIterator>
+    class base64_decoder {
+        OutputIterator m_out;
+        unsigned long m_state;
+        unsigned int m_bytes_in_state;
+        result_type m_result;
+
+        base64_options m_options;
+
+    public:
+        constexpr base64_decoder(OutputIterator out, const base64_options &options = {}) : m_out(out), m_state(0), m_bytes_in_state(0), m_options(options), m_result(result_type::success) {}
+
+        template<typename InputIterator>
+        base64_decoder &append(InputIterator first, InputIterator last) {
+            for (; first != last; ++first)
+                push_back(*first);
+
+            return *this;
+        }
+
+        template<typename T>
+        base64_decoder &push_back(T value) {
+            const auto it = std::find(m_options.alphabet.begin(), m_options.alphabet.end(), value);
+            if (it != m_options.alphabet.end()) {
+                m_state = (m_state << 6) | (it - m_options.alphabet.begin());
+                ++m_bytes_in_state;
+            } else if (value == m_options.padding) {
+                m_state <<= 6;
+                ++m_bytes_in_state;
+            } else {
+                /* error */
+            }
+
+            if (m_bytes_in_state == 4) {
+                *m_out++ = std::uint8_t((m_state >> 16) & 0xff);
+                *m_out++ = std::uint8_t((m_state >>  8) & 0xff);
+                *m_out++ = std::uint8_t((m_state      ) & 0xff);
+
+                m_state = 0;
+                m_bytes_in_state = 0;
+            }
+
+            return *this;
+        }
+
+        base64_decoder &finish() {
+
+            /* TODO */
+
+            return *this;
+        }
+
+        constexpr OutputIterator underlying() const { return m_out; }
+    };
 }
 
 #endif // SKATE_BASE64_H

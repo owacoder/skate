@@ -120,6 +120,39 @@ namespace skate {
     std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options & = {});
 
     namespace detail {
+        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+        template<typename InputIterator>
+        class json_read_tuple {
+            InputIterator &m_first;
+            InputIterator m_last;
+            result_type &m_result;
+            bool &m_has_read_something;
+
+        public:
+            constexpr json_read_tuple(InputIterator &first, InputIterator last, result_type &result, bool &has_read_something) noexcept
+                : m_first(first)
+                , m_last(last)
+                , m_result(result)
+                , m_has_read_something(has_read_something)
+            {}
+
+            template<typename Param>
+            void operator()(Param &p) {
+                if (m_result != result_type::success)
+                    return;
+
+                if (m_has_read_something) {
+                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
+                    if (m_result != result_type::success)
+                        return;
+                }
+
+                m_has_read_something = true;
+
+                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, p);
+            }
+        };
+
         template<typename InputIterator>
         constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
             return starts_with(skip_whitespace(first, last), last, "null");
@@ -140,18 +173,12 @@ namespace skate {
 
         template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
-            first = skip_whitespace(first, last);
-
-            // TODO: int_decode
-            return int_decode(first, last, i);
+            return int_decode(skip_whitespace(first, last), last, i);
         }
 
         template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
-            first = skip_whitespace(first, last);
-
-            // TODO: fp_decode
-            return fp_decode(first, last, f);
+            return fp_decode(skip_whitespace(first, last), last, f);
         }
 
         template<typename T, typename InputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
@@ -165,8 +192,8 @@ namespace skate {
             if (result != result_type::success)
                 return { first, result };
 
-            clear(s);
-            auto back_inserter = make_back_inserter(s);
+            skate::clear(s);
+            auto back_inserter = skate::make_back_inserter(s);
 
             while (first != last && result == result_type::success) {
                 std::tie(first, u) = utf_auto_decode_next(first, last);
@@ -240,10 +267,10 @@ namespace skate {
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
             using ElementType = typename std::decay<decltype(*begin(a))>::type;
 
-            clear(a);
+            skate::clear(a);
 
             result_type result = result_type::success;
-            auto back_inserter = make_back_inserter(a);
+            auto back_inserter = skate::make_back_inserter(a);
             bool has_element = false;
 
             std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
@@ -276,6 +303,22 @@ namespace skate {
             }
 
             return { first, result_type::failure };
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
+            result_type result = result_type::success;
+            bool has_read_something = false;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            if (result != result_type::success)
+                return { first, result };
+
+            skate::apply(json_read_tuple(first, last, result, has_read_something), a);
+            if (result != result_type::success)
+                return { first, result};
+
+            return starts_with(skip_whitespace(first, last), last, ']');
         }
 
         template<typename T, typename InputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::type, int>::type = 0>
@@ -323,7 +366,7 @@ namespace skate {
                 if (result == result_type::success)
                     return { first, result };
 
-                insert(o, std::move(key), std::move(value));
+                skate::insert(o, std::move(key), std::move(value));
             }
 
             return { first, result_type::failure };
@@ -373,12 +416,12 @@ namespace skate {
 
         template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-            return int_encode(v, out);
+            return skate::int_encode(v, out);
         }
 
         template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
         constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-            return fp_encode(v, out, false, false);
+            return skate::fp_encode(v, out, false, false);
         }
 
         template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
@@ -1222,29 +1265,26 @@ namespace skate {
         basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(json_type::string) {
             d.p = new String(s);
         }
-        basic_json_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s, size_t len) : t(json_type::string) {
-            d.p = new String(s, len);
-        }
         template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
         basic_json_value(T v) : t(json_type::floating) {
             if (std::trunc(v) == v) {
                 // Convert to integer if at all possible, since its waaaay faster
-                if (v >= INT64_MIN && v <= INT64_MAX) {
+                if (v >= std::numeric_limits<std::int64_t>::min() && v <= std::numeric_limits<std::int64_t>::max()) {
                     t = json_type::int64;
-                    d.i = int64_t(v);
-                } else if (v >= 0 && v <= UINT64_MAX) {
+                    d.i = std::int64_t(v);
+                } else if (v >= 0 && v <= std::numeric_limits<std::uint64_t>::max()) {
                     t = json_type::uint64;
-                    d.u = uint64_t(v);
+                    d.u = std::uint64_t(v);
                 } else
-                    d.n = v;
+                    d.f = v;
             } else
-                d.n = v;
+                d.f = v;
         }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_signed<T>::value, int>::type = 0>
         basic_json_value(T v) : t(json_type::int64) { d.i = v; }
         template<typename T, typename std::enable_if<std::is_integral<T>::value && std::is_unsigned<T>::value, int>::type = 0>
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
-        template<typename T, typename std::enable_if<is_string<T>::value, int>::type = 0>
+        template<typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
             d.p = new String(utf_convert_weak<String>(v).get());
         }
@@ -1294,7 +1334,7 @@ namespace skate {
         // Undefined if current_type() is not the correct type
         std::nullptr_t unsafe_get_null() const noexcept { return nullptr; }
         bool unsafe_get_bool() const noexcept { return d.b; }
-        double unsafe_get_floating() const noexcept { return d.n; }
+        double unsafe_get_floating() const noexcept { return d.f; }
         int64_t unsafe_get_int64() const noexcept { return d.i; }
         uint64_t unsafe_get_uint64() const noexcept { return d.u; }
         const String &unsafe_get_string() const noexcept { return *internal_string(); }
@@ -1304,7 +1344,7 @@ namespace skate {
 
         std::nullptr_t &null_ref() { static std::nullptr_t null; clear(); return null; }
         bool &bool_ref() { create(json_type::boolean); return d.b; }
-        double &number_ref() { create(json_type::floating); return d.n; }
+        double &number_ref() { create(json_type::floating); return d.f; }
         int64_t &int64_ref() { create(json_type::int64); return d.i; }
         uint64_t &uint64_ref() { create(json_type::uint64); return d.u; }
         String &string_ref() { create(json_type::string); return *internal_string(); }
@@ -1312,14 +1352,38 @@ namespace skate {
         object &object_ref() { create(json_type::object); return *internal_object(); }
 
         // Returns default_value if not the correct type, or, in the case of numeric types, if the type could not be converted due to range (loss of precision with floating <-> int is allowed)
-        bool get_bool(bool default_value = false) const noexcept { return is_bool()? d.b: default_value; }
+        bool get_bool(bool default_value = false) const noexcept {
+            return is_bool()? d.b: default_value;
+        }
         template<typename FloatType = double>
-        FloatType get_number(FloatType default_value = 0.0) const noexcept { return is_floating()? d.n: is_int64()? d.i: is_uint64()? d.u: default_value; }
-        int64_t get_int64(int64_t default_value = 0) const noexcept { return is_int64()? d.i: (is_uint64() && d.u <= INT64_MAX)? int64_t(d.u): (is_floating() && std::trunc(d.n) >= INT64_MIN && std::trunc(d.n) <= INT64_MAX)? int64_t(std::trunc(d.n)): default_value; }
-        uint64_t get_uint64(uint64_t default_value = 0) const noexcept { return is_uint64()? d.u: (is_int64() && d.i >= 0)? uint64_t(d.i): (is_floating() && d.n >= 0 && std::trunc(d.n) <= UINT64_MAX)? uint64_t(std::trunc(d.n)): default_value; }
+        FloatType get_number(FloatType default_value = 0.0) const noexcept {
+            return is_floating()? d.f:
+                      is_int64()? d.i:
+                     is_uint64()? d.u: default_value;
+        }
+        std::int64_t get_int64(std::int64_t default_value = 0) const noexcept {
+            if (is_int64())
+                return d.i;
+            else if (is_uint64() && d.u <= std::uint64_t(std::numeric_limits<std::int64_t>::max()))
+                return std::int64_t(d.u);
+            else if (is_floating() && std::trunc(d.f) >= std::numeric_limits<std::int64_t>::min() && std::trunc(d.f) <= std::numeric_limits<std::int64_t>::max())
+                return std::int64_t(std::trunc(d.f));
+            else
+                return default_value;
+        }
+        std::uint64_t get_uint64(std::uint64_t default_value = 0) const noexcept {
+            if (is_uint64())
+                return d.u;
+            else if (is_int64() && d.i >= 0)
+                return std::uint64_t(d.i);
+            else if (is_floating() && std::trunc(d.f) >= 0 && std::trunc(d.f) <= std::numeric_limits<std::uint64_t>::max())
+                return std::uint64_t(std::trunc(d.f));
+            else
+                return default_value;
+        }
         template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
         I get_int(I default_value = 0) const noexcept {
-            const int64_t i = get_int64(default_value);
+            const std::int64_t i = get_int64(default_value);
 
             if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
                 return I(i);
@@ -1328,7 +1392,7 @@ namespace skate {
         }
         template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
         I get_uint(I default_value = 0) const noexcept {
-            const uint64_t i = get_uint64(default_value);
+            const std::uint64_t i = get_uint64(default_value);
 
             if (i <= std::numeric_limits<I>::max())
                 return I(i);
@@ -1340,101 +1404,6 @@ namespace skate {
         S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
-
-        // Conversion routines, all follow JavaScript conversion rules as closely as possible for converting types (as_int routines can't return NAN though, and return error_value instead)
-        bool as_bool() const noexcept {
-            switch (current_type()) {
-                default:                    return false;
-                case json_type::boolean:    return unsafe_get_bool();
-                case json_type::int64:      return unsafe_get_int64() != 0;
-                case json_type::uint64:     return unsafe_get_uint64() != 0;
-                case json_type::floating:   return !std::isnan(unsafe_get_floating()) && unsafe_get_floating() != 0.0;
-                case json_type::string:     return unsafe_get_string().size() != 0;
-                case json_type::array:      return true;
-                case json_type::object:     return true;
-            }
-        }
-        template<typename FloatType = double>
-        FloatType as_number() const noexcept {
-            switch (current_type()) {
-                default:                    return 0.0;
-                case json_type::boolean:    return unsafe_get_bool();
-                case json_type::int64:      return unsafe_get_int64();
-                case json_type::uint64:     return unsafe_get_uint64();
-                case json_type::floating:   return unsafe_get_floating();
-                case json_type::string:     {
-                    FloatType v = 0.0;
-                    return impl::parse_float(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: NAN;
-                }
-                case json_type::array:      return unsafe_get_array().size() == 0? 0.0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_number(): NAN;
-                case json_type::object:     return NAN;
-            }
-        }
-        int64_t as_int64(int64_t error_value = 0) const noexcept {
-            switch (current_type()) {
-                default:                    return 0;
-                case json_type::boolean:    return unsafe_get_bool();
-                case json_type::int64:      // fallthrough
-                case json_type::uint64:     // fallthrough
-                case json_type::floating:   return get_int64();
-                case json_type::string:     {
-                    int64_t v = 0;
-                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
-                }
-                case json_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
-                case json_type::object:     return error_value;
-            }
-        }
-        uint64_t as_uint64(uint64_t error_value = 0) const noexcept {
-            switch (current_type()) {
-                default:                    return 0;
-                case json_type::boolean:    return unsafe_get_bool();
-                case json_type::int64:      // fallthrough
-                case json_type::uint64:     // fallthrough
-                case json_type::floating:   return get_int64();
-                case json_type::string:     {
-                    uint64_t v = 0;
-                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
-                }
-                case json_type::array:      return unsafe_get_array().size() == 0? 0: unsafe_get_array().size() == 1? unsafe_get_array()[0].as_int64(): error_value;
-                case json_type::object:     return error_value;
-            }
-        }
-        template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
-        I as_int(I error_value = 0) const noexcept {
-            const int64_t i = as_int64(error_value);
-
-            if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
-                return I(i);
-
-            return error_value;
-        }
-        template<typename I = unsigned int, typename std::enable_if<std::is_unsigned<I>::value && std::is_integral<I>::value, int>::type = 0>
-        I as_uint(I error_value = 0) const noexcept {
-            const uint64_t i = as_uint64(error_value);
-
-            if (i <= std::numeric_limits<I>::max())
-                return I(i);
-
-            return error_value;
-        }
-        template<typename S = String>
-        S as_string() const {
-            switch (current_type()) {
-                default:                    return utf_convert_weak<S>("null").get();
-                case json_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false").get();
-                case json_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64())).get();
-                case json_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64())).get();
-                case json_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN").get():
-                                                   std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity").get():
-                                                                                      utf_convert_weak<S>(to_json(unsafe_get_floating())).get();
-                case json_type::string:     return utf_convert_weak<S>(unsafe_get_string()).get();
-                case json_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(",").get(), [](const basic_json_value &v) { return v.as_string<S>(); });
-                case json_type::object:     return utf_convert_weak<S>("[object Object]").get();
-            }
-        }
-        array as_array() const { return get_array(); }
-        object as_object() const { return get_object(); }
 
         // ---------------------------------------------------
         // Array helpers
@@ -1523,8 +1492,10 @@ namespace skate {
                     switch (t) {
                         default: break;
                         case json_type::floating:  return other == *this; // Swap operand order so floating point is always on right
-                        case json_type::int64:     return other.is_uint64()? (other.d.u <= INT64_MAX && int64_t(other.d.u) == d.i): (other.d.n >= INT64_MIN && other.d.n <= INT64_MAX && std::trunc(other.d.n) == other.d.n && d.i == int64_t(other.d.n));
-                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && uint64_t(other.d.i) == d.u): (other.d.n >= 0 && other.d.n <= UINT64_MAX && std::trunc(other.d.n) == other.d.n && d.u == uint64_t(other.d.n));
+                        case json_type::int64:     return other.is_uint64()? (other.d.u <= std::uint64_t(std::numeric_limits<std::int64_t>::max()) && std::int64_t(other.d.u) == d.i):
+                                                          (other.d.f >= std::numeric_limits<std::int64_t>::min() && other.d.f <= std::numeric_limits<std::int64_t>::max() && std::trunc(other.d.f) == other.d.f && d.i == std::int64_t(other.d.f));
+                        case json_type::uint64:    return other.is_int64()? (other.d.i >= 0 && std::uint64_t(other.d.i) == d.u):
+                                                          (other.d.f >= 0 && other.d.f <= std::numeric_limits<std::uint64_t>::max() && std::trunc(other.d.f) == other.d.f && d.u == std::uint64_t(other.d.f));
                     }
                 }
 
@@ -1534,7 +1505,7 @@ namespace skate {
             switch (t) {
                 default:                     return true;
                 case json_type::boolean:     return d.b == other.d.b;
-                case json_type::floating:    return d.n == other.d.n;
+                case json_type::floating:    return d.f == other.d.f;
                 case json_type::int64:       return d.i == other.d.i;
                 case json_type::uint64:      return d.u == other.d.u;
                 case json_type::string:      return *internal_string() == *other.internal_string();
@@ -1563,7 +1534,7 @@ namespace skate {
             switch (type) {
                 default: break;
                 case json_type::boolean:     d.b = false; break;
-                case json_type::floating:    d.n = 0.0; break;
+                case json_type::floating:    d.f = 0.0; break;
                 case json_type::int64:       d.i = 0; break;
                 case json_type::uint64:      d.u = 0; break;
                 case json_type::string:      d.p = new String(); break;
@@ -1578,9 +1549,9 @@ namespace skate {
 
         union {
             bool b;
-            double n;
-            int64_t i;
-            uint64_t u;
+            double f;
+            std::int64_t i;
+            std::uint64_t u;
             void *p;
         } d;
     };
@@ -1785,22 +1756,6 @@ namespace skate {
     std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_json_value<String> &j) {
         return os << json(j);
     }
-
-    // Qt helpers
-#ifdef QT_VERSION
-    template<typename StreamChar>
-    std::basic_istream<StreamChar> &skate_json(std::basic_istream<StreamChar> &is, QString &str) {
-        std::wstring wstr;
-        is >> skate::json(wstr);
-        str = QString::fromStdWString(wstr);
-        return is;
-    }
-
-    template<typename StreamChar>
-    std::basic_ostream<StreamChar> &skate_json(std::basic_ostream<StreamChar> &os, const QString &str) {
-        return os << skate::json(str.toStdWString());
-    }
-#endif
 }
 
 #endif // SKATE_JSON_H

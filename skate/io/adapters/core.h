@@ -64,9 +64,28 @@ namespace skate {
     }
 
     template<typename InputIterator>
+    std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, char c) {
+        const bool matches = first != last ? *first == c || *first == (c ^ 32) : false;
+        if (!matches)
+            return { first, result_type::failure };
+
+        return { ++first, result_type::success };
+    }
+
+    template<typename InputIterator>
     std::pair<InputIterator, result_type> starts_with(InputIterator first, InputIterator last, const char *s) {
         for (; first != last && *s; ++first, ++s) {
             if (*first != *s)
+                return { first, result_type::failure };
+        }
+
+        return { first, result_type::success };
+    }
+
+    template<typename InputIterator>
+    std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, const char *s) {
+        for (; first != last && *s; ++first, ++s) {
+            if (*first != *s && *first != (*s ^ 32))
                 return { first, result_type::failure };
         }
 
@@ -227,11 +246,13 @@ namespace skate {
     };
 
     inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
-        return "0123456789ABCDEF"[nibble & 0xf];
+        return nibble < 10 ? '0' + nibble :
+               nibble < 16 ? 'A' + (nibble - 10) : 0;
     }
 
     inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
-        return "0123456789abcdef"[nibble & 0xf];
+        return nibble < 10 ? '0' + nibble :
+               nibble < 16 ? 'a' + (nibble - 10) : 0;
     }
 
     inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
@@ -351,11 +372,13 @@ namespace skate {
     };
 
     inline constexpr char int_to_base36(std::uint8_t v) noexcept {
-        return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[v & 0xf];
+        return v < 10 ? '0' + v :
+               v < 36 ? 'A' + (v - 10) : 0;
     }
 
     inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
-        return "0123456789abcdefghijklmnopqrstuvwxyz"[v & 0xf];
+        return v < 10 ? '0' + v :
+               v < 36 ? 'a' + (v - 10) : 0;
     }
 
     inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
@@ -370,7 +393,7 @@ namespace skate {
                                       36;
     }
 
-#if 0 && __cplusplus >= 201703L
+#if __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<const char *, result_type> int_decode(const char *first, const char *last, T &v, int base = 10) {
         const auto result = std::from_chars(first, last, v, base);
@@ -384,43 +407,63 @@ namespace skate {
         if (base < 2 || base > 36 || first == last)
             return { first, result_type::failure };
 
-        // TODO: detect overflow/underflow properly
-        if (*first == '-') {
+        T temp = 0;
+        bool did_read = false;
+        bool range_error = false;
+
+        if (*first == '-' && std::is_signed<T>::value) {
             ++first;
 
-            T temp = 0;
-            auto it = first;
-
-            for (; it != last; ++it) {
-                const auto d = base36_to_int(*it);
+            for (; first != last; ++first) {
+                const auto d = base36_to_int(*first);
                 if (d >= base)
                     break;
+                else if (range_error)
+                    continue;
 
-                temp = T((temp * base) - d);
+                did_read = true;
+
+                if (temp < std::numeric_limits<T>::min() / base) {
+                    range_error = true;
+                    continue;
+                }
+                temp *= base;
+
+                if (temp < std::numeric_limits<T>::min() + d) {
+                    range_error = true;
+                    continue;
+                }
+                temp -= d;
             }
-
-            if (std::is_unsigned<T>::value)
-                return { it, result_type::failure };
-            else if (it != first)
-                v = temp;
-
-            return { it, it != first ? result_type::success : result_type::failure };
         } else {
-            T temp = 0;
-            auto it = first;
-
-            for (; it != last; ++it) {
-                const auto d = base36_to_int(*it);
+            for (; first != last; ++first) {
+                const auto d = base36_to_int(*first);
                 if (d >= base)
                     break;
+                else if (range_error)
+                    continue;
 
-                temp = T((temp * base) + d);
+                did_read = true;
+
+                if (temp > std::numeric_limits<T>::max() / base) {
+                    range_error = true;
+                    continue;
+                }
+                temp *= base;
+
+                if (temp > std::numeric_limits<T>::max() - d) {
+                    range_error = true;
+                    continue;
+                }
+                temp += d;
             }
+        }
 
-            if (it != first)
-                v = temp;
-
-            return { it, it != first ? result_type::success : result_type::failure };
+        if (!range_error && did_read) {
+            v = temp;
+            return { first, result_type::success };
+        } else {
+            return { first, result_type::failure };
         }
     }
 
@@ -439,7 +482,6 @@ namespace skate {
         const auto begin = buf.data();
         const auto end = result.ptr;
 #else
-        const char *alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
         char *end = buf.data() + buf.size();
         char *begin = end;
 
@@ -447,12 +489,12 @@ namespace skate {
             *out++ = '-';
 
             do {
-                *(--begin) = alphabet[-(v % base)];
+                *(--begin) = int_to_base36(-(v % base));
                 v /= base;
             } while (v);
         } else {
             do {
-                *(--begin) = alphabet[v % base];
+                *(--begin) = int_to_base36(v % base);
                 v /= base;
             } while (v);
         }
@@ -470,6 +512,113 @@ namespace skate {
         // Needed because std::max isn't constexpr
         template<typename T>
         constexpr T max(T a, T b) { return a < b? b: a; }
+    }
+
+#if __cplusplus >= 201703L
+    template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+    constexpr std::pair<const char *, result_type> fp_decode(const char *first, const char *last, T &v) {
+        const auto result = std::from_chars(first, last, v);
+
+        return { result.ptr, result.ec == std::errc() ? result_type::success : result_type::failure };
+    }
+#endif
+
+    // TODO: This algorithm cannot be single-pass for floating point values due to 'e' handling for inputs like '1.12e+' (which should parse as 1.12) or similar
+    // This can cause issues with validation of inputs that std::from_chars would accept just fine
+    template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+    std::pair<InputIterator, result_type> fp_decode(InputIterator first, InputIterator last, T &v) {
+        if (first == last)
+            return { first, result_type::failure };
+
+        std::string tempstr;
+        const bool negative = *first == '-';
+
+        if (negative) {
+            tempstr.push_back('-');
+
+            if (++first == last)
+                return { first, result_type::failure };
+        }
+
+        if ((*first < '0' || *first > '9') && *first != '.') {
+            if (*first == 'n' || *first == 'N') { // Check for NaN
+                const auto result = istarts_with(++first, last, "an");
+
+                if (result.second == result_type::success)
+                    v = negative ? -std::numeric_limits<T>::quiet_NaN() : std::numeric_limits<T>::quiet_NaN();
+
+                return result;
+            } else if (*first == 'i' || *first == 'I') { // Check for Infinity
+                const auto result = istarts_with(++first, last, "nfinity");
+
+                if (result.second == result_type::success)
+                    v = negative ? -std::numeric_limits<T>::infinity() : std::numeric_limits<T>::infinity();
+
+                return result;
+            }
+
+            return { first, result_type::failure };
+        }
+
+        // Parse beginning numeric portion
+        for (; first != last && (*first >= '0' && *first <= '9'); ++first) {
+            tempstr.push_back(char(*first));
+        }
+
+        // Parse decimal and following numeric portion, if present
+        if (first != last && *first == '.') {
+            if (++first != last) {
+                tempstr.push_back('.');
+
+                for (; first != last && (*first >= '0' && *first <= '9'); ++first) {
+                    tempstr.push_back(char(*first));
+                }
+            }
+        }
+
+        // Parse exponent, if present
+        if (first != last && (*first == 'e' || *first == 'E')) {
+            if (++first != last) {
+                tempstr.push_back('e');
+
+                if (*first == '+' || *first == '-') {
+                    tempstr.push_back(char(*first));
+
+                    if (++first == last)
+                        return { first, result_type::failure };
+                }
+
+                if (*first < '0' || *first > '9')
+                    return { first, result_type::failure };
+
+                for (; first != last && (*first >= '0' && *first <= '9'); ++first) {
+                    tempstr.push_back(char(*first));
+                }
+            }
+        }
+
+#if __cplusplus >= 201703L
+        const auto result = std::from_chars(tempstr.data(), tempstr.data() + tempstr.size(), v);
+
+        return { first, result.ec == std::errc() && result.ptr == tempstr.data() + tempstr.size() ? result_type::success : result_type::failure };
+#else
+        T temp = T(0.0);
+        char *end = nullptr;
+
+        if (std::is_same<typename std::decay<T>::type, float>::value)
+            temp = T(std::strtof(tempstr.c_str(), &end));
+        else if (std::is_same<typename std::decay<T>::type, double>::value)
+            temp = T(std::strtod(tempstr.c_str(), &end));
+        else
+            temp = T(std::strtold(tempstr.c_str(), &end));
+
+        if (*end == 0) {
+            v = temp;
+            return { first, result_type::success };
+        } else {
+            return { first, result_type::failure };
+        }
+#endif
     }
 
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>

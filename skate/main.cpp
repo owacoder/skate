@@ -376,9 +376,9 @@ void test_containers() {
 
     std::cout << skate::json(m) << '\n';
 
-    const char *s = "-0321x";
-    int v;
-    const auto result = skate::int_decode(s, s + strlen(s), v);
+    const char *s = "-NAN ";
+    float v;
+    const auto result = skate::fp_decode(s, s + strlen(s) - 1, v);
 
     if (result.second == skate::result_type::failure)
         std::cout << "Failed" << '\n';

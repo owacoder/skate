@@ -504,7 +504,7 @@ namespace skate {
     template<typename String>
     inline bool utf8append(String &utf8, unicode_codepoint codepoint) {
         if (codepoint.value() < 0x80) { // Shortcut for speed, not strictly necessary
-            push_back(utf8, static_cast<char>(codepoint.value()));
+            skate::push_back(utf8, static_cast<char>(codepoint.value()));
             return true;
         } else if (!codepoint.valid())
             return false;
@@ -520,10 +520,10 @@ namespace skate {
         const size_t bytesInCode = utf8size(codepoint.value());
         const size_t continuationBytesInCode = bytesInCode - 1;
 
-        push_back(utf8, static_cast<unsigned char>(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6))));
+        skate::push_back(utf8, static_cast<unsigned char>(headerForCodepointSize[bytesInCode] | (unsigned char) (codepoint.value() >> (continuationBytesInCode * 6))));
 
         for (size_t i = continuationBytesInCode; i > 0; --i) {
-            push_back(utf8, static_cast<unsigned char>(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6)))));
+            skate::push_back(utf8, static_cast<unsigned char>(0x80 | (0x3f & (codepoint.value() >> ((i-1) * 6)))));
         }
 
         return true;
@@ -818,8 +818,8 @@ namespace skate {
             unsigned int hi = 0, lo = 0;
 
             switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
-                case 2: push_back(s, hi); // fallthrough
-                case 1: push_back(s, lo); break;
+                case 2: skate::push_back(s, hi); // fallthrough
+                case 1: skate::push_back(s, lo); break;
                 default: return false;
             }
 
@@ -844,7 +844,7 @@ namespace skate {
             if (!codepoint.valid())
                 return false;
 
-            push_back(s, codepoint.value());
+            skate::push_back(s, codepoint.value());
 
             return true;
         }
@@ -1068,8 +1068,8 @@ namespace skate {
         return utf_convert<std::wstring>(s, error);
     }
 
-    template<typename CharType>
-    constexpr int toxdigit(CharType c) {
+    template<typename T>
+    constexpr int toxdigit(T c) {
         return (c >= '0' && c <= '9')? int(c - '0'):
                (c >= 'A' && c <= 'F')? int(c - 'A' + 10):
                (c >= 'a' && c <= 'f')? int(c - 'a' + 10): -1;
@@ -1080,71 +1080,66 @@ namespace skate {
         constexpr const char *hexlower = "0123456789abcdef";
     }
 
-    template<typename CharType = unsigned char>
-    constexpr CharType toxchar(unsigned int value, bool uppercase = false) {
-        return CharType(uppercase? impl::hexupper[value & 0xf]: impl::hexlower[value & 0xf]);
+    template<typename T = unsigned char>
+    constexpr T toxchar(unsigned int value, bool uppercase = false) {
+        return T(uppercase? impl::hexupper[value & 0xf]: impl::hexlower[value & 0xf]);
     }
 
-    template<typename CharType>
-    constexpr bool isxdigit(CharType c) {
+    template<typename T>
+    constexpr bool isxdigit(T c) {
         return (c >= '0' && c <= '9') ||
                (c >= 'A' && c <= 'F') ||
                (c >= 'a' && c <= 'f');
     }
 
-    template<typename CharType>
-    constexpr int todigit(CharType c) {
-        return (c >= '0' && c <= '9')? int(c - '0'): -1;
-    }
-
-    template<typename CharType>
-    constexpr bool isdigit(CharType c) {
+    template<typename T>
+    constexpr bool isdigit(T c) {
         return c >= '0' && c <= '9';
     }
 
-    template<typename CharType>
-    constexpr bool isfpdigit(CharType c) {
+    template<typename T>
+    constexpr bool isfpdigit(T c) {
         return (c >= '0' && c <= '9') || c == '-' || c == '.' || c == 'e' || c == 'E' || c == '+';
     }
 
-    template<typename CharType>
-    constexpr bool isalpha(CharType c) {
+    template<typename T>
+    constexpr bool isalpha(T c) {
         return (c >= 'A' && c <= 'Z') ||
                (c >= 'a' && c <= 'z');
     }
 
-    template<typename CharType>
-    constexpr bool isalnum(CharType c) {
+    template<typename T>
+    constexpr bool isalnum(T c) {
         return isalpha(c) || isdigit(c);
     }
 
-    template<typename CharType>
-    constexpr bool isspace(CharType c) {
+    template<typename T>
+    constexpr bool isspace(T c) {
         return c == ' ' || c == '\n' || c == '\r' || c == '\t';
     }
 
-    template<typename CharType>
-    constexpr bool isspace_or_tab(CharType c) {
+    template<typename T>
+    constexpr bool isspace_or_tab(T c) {
         return c == ' ' || c == '\t';
     }
 
-    template<typename CharType>
-    constexpr bool isupper(CharType c) {
+    template<typename T>
+    constexpr bool isupper(T c) {
         return c >= 'A' && c <= 'Z';
     }
 
-    template<typename CharType>
-    constexpr bool islower(CharType c) {
+    template<typename T>
+    constexpr bool islower(T c) {
         return c >= 'a' && c <= 'z';
     }
 
-    template<typename CharType>
-    constexpr CharType tolower(CharType c) {
+    template<typename T>
+    constexpr T tolower(T c) {
         return isupper(c)? c ^ 0x20: c;
     }
 
-    template<typename CharType>
-    constexpr CharType toupper(CharType c) {
+    template<typename T>
+    constexpr T toupper(T c) {
         return islower(c)? c ^ 0x20: c;
     }
 
@@ -1231,32 +1226,6 @@ namespace skate {
             return false;
 
         return haystack.compare(haystack.size() - needle.size(), needle.size(), needle) == 0;
-    }
-
-    template<typename IntType, typename std::enable_if<std::is_unsigned<IntType>::value, int>::type = 0>
-    std::string to_string_hex(IntType i, bool uppercase = false, size_t minimum = 0) {
-        using namespace std;
-
-        std::string result;
-
-        if (i == 0) {
-            result.resize(max(minimum, size_t(1)));
-            std::fill(result.begin(), result.end(), '0');
-        } else {
-            for (; i; i >>= 4) {
-                result.push_back(toxchar(i & 0xf, uppercase));
-            }
-
-            const auto digits = result.size();
-            if (minimum > digits) {
-                result.resize(minimum);
-                std::fill(result.begin() + digits, result.end(), '0');
-            }
-
-            std::reverse(result.begin(), result.end());
-        }
-
-        return result;
     }
 
     class unicode {
