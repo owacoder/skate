@@ -56,12 +56,11 @@ namespace skate {
         const std::string &body() const noexcept { return m_body; }
 #ifdef SKATE_JSON_H
         skate::json_value json(skate::json_value default_value = {}) const {
-            bool err = false;
-            skate::json_value result = skate::from_json<skate::json_value>(m_body, &err);
-            if (err)
+            const auto result = skate::from_json<skate::json_value>(m_body);
+            if (result.second != result_type::success)
                 return default_value;
 
-            return result;
+            return result.first;
         }
 #endif
 
@@ -139,12 +138,11 @@ namespace skate {
         const std::string &body() const noexcept { return m_body; }
 #ifdef SKATE_JSON_H
         skate::json_value json(skate::json_value default_value = {}) const {
-            bool err = false;
-            skate::json_value result = skate::from_json<skate::json_value>(m_body, &err);
-            if (err)
+            const auto result = skate::from_json<skate::json_value>(m_body);
+            if (result.second != result_type::success)
                 return default_value;
 
-            return result;
+            return result.first;
         }
 #endif
 

@@ -10,6 +10,7 @@
 #include "core.h"
 #include "../../system/time.h"
 
+#if 0
 namespace skate {
     struct msgpack_ext {
         msgpack_ext() : type(0) {}
@@ -402,7 +403,7 @@ namespace skate {
             if (!msgpack(temp, options).read(is))
                 return false;
 
-            ref = utf_convert_weak<_>(temp);
+            ref = to_auto_utf_weak_convert<_>(temp);
 
             return true;
         }
@@ -849,7 +850,7 @@ namespace skate {
                                          !is_convertible_to_char<StringChar>::value &&
                                          is_string<_>::value, int>::type = 0>
         bool write(std::streambuf &os) const {
-            const auto s = utf_convert_weak<std::string>(ref);
+            const auto s = to_auto_utf_weak_convert<std::string>(ref);
             const size_t sz = s.get().size();
 
             if (sz <= 31) {
@@ -1181,7 +1182,7 @@ namespace skate {
         basic_msgpack_value(T v) : t(msgpack_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<is_string<T>::value, int>::type = 0>
         basic_msgpack_value(const T &v) : t(msgpack_type::string) {
-            d.p = new String(utf_convert_weak<String>(v).get());
+            d.p = new String(to_auto_utf_weak_convert<String>(v).get());
         }
         ~basic_msgpack_value() { clear(); }
 
@@ -1281,7 +1282,7 @@ namespace skate {
         }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? to_auto_utf_weak_convert<S>(unsafe_get_string()).get(): default_value; }
         binary get_binary(binary default_value = {}) const { return is_binary()? unsafe_get_binary(): default_value; }
         extension get_extension(extension default_value = {}) const { return is_extension()? unsafe_get_extension(): default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
@@ -1312,7 +1313,7 @@ namespace skate {
                 case msgpack_type::floating:   return unsafe_get_floating();
                 case msgpack_type::string:     {
                     FloatType v = 0.0;
-                    return impl::parse_float(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: NAN;
+                    return impl::parse_float(to_auto_utf_weak_convert<std::string>(unsafe_get_string()).get().c_str(), v)? v: NAN;
                 }
                 case msgpack_type::binary:     return NAN;
                 case msgpack_type::extension:  return NAN;
@@ -1329,7 +1330,7 @@ namespace skate {
                 case msgpack_type::floating:   return get_int64();
                 case msgpack_type::string:     {
                     int64_t v = 0;
-                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                    return impl::parse_int(to_auto_utf_weak_convert<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
                 }
                 case msgpack_type::binary:     return error_value;
                 case msgpack_type::extension:  return error_value;
@@ -1346,7 +1347,7 @@ namespace skate {
                 case msgpack_type::floating:   return get_int64();
                 case msgpack_type::string:     {
                     uint64_t v = 0;
-                    return impl::parse_int(utf_convert_weak<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
+                    return impl::parse_int(to_auto_utf_weak_convert<std::string>(unsafe_get_string()).get().c_str(), v)? v: error_value;
                 }
                 case msgpack_type::binary:     return error_value;
                 case msgpack_type::extension:  return error_value;
@@ -1375,18 +1376,18 @@ namespace skate {
         template<typename S = String>
         S as_string() const {
             switch (current_type()) {
-                default:                       return utf_convert_weak<S>("null").get();
-                case msgpack_type::boolean:    return utf_convert_weak<S>(unsafe_get_bool()? "true": "false").get();
-                case msgpack_type::int64:      return utf_convert_weak<S>(std::to_string(unsafe_get_int64())).get();
-                case msgpack_type::uint64:     return utf_convert_weak<S>(std::to_string(unsafe_get_uint64())).get();
-                case msgpack_type::floating:   return std::isnan(unsafe_get_floating())? utf_convert_weak<S>("NaN").get():
-                                                      std::isinf(unsafe_get_floating())? utf_convert_weak<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity").get():
-                                                                                         utf_convert_weak<S>(to_msgpack(unsafe_get_floating())).get();
-                case msgpack_type::string:     return utf_convert_weak<S>(unsafe_get_string()).get();
-                case msgpack_type::binary:     return utf_convert_weak<S>(unsafe_get_binary()).get();
-                case msgpack_type::extension:  return utf_convert_weak<S>(unsafe_get_extension().data).get();
-                case msgpack_type::array:      return tjoin<S>(unsafe_get_array(), utf_convert_weak<S>(",").get(), [](const basic_msgpack_value &v) { return v.as_string<S>(); });
-                case msgpack_type::object:     return utf_convert_weak<S>("[object Object]").get();
+                default:                       return to_auto_utf_weak_convert<S>("null").get();
+                case msgpack_type::boolean:    return to_auto_utf_weak_convert<S>(unsafe_get_bool()? "true": "false").get();
+                case msgpack_type::int64:      return to_auto_utf_weak_convert<S>(std::to_string(unsafe_get_int64())).get();
+                case msgpack_type::uint64:     return to_auto_utf_weak_convert<S>(std::to_string(unsafe_get_uint64())).get();
+                case msgpack_type::floating:   return std::isnan(unsafe_get_floating())? to_auto_utf_weak_convert<S>("NaN").get():
+                                                      std::isinf(unsafe_get_floating())? to_auto_utf_weak_convert<S>(std::signbit(unsafe_get_floating())? "-Infinity": "Infinity").get():
+                                                                                         to_auto_utf_weak_convert<S>(to_msgpack(unsafe_get_floating())).get();
+                case msgpack_type::string:     return to_auto_utf_weak_convert<S>(unsafe_get_string()).get();
+                case msgpack_type::binary:     return to_auto_utf_weak_convert<S>(unsafe_get_binary()).get();
+                case msgpack_type::extension:  return to_auto_utf_weak_convert<S>(unsafe_get_extension().data).get();
+                case msgpack_type::array:      return tjoin<S>(unsafe_get_array(), to_auto_utf_weak_convert<S>(",").get(), [](const basic_msgpack_value &v) { return v.as_string<S>(); });
+                case msgpack_type::object:     return to_auto_utf_weak_convert<S>("[object Object]").get();
             }
         }
         array as_array() const { return get_array(); }
@@ -1778,5 +1779,6 @@ namespace skate {
     }
 #endif
 }
+#endif
 
 #endif // SKATE_MSGPACK_H

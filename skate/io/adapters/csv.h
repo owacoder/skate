@@ -326,6 +326,7 @@ namespace skate {
     ///  OLD IMPLEMENTATION
     ///////////////////////////////////////////////////////////////////////
 
+#if 0
     // Follows conventions in https://datatracker.ietf.org/doc/html/rfc4180
     // with the following exceptions:
     //   - leading or trailing spaces on a quoted field are trimmed when reading
@@ -1315,6 +1316,8 @@ namespace skate {
 
         return buf.str();
     }
+
+#endif
 }
 
 #endif // SKATE_CSV_H

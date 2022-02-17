@@ -21,6 +21,7 @@
 
 #if __cplusplus >= 201703L
 # include <charconv>
+# include <optional>
 #endif
 
 #if __cplusplus >= 202002L
@@ -489,12 +490,12 @@ namespace skate {
             *out++ = '-';
 
             do {
-                *(--begin) = int_to_base36(-(v % base));
+                *(--begin) = int_to_base36(std::uint8_t(-static_cast<std::make_signed<T>::type>(v % base)));
                 v /= base;
             } while (v);
         } else {
             do {
-                *(--begin) = int_to_base36(v % base);
+                *(--begin) = int_to_base36(std::uint8_t(v % base));
                 v /= base;
             } while (v);
         }
@@ -514,7 +515,7 @@ namespace skate {
         constexpr T max(T a, T b) { return a < b? b: a; }
     }
 
-#if __cplusplus >= 201703L
+#if MSVC_COMPILER && __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     constexpr std::pair<const char *, result_type> fp_decode(const char *first, const char *last, T &v) {
         const auto result = std::from_chars(first, last, v);
@@ -597,7 +598,7 @@ namespace skate {
             }
         }
 
-#if __cplusplus >= 201703L
+#if MSVC_COMPILER && __cplusplus >= 201703L
         const auto result = std::from_chars(tempstr.data(), tempstr.data() + tempstr.size(), v);
 
         return { first, result.ec == std::errc() && result.ptr == tempstr.data() + tempstr.size() ? result_type::success : result_type::failure };

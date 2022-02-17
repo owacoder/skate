@@ -10,6 +10,7 @@
 #include "core.h"
 
 namespace skate {
+#if 0
     namespace impl {
         inline bool xml_is_name_start_char(unicode_codepoint ch) {
             return (ch >= 'A' && ch <= 'Z') ||
@@ -318,6 +319,7 @@ namespace skate {
 
         return os.str();
     }
+#endif
 }
 
 #endif // SKATE_XML_H

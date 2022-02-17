@@ -114,1100 +114,10 @@ namespace skate {
     };
 
     template<typename T, typename InputIterator>
-    std::pair<InputIterator, result_type> read_json(InputIterator, InputIterator, T &);
+    constexpr std::pair<InputIterator, result_type> read_json(InputIterator, InputIterator, T &);
 
     template<typename T, typename OutputIterator>
-    std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options & = {});
-
-    namespace detail {
-        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
-        template<typename InputIterator>
-        class json_read_tuple {
-            InputIterator &m_first;
-            InputIterator m_last;
-            result_type &m_result;
-            bool &m_has_read_something;
-
-        public:
-            constexpr json_read_tuple(InputIterator &first, InputIterator last, result_type &result, bool &has_read_something) noexcept
-                : m_first(first)
-                , m_last(last)
-                , m_result(result)
-                , m_has_read_something(has_read_something)
-            {}
-
-            template<typename Param>
-            void operator()(Param &p) {
-                if (m_result != result_type::success)
-                    return;
-
-                if (m_has_read_something) {
-                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
-                    if (m_result != result_type::success)
-                        return;
-                }
-
-                m_has_read_something = true;
-
-                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, p);
-            }
-        };
-
-        template<typename InputIterator>
-        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
-            return starts_with(skip_whitespace(first, last), last, "null");
-        }
-
-        template<typename InputIterator>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, bool &b) {
-            first = skip_whitespace(first, last);
-
-            if (first != last && *first == 't') {
-                b = true;
-                return starts_with(++first, last, "rue");
-            } else {
-                b = false;
-                return starts_with(first, last, "false");
-            }
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
-            return int_decode(skip_whitespace(first, last), last, i);
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
-            return fp_decode(skip_whitespace(first, last), last, f);
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &s) {
-            using OutputCharT = decltype(*begin(s));
-
-            result_type result = result_type::success;
-            unicode u;
-
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"');
-            if (result != result_type::success)
-                return { first, result };
-
-            skate::clear(s);
-            auto back_inserter = skate::make_back_inserter(s);
-
-            while (first != last && result == result_type::success) {
-                std::tie(first, u) = utf_auto_decode_next(first, last);
-                if (!u.is_valid() || u.is_utf16_surrogate())
-                    return { first, result_type::failure };
-
-                switch (u.value()) {
-                    case '"': return { ++first, result_type::success };
-                    case '\\': {
-                        std::tie(first, u) = utf_auto_decode_next(first, last);
-                        switch (u.value()) {
-                            default: return { first, result_type::failure };
-                            case '"':
-                            case '\\':
-                            case '/': break;
-                            case 'b': u = '\b'; break;
-                            case 'f': u = '\f'; break;
-                            case 'n': u = '\n'; break;
-                            case 'r': u = '\r'; break;
-                            case 't': u = '\t'; break;
-                            case 'u': {
-                                std::array<unicode, 4> hex;
-                                std::uint16_t hi = 0, lo = 0;
-
-                                // Parse 4 hex characters after '\u'
-                                for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
-                                    const auto nibble = hex_to_nibble(h.value());
-                                    if (nibble > 15)
-                                        return { first, result_type::failure };
-
-                                    hi = (hi << 4) | std::uint8_t(nibble);
-                                }
-
-                                if (!unicode(hi).is_utf16_surrogate()) {
-                                    u = hi;
-                                    break;
-                                }
-
-                                // If it's a surrogate, parse 4 hex characters after another '\u'
-                                std::tie(first, result) = starts_with(first, last, "\\u");
-                                if (result != result_type::success)
-                                    return { first, result };
-
-                                for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
-                                    const auto nibble = hex_to_nibble(h.value());
-                                    if (nibble > 15)
-                                        return { first, result_type::failure };
-
-                                    lo = (lo << 4) | std::uint8_t(nibble);
-                                }
-
-                                u = unicode(hi, lo);
-                                break;
-                            }
-                        }
-
-                        break;
-                    }
-                    default: break;
-                }
-
-                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter);
-            }
-
-            return { first, result_type::failure };
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
-            using ElementType = typename std::decay<decltype(*begin(a))>::type;
-
-            skate::clear(a);
-
-            result_type result = result_type::success;
-            auto back_inserter = skate::make_back_inserter(a);
-            bool has_element = false;
-
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
-            if (result != result_type::success)
-                return { first, result };
-
-            while (true) {
-                first = skip_whitespace(first, last);
-
-                if (first == last) {
-                    break;
-                } else if (*first == ']') {
-                    return { ++first, result_type::success };
-                } else if (has_element) {
-                    if (*first != ',')
-                        break;
-
-                    ++first;
-                } else {
-                    has_element = true;
-                }
-
-                ElementType element;
-
-                std::tie(first, result) = skate::read_json(first, last, element);
-                if (result != result_type::success)
-                    return { first, result };
-
-                *back_inserter++ = std::move(element);
-            }
-
-            return { first, result_type::failure };
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
-            result_type result = result_type::success;
-            bool has_read_something = false;
-
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
-            if (result != result_type::success)
-                return { first, result };
-
-            skate::apply(json_read_tuple(first, last, result, has_read_something), a);
-            if (result != result_type::success)
-                return { first, result};
-
-            return starts_with(skip_whitespace(first, last), last, ']');
-        }
-
-        template<typename T, typename InputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::type, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &o) {
-            using KeyType = typename std::decay<decltype(key_of(begin(o)))>::type;
-            using ValueType = typename std::decay<decltype(value_of(begin(o)))>::type;
-
-            clear(o);
-
-            result_type result = result_type::success;
-            bool has_element = false;
-
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{');
-            if (result != result_type::success)
-                return { first, result };
-
-            while (true) {
-                first = skip_whitespace(first, last);
-
-                if (first == last) {
-                    break;
-                } else if (*first == '}') {
-                    return { ++first, result_type::success };
-                } else if (has_element) {
-                    if (*first != ',')
-                        break;
-
-                    ++first;
-                } else {
-                    has_element = true;
-                }
-
-                KeyType key;
-                ValueType value;
-
-                std::tie(first, result) = skate::read_json(first, last, key);
-                if (result != result_type::success)
-                    return { first, result };
-
-                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':');
-                if (result != result_type::success)
-                    return { first, result };
-
-                std::tie(first, result) = skate::read_json(first, last, value);
-                if (result == result_type::success)
-                    return { first, result };
-
-                skate::insert(o, std::move(key), std::move(value));
-            }
-
-            return { first, result_type::failure };
-        }
-
-        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
-        template<typename OutputIterator>
-        class json_write_tuple {
-            OutputIterator &m_out;
-            result_type &m_result;
-            bool &m_has_written_something;
-            const json_write_options &m_options;
-
-        public:
-            constexpr json_write_tuple(OutputIterator &out, result_type &result, bool &has_written_something, const json_write_options &options) noexcept
-                : m_out(out)
-                , m_result(result)
-                , m_has_written_something(has_written_something)
-                , m_options(options)
-            {}
-
-            template<typename Param>
-            void operator()(const Param &p) {
-                if (m_result != result_type::success)
-                    return;
-
-                if (m_has_written_something)
-                    *m_out++ = ',';
-
-                m_has_written_something = true;
-
-                m_out = m_options.write_indent(m_out);
-
-                std::tie(m_out, m_result) = skate::write_json(p, m_out, m_options);
-            }
-        };
-
-        template<typename OutputIterator>
-        constexpr std::pair<OutputIterator, result_type> write_json(std::nullptr_t, OutputIterator out, const json_write_options & = {}) {
-            return { std::copy_n("null", 4, out), result_type::success };
-        }
-
-        template<typename OutputIterator>
-        constexpr std::pair<OutputIterator, result_type> write_json(bool b, OutputIterator out, const json_write_options & = {}) {
-            return { (b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out)), result_type::success };
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-            return skate::int_encode(v, out);
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
-            return skate::fp_encode(v, out, false, false);
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options & = {}) {
-            result_type result = result_type::success;
-
-            *out++ = '"';
-
-            {
-                auto it = json_escape_iterator(out);
-
-                std::tie(it, result) = utf_auto_decode(v, it);
-
-                out = it.underlying();
-            }
-
-            if (result == result_type::success)
-                *out++ = '"';
-
-            return { out, result };
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
-            const auto start = begin(v);
-            const auto end_iterator = end(v);
-            const auto nested_options = options.indented();
-
-            result_type result = result_type::success;
-
-            *out++ = '[';
-
-            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
-                if (it != start)
-                    *out++ = ',';
-
-                std::tie(out, result) = skate::write_json(*it, nested_options.write_indent(out), nested_options);
-            }
-
-            if (result == result_type::success) {
-                out = options.write_indent(out);
-
-                *out++ = ']';
-            }
-
-            return { out, result };
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
-            result_type result = result_type::success;
-            bool has_written_something = false;
-
-            *out++ = '[';
-
-            skate::apply(json_write_tuple(out, result, has_written_something, options.indented()), v);
-
-            if (result == result_type::success) {
-                out = options.write_indent(out);
-
-                *out++ = ']';
-            }
-
-            return { out, result };
-        }
-
-        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
-            const auto start = begin(v);
-            const auto end_iterator = end(v);
-            const auto nested_options = options.indented();
-
-            result_type result = result_type::success;
-
-            *out++ = '{';
-
-            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
-                if (it != start)
-                    *out++ = ',';
-
-                out = nested_options.write_indent(out);
-
-                std::tie(out, result) = skate::write_json(key_of(it), out);
-
-                if (result != result_type::success)
-                    return { out, result };
-
-                *out++ = ':';
-
-                if (options.indent)
-                    *out++ = ' ';
-
-                std::tie(out, result) = skate::write_json(value_of(it), out);
-            }
-
-            if (result == result_type::success) {
-                out = options.write_indent(out);
-
-                *out++ = '}';
-            }
-
-            return { out, result };
-        }
-    }
-
-    template<typename T, typename OutputIterator>
-    std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options) {
-        return detail::write_json(v, out, options);
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    ///  OLD IMPLEMENTATION
-    ///////////////////////////////////////////////////////////////////////
-
-    template<typename Type>
-    class json_reader;
-
-    template<typename Type>
-    class json_writer;
-
-    template<typename Type>
-    json_reader<Type> json(Type &);
-
-    namespace impl {
-        namespace json {
-            // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
-            template<typename StreamChar>
-            class read_tuple {
-                std::basic_streambuf<StreamChar> &is;
-                bool &error;
-                bool &has_read_something;
-
-            public:
-                constexpr read_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_read_something) noexcept
-                    : is(stream)
-                    , error(error)
-                    , has_read_something(has_read_something)
-                {}
-
-                template<typename Param>
-                void operator()(Param &p) {
-                    if (error || (has_read_something && (!skate::impl::skipws(is) || is.sbumpc() != ','))) {
-                        error = true;
-                        return;
-                    }
-
-                    has_read_something = true;
-                    error = !skate::json(p).read(is);
-                }
-            };
-        }
-    }
-
-    template<typename Type>
-    class json_reader {
-        Type &ref;
-
-        template<typename> friend class json_writer;
-
-    public:
-        constexpr json_reader(Type &ref) : ref(ref) {}
-
-        // User object overload, skate_to_json(stream, object)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(std::declval<std::basic_streambuf<StreamChar> &>(), std::declval<_ &>()))>::value &&
-                                                                                 !is_string<_>::value &&
-                                                                                 !is_array<_>::value &&
-                                                                                 !is_map<_>::value &&
-                                                                                 !is_tuple<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            // Library user is responsible for validating read JSON in the callback function
-            return skate_json(is, ref);
-        }
-
-        // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value &&
-                                                                                 !is_tuple<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(*begin(std::declval<_>()))>::type Element;
-
-            clear(ref);
-
-            // Read start char
-            if (!impl::skipws(is) || is.sbumpc() != '[')
-                return false;
-
-            if (!impl::skipws(is))
-                return false;
-            else if (is.sgetc() == ']') { // Empty array?
-                return is.sbumpc() != std::char_traits<StreamChar>::eof();
-            }
-
-            do {
-                Element element;
-
-                if (!json(element).read(is))
-                    return false;
-
-                push_back(ref, std::move(element));
-
-                if (!impl::skipws(is))
-                    return false;
-                else if (is.sgetc() == ']')
-                    return is.sbumpc() == ']';
-            } while (is.sbumpc() == ',');
-
-            // Invalid if here, as function should have returned inside loop with valid array
-            return false;
-        }
-
-        // Tuple/pair overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
-                                                                                 !is_array<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) {
-            bool error = false;
-            bool has_read_something = false;
-
-            if (!impl::skipws(is) || is.sbumpc() != '[')
-                return false;
-
-            skate::apply(impl::json::read_tuple<StreamChar>(is, error, has_read_something), ref);
-
-            return !error && impl::skipws(is) && is.sbumpc() == ']';
-        }
-
-        // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && is_string<decltype(key_of(begin(std::declval<_>())))>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) {
-            typedef typename std::decay<decltype(key_of(begin(ref)))>::type Key;
-            typedef typename std::decay<decltype(value_of(begin(ref)))>::type Value;
-
-            clear(ref);
-
-            // Read start char
-            if (!impl::skipws(is) || is.sbumpc() != '{')
-                return false;
-
-            if (!impl::skipws(is))
-                return false;
-            else if (is.sgetc() == '}') { // Empty object?
-                return is.sbumpc() != std::char_traits<StreamChar>::eof();
-            }
-
-            do {
-                Key key;
-                Value value;
-
-                // Guarantee a string as key to be parsed
-                if (!impl::skipws(is) || is.sgetc() != '"')
-                    return false;
-
-                if (!json(key).read(is))
-                    return false;
-
-                if (!impl::skipws(is) || is.sbumpc() != ':')
-                    return false;
-
-                if (!json(value).read(is))
-                    return false;
-
-                ref[std::move(key)] = std::move(value);
-
-                if (!impl::skipws(is))
-                    return false;
-                else if (is.sgetc() == '}')
-                    return is.sbumpc() == '}';
-            } while (is.sbumpc() == ',');
-
-            // Invalid if here, as function should have returned inside loop with valid map
-            return false;
-        }
-
-        // String overload
-        template<typename StreamChar,
-                 typename _ = Type,
-                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<is_string<_>::value &&
-                                         type_exists<decltype(
-                                                     // Only if put_unicode is available
-                                                     std::declval<put_unicode<StringChar>>()(std::declval<_ &>(), std::declval<unicode_codepoint>())
-                                                     )>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) {
-            unicode_codepoint codepoint;
-
-            clear(ref);
-
-            // Read start char
-            if (!impl::skipws(is) || is.sbumpc() != '"')
-                return false;
-
-            while (get_unicode<StreamChar>{}(is, codepoint)) {
-                // End of string?
-                if (codepoint == '"') {
-                    return true;
-                }
-                // Escaped character sequence?
-                else if (codepoint == '\\') {
-                    const auto c = is.sbumpc();
-
-                    switch (c) {
-                        case std::char_traits<StreamChar>::eof(): return false;
-                        case '"':
-                        case '\\':
-                        case '/': codepoint = c; break;
-                        case 'b': codepoint = '\b'; break;
-                        case 'f': codepoint = '\f'; break;
-                        case 'n': codepoint = '\n'; break;
-                        case 'r': codepoint = '\r'; break;
-                        case 't': codepoint = '\t'; break;
-                        case 'u': {
-                            StreamChar digits[4] = { 0 };
-                            unsigned int hi = 0;
-
-                            if (is.sgetn(digits, 4) != 4)
-                                return false;
-
-                            for (size_t i = 0; i < 4; ++i) {
-                                const int digit = toxdigit(digits[i]);
-                                if (digit < 0)
-                                    return false;
-
-                                hi = (hi << 4) | digit;
-                            }
-
-                            if (utf16surrogate(hi)) {
-                                unsigned int lo = 0;
-
-                                if ((is.sbumpc() != '\\') ||
-                                    (is.sbumpc() != 'u') ||
-                                    is.sgetn(digits, 4) != 4)
-                                    return false;
-
-                                for (size_t i = 0; i < 4; ++i) {
-                                    const int digit = toxdigit(digits[i]);
-                                    if (digit < 0)
-                                        return false;
-
-                                    lo = (lo << 4) | digit;
-                                }
-
-                                codepoint = utf16codepoint(hi, lo);
-                            } else
-                                codepoint = hi;
-
-                            break;
-                        }
-                        default: return false;
-                    }
-                }
-
-                if (!put_unicode<StringChar>{}(ref, codepoint))
-                    return false;
-            }
-
-            return false;
-        }
-
-        // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            if (!impl::skipws(is))
-                return false;
-
-            return is.sbumpc() == 'n' &&
-                    is.sbumpc() == 'u' &&
-                    is.sbumpc() == 'l' &&
-                    is.sbumpc() == 'l';
-        }
-
-        // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            ref = false;
-            if (!impl::skipws(is))
-                return false;
-
-            switch (is.sbumpc()) {
-                case 't':
-                    if (is.sbumpc() == 'r' &&
-                        is.sbumpc() == 'u' &&
-                        is.sbumpc() == 'e') {
-                        return ref = true;
-                    }
-                    return false;
-                case 'f':
-                    return is.sbumpc() == 'a' &&
-                            is.sbumpc() == 'l' &&
-                            is.sbumpc() == 's' &&
-                            is.sbumpc() == 'e';
-                    break;
-                default: return false;
-            }
-        }
-
-        // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            ref = 0;
-            if (!impl::skipws(is))
-                return false;
-
-            return impl::read_int(is, ref);
-        }
-
-        // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            ref = 0;
-            if (!impl::skipws(is))
-                return false;
-
-            return impl::read_float(is, ref, false, false);
-        }
-
-        // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_shared_ptr<_>::value ||
-                                                                                 is_unique_ptr<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            ref.reset();
-            if (!impl::skipws(is))
-                return false;
-
-            if (is.sgetc() == 'n') {
-                return is.sbumpc() == 'n' &&
-                        is.sbumpc() == 'u' &&
-                        is.sbumpc() == 'l' &&
-                        is.sbumpc() == 'l';
-            } else {
-                ref.reset(new Type{});
-
-                return json(*ref).read(is);
-            }
-        }
-
-#if __cplusplus >= 201703L
-        // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
-        bool read(std::basic_streambuf<StreamChar> &is) const {
-            ref.reset();
-            if (!impl::skipws(is))
-                return false;
-
-            if (is.sgetc() == 'n') {
-                return is.sbumpc() == 'n' &&
-                        is.sbumpc() == 'u' &&
-                        is.sbumpc() == 'l' &&
-                        is.sbumpc() == 'l';
-            } else {
-                ref = Type{};
-
-                return json(*ref).read(is);
-            }
-        }
-#endif
-    };
-
-    template<typename Type>
-    json_writer<Type> json(const Type &, json_write_options options = {});
-
-    namespace impl {
-        namespace json {
-            // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
-            template<typename StreamChar>
-            class write_tuple {
-                std::basic_streambuf<StreamChar> &os;
-                bool &error;
-                bool &has_written_something;
-                const json_write_options &options;
-
-            public:
-                constexpr write_tuple(std::basic_streambuf<StreamChar> &stream, bool &error, bool &has_written_something, const json_write_options &options) noexcept
-                    : os(stream)
-                    , error(error)
-                    , has_written_something(has_written_something)
-                    , options(options)
-                {}
-
-                template<typename Param>
-                void operator()(const Param &p) {
-                    if (error || (has_written_something && os.sputc(',') == std::char_traits<StreamChar>::eof())) {
-                        error = true;
-                        return;
-                    }
-
-                    has_written_something = true;
-                    error = !skate::json(p, options).write(os);
-                }
-            };
-        }
-    }
-
-    template<typename Type>
-    class json_writer {
-        const Type &ref;
-        const json_write_options options;
-
-        template<typename StreamChar>
-        bool do_indent(std::basic_streambuf<StreamChar> &os, size_t sz) const {
-            if (os.sputc('\n') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            for (size_t i = 0; i < sz; ++i)
-                if (os.sputc(' ') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-            return true;
-        }
-
-    public:
-        constexpr json_writer(const json_reader<Type> &reader, json_write_options options = {})
-            : ref(reader.ref)
-            , options(options)
-        {}
-        constexpr json_writer(const Type &ref, json_write_options options = {})
-            : ref(ref)
-            , options(options)
-        {}
-
-        // User object overload, skate_json(stream, object, options)
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<type_exists<decltype(skate_json(static_cast<std::basic_streambuf<StreamChar> &>(std::declval<std::basic_streambuf<StreamChar> &>()), std::declval<const _ &>(), std::declval<json_write_options>()))>::value &&
-                                                                                 !is_string<_>::value &&
-                                                                                 !is_array<_>::value &&
-                                                                                 !is_map<_>::value &&
-                                                                                 !is_tuple<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            // Library user is responsible for creating valid JSON in the callback function
-            return skate_json(os, ref, options);
-        }
-
-        // Array overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_array<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            size_t index = 0;
-
-            if (os.sputc('[') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && os.sputc(',') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-                if (options.indent && !do_indent(os, options.current_indentation + options.indent))
-                    return false;
-
-                if (!json(*el, options.indented()).write(os))
-                    return false;
-
-                ++index;
-            }
-
-            if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if array is non-empty
-                return false;
-
-            return os.sputc(']') != std::char_traits<StreamChar>::eof();
-        }
-
-        // Tuple/pair overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_tuple<_>::value &&
-                                                                                 !is_array<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            bool error = false;
-            bool has_written_something = false;
-
-            if (os.sputc('[') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            skate::apply(impl::json::write_tuple<StreamChar>(os, error, has_written_something, options), ref);
-
-            return !error && os.sputc(']') != std::char_traits<StreamChar>::eof();
-        }
-
-        // Map overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_map<_>::value && is_string<decltype(key_of(begin(std::declval<_>())))>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            size_t index = 0;
-
-            if (os.sputc('{') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            for (auto el = begin(ref); el != end(ref); ++el) {
-                if (index && os.sputc(',') == std::char_traits<StreamChar>::eof())
-                    return false;
-
-                if (options.indent && !do_indent(os, options.current_indentation + options.indent))
-                    return false;
-
-                if (!json(key_of(el), options.indented()).write(os))
-                    return false;
-
-                if (os.sputc(':') == std::char_traits<StreamChar>::eof() ||
-                    (options.indent && os.sputc(' ') == std::char_traits<StreamChar>::eof()))
-                    return false;
-
-                if (!json(value_of(el), options.indented()).write(os))
-                    return false;
-
-                ++index;
-            }
-
-            if (options.indent && index && !do_indent(os, options.current_indentation)) // Only indent if object is non-empty
-                return false;
-
-            return os.sputc('}') != std::char_traits<StreamChar>::eof();
-        }
-
-        // String overload
-        template<typename StreamChar,
-                 typename _ = Type,
-                 typename StringChar = typename std::decay<decltype(*begin(std::declval<_>()))>::type,
-                 typename std::enable_if<type_exists<decltype(unicode_codepoint(std::declval<StringChar>()))>::value &&
-                                         is_string<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (os.sputc('"') == std::char_traits<StreamChar>::eof())
-                return false;
-
-            const auto end_iterator = end(ref);
-            for (auto it = begin(ref); it != end_iterator; ) {
-                // Read Unicode in from string
-                const unicode_codepoint codepoint = get_unicode<StringChar>{}(it, end_iterator);
-
-                switch (codepoint.value()) {
-                    case '"':  if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('"') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\\': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('\\') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\b': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('b') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\f': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('f') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\n': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('n') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\r': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('r') == std::char_traits<StreamChar>::eof()) return false; break;
-                    case '\t': if (os.sputc('\\') == std::char_traits<StreamChar>::eof() || os.sputc('t') == std::char_traits<StreamChar>::eof()) return false; break;
-                    default: {
-                        // Is character a control character? If so, write it out as a Unicode constant
-                        // All other ASCII characters just get passed through
-                        if (codepoint >= 32 && codepoint < 0x80) {
-                            if (os.sputc(StreamChar(codepoint.value())) == std::char_traits<StreamChar>::eof())
-                                return false;
-                        } else {
-                            // Then add as a \u codepoint (or two, if surrogates are needed)
-                            unsigned int hi, lo;
-
-                            switch (utf16surrogates(codepoint.value(), &hi, &lo)) {
-                                case 2:
-                                    if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >> 12)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >>  8)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi >>  4)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(hi      )) == std::char_traits<StreamChar>::eof())
-                                        return false;
-                                    // fallthrough
-                                case 1:
-                                    if (os.sputc('\\') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc('u') == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >> 12)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >>  8)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo >>  4)) == std::char_traits<StreamChar>::eof() ||
-                                        os.sputc(toxchar(lo      )) == std::char_traits<StreamChar>::eof())
-                                        return false;
-                                    break;
-                                default:
-                                    return false;
-                            }
-                        }
-
-                        break;
-                    }
-                }
-            }
-
-            return os.sputc('"') != std::char_traits<StreamChar>::eof();
-        }
-
-        // Null overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, std::nullptr_t>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            const StreamChar array[] = {'n', 'u', 'l', 'l'};
-            return os.sputn(array, 4) == 4;
-        }
-
-        // Boolean overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_same<_, bool>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (ref) {
-                const StreamChar true_array[] = {'t', 'r', 'u', 'e'};
-                return os.sputn(true_array, 4) == 4;
-            } else {
-                const StreamChar false_array[] = {'f', 'a', 'l', 's', 'e'};
-                return os.sputn(false_array, 5) == 5;
-            }
-        }
-
-        // Integer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<!std::is_same<_, bool>::value && std::is_integral<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            return impl::write_int(os, ref);
-        }
-
-        // Floating point overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<std::is_floating_point<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            // JSON doesn't support infinities or NAN
-            return impl::write_float(os, ref, false, false);
-        }
-
-        // Smart pointer overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<(is_shared_ptr<_>::value ||
-                                                                                 is_weak_ptr<_>::value ||
-                                                                                 is_unique_ptr<_>::value ||
-                                                                                 std::is_pointer<_>::value) && !is_string<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (!ref) {
-                const StreamChar array[] = {'n', 'u', 'l', 'l'};
-                return os.sputn(array, 4) == 4;
-            } else {
-                return json(*ref, options).write(os);
-            }
-        }
-
-#if __cplusplus >= 201703L
-        // std::optional overload
-        template<typename StreamChar, typename _ = Type, typename std::enable_if<is_optional<_>::value, int>::type = 0>
-        bool write(std::basic_streambuf<StreamChar> &os) const {
-            if (!ref) {
-                const StreamChar array[] = {'n', 'u', 'l', 'l'};
-                return os.sputn(array, 4) == 4;
-            } else {
-                return json(*ref, options).write(os);
-            }
-        }
-#endif
-    };
-
-    template<typename Type>
-    json_reader<Type> json(Type &value) { return json_reader<Type>(value); }
-
-    template<typename Type>
-    json_writer<Type> json(const Type &value, json_write_options options) { return json_writer<Type>(value, options); }
-
-    template<typename StreamChar, typename Type>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, json_reader<Type> value) {
-        if (!is.rdbuf() || !value.read(*is.rdbuf()))
-            is.setstate(std::ios_base::failbit);
-        return is;
-    }
-
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_reader<Type> value) {
-        return os << json_writer<Type>(value);
-    }
-    template<typename StreamChar, typename Type>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, json_writer<Type> value) {
-        if (!os.rdbuf() || !value.write(*os.rdbuf()))
-            os.setstate(std::ios_base::failbit);
-        return os;
-    }
-
-    template<typename Type>
-    Type from_json(const std::string &s, bool *error = nullptr) {
-        Type value;
-
-        struct one_pass_readbuf : public std::streambuf {
-            one_pass_readbuf(const char *buf, size_t size) {
-                setg(const_cast<char *>(buf),
-                     const_cast<char *>(buf),
-                     const_cast<char *>(buf + size));
-            }
-        } buf{s.c_str(), s.size()};
-
-        if (!json(value).read(buf)) {
-            if (error)
-                *error = true;
-
-            return {};
-        }
-
-        if (error)
-            *error = false;
-
-        return value;
-    }
-
-    template<typename Type>
-    std::string to_json(const Type &value, json_write_options options = {}) {
-        std::stringbuf buf;
-        if (!json(value, options).write(buf))
-            return {};
-
-        return buf.str();
-    }
+    constexpr std::pair<OutputIterator, result_type> write_json(const T &, OutputIterator, const json_write_options & = {});
 
     // JSON classes that allow serialization and deserialization
     template<typename String>
@@ -1238,7 +148,7 @@ namespace skate {
         basic_json_value(std::nullptr_t) : t(json_type::null) { d.p = nullptr; }
         basic_json_value(const basic_json_value &other) : t(other.t) {
             switch (other.t) {
-                default: break;
+                case json_type::null:       // fallthrough
                 case json_type::boolean:    // fallthrough
                 case json_type::floating:   // fallthrough
                 case json_type::int64:      // fallthrough
@@ -1286,7 +196,7 @@ namespace skate {
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
-            d.p = new String(utf_convert_weak<String>(v).get());
+            d.p = new String(to_auto_utf_weak_convert<String>(v).first);
         }
         ~basic_json_value() { clear(); }
 
@@ -1401,7 +311,7 @@ namespace skate {
         }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? utf_convert_weak<S>(unsafe_get_string()).get(): default_value; }
+        S get_string(S default_value = {}) const { return is_string()? to_auto_utf_weak_convert<S>(unsafe_get_string()).first: default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
@@ -1434,7 +344,7 @@ namespace skate {
         // Object helpers
         void erase(const String &key) { object_ref().erase(key); }
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
-        void erase(const S &key) { object_ref().erase(utf_convert_weak<String>(key).get()); }
+        void erase(const S &key) { object_ref().erase(to_auto_utf_weak_convert<String>(key).first); }
 
         basic_json_value value(const String &key, basic_json_value default_value = {}) const {
             if (!is_object())
@@ -1444,7 +354,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         basic_json_value value(const S &key, basic_json_value default_value = {}) const {
-            return value(utf_convert_weak<String>(key).get(), default_value);
+            return value(to_auto_utf_weak_convert<String>(key).first, default_value);
         }
 
         const basic_json_value &operator[](const String &key) const {
@@ -1458,11 +368,11 @@ namespace skate {
         basic_json_value &operator[](String &&key) { return object_ref()[std::move(key)]; }
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         const basic_json_value &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key).get()];
+            return (*this)[to_auto_utf_weak_convert<String>(key).first];
         }
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         basic_json_value &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key).get()];
+            return (*this)[to_auto_utf_weak_convert<String>(key).first];
         }
         // ---------------------------------------------------
 
@@ -1625,7 +535,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
-            return value(utf_convert_weak<String>(key).get(), default_value);
+            return value(to_auto_utf_weak_convert<String>(key).first, default_value);
         }
 
         const basic_json_value<String> &operator[](const String &key) const {
@@ -1652,11 +562,11 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         const basic_json_value<String> &operator[](const S &key) const {
-            return (*this)[utf_convert_weak<String>(key).get()];
+            return (*this)[to_auto_utf_weak_convert<String>(key).first];
         }
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> &operator[](const S &key) {
-            return (*this)[utf_convert_weak<String>(key).get()];
+            return (*this)[to_auto_utf_weak_convert<String>(key).first];
         }
 
         void clear() noexcept { v.clear(); }
@@ -1666,6 +576,11 @@ namespace skate {
         bool operator!=(const basic_json_object &other) const { return !(*this == other); }
     };
 
+    template<typename String, typename K, typename V>
+    void insert(basic_json_object<String> &obj, K &&key, V &&value) {
+        obj.insert(std::forward<K>(key), std::forward<V>(value));
+    }
+
     typedef basic_json_array<std::string> json_array;
     typedef basic_json_object<std::string> json_object;
     typedef basic_json_value<std::string> json_value;
@@ -1674,77 +589,569 @@ namespace skate {
     typedef basic_json_object<std::wstring> json_wobject;
     typedef basic_json_value<std::wstring> json_wvalue;
 
-    template<typename StreamChar, typename String>
-    bool skate_json(std::basic_streambuf<StreamChar> &is, basic_json_value<String> &j) {
-        if (!impl::skipws(is))
-            return false;
+    namespace detail {
+        template<typename InputIterator, typename String>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, basic_json_value<String> &j) {
+            first = skip_whitespace(first, last);
 
-        auto c = is.sgetc();
+            // TODO: shouldn't be switch for generic-ness?
+            switch (*first) {
+                default: return { first, result_type::failure };
+                case '"': return skate::read_json(first, last, j.string_ref());
+                case '[': return skate::read_json(first, last, j.array_ref());
+                case '{': return skate::read_json(first, last, j.object_ref());
+                case 't': // fallthrough
+                case 'f': return skate::read_json(first, last, j.bool_ref());
+                case 'n': return skate::read_json(first, last, j.null_ref());
+                case '0': // fallthrough
+                case '1': // fallthrough
+                case '2': // fallthrough
+                case '3': // fallthrough
+                case '4': // fallthrough
+                case '5': // fallthrough
+                case '6': // fallthrough
+                case '7': // fallthrough
+                case '8': // fallthrough
+                case '9': // fallthrough
+                case '-': {
+                    std::string temp;
+                    const bool negative = *first == '-';
+                    bool floating = false;
 
-        switch (c) {
-            case std::char_traits<StreamChar>::eof(): return false;
-            case '"': return json(j.string_ref()).read(is);
-            case '[': return json(j.array_ref()).read(is);
-            case '{': return json(j.object_ref()).read(is);
-            case 't': // fallthrough
-            case 'f': return json(j.bool_ref()).read(is);
-            case 'n': return json(j.null_ref()).read(is);
-            case '0': // fallthrough
-            case '1': // fallthrough
-            case '2': // fallthrough
-            case '3': // fallthrough
-            case '4': // fallthrough
-            case '5': // fallthrough
-            case '6': // fallthrough
-            case '7': // fallthrough
-            case '8': // fallthrough
-            case '9': // fallthrough
-            case '-': {
-                std::string temp;
-                const bool negative = c == '-';
-                bool floating = false;
+                    do {
+                        temp.push_back(char(*first));
+                        floating |= *first == '.' || *first == 'e' || *first == 'E';
 
-                do {
-                    temp.push_back(char(c));
-                    floating |= c == '.' || c == 'e' || c == 'E';
+                        ++first;
+                    } while (first != last && isfpdigit(*first));
 
-                    c = is.snextc();
-                } while (isfpdigit(c));
+                    const char *tfirst = temp.c_str();
+                    const char *tlast = temp.c_str() + temp.size();
 
-                char *end;
-                if (floating) {
-                    j.number_ref() = strtod(temp.c_str(), &end);
-                } else if (negative) {
-                    errno = 0;
-                    j.int64_ref() = strtoll(temp.c_str(), &end, 10);
-                    if (errno == ERANGE || *end != 0)
-                        j.number_ref() = strtod(temp.c_str(), &end);
-                } else {
-                    errno = 0;
-                    j.uint64_ref() = strtoull(temp.c_str(), &end, 10);
-                    if (errno == ERANGE || *end != 0)
-                        j.number_ref() = strtod(temp.c_str(), &end);
+                    std::pair<const char *, result_type> result;
+
+                    if (floating) {
+                        result = fp_decode(tfirst, tlast, j.number_ref());
+                    } else if (negative) {
+                        result = int_decode(tfirst, tlast, j.int64_ref());
+
+                        if (result.first != tlast || result.second != result_type::success) {
+                            result = fp_decode(tfirst, tlast, j.number_ref());
+                        }
+                    } else {
+                        result = int_decode(tfirst, tlast, j.uint64_ref());
+
+                        if (result.first != tlast || result.second != result_type::success) {
+                            result = fp_decode(tfirst, tlast, j.number_ref());
+                        }
+                    }
+
+                    return { first, result.first == tlast ? result.second : result_type::failure };
                 }
-
-                return *end == 0;
             }
-            default: return false;
+        }
+
+        template<typename String, typename OutputIterator>
+        std::pair<OutputIterator, result_type> write_json(const basic_json_value<String> &j, OutputIterator out, const json_write_options &options = {}) {
+            switch (j.current_type()) {
+                default:                      return skate::write_json(nullptr, out, options);
+                case json_type::null:         return skate::write_json(j.unsafe_get_null(), out, options);
+                case json_type::boolean:      return skate::write_json(j.unsafe_get_bool(), out, options);
+                case json_type::floating:     return skate::write_json(j.unsafe_get_floating(), out, options);
+                case json_type::int64:        return skate::write_json(j.unsafe_get_int64(), out, options);
+                case json_type::uint64:       return skate::write_json(j.unsafe_get_uint64(), out, options);
+                case json_type::string:       return skate::write_json(j.unsafe_get_string(), out, options);
+                case json_type::array:        return skate::write_json(j.unsafe_get_array(), out, options);
+                case json_type::object:       return skate::write_json(j.unsafe_get_object(), out, options);
+            }
         }
     }
 
-    template<typename StreamChar, typename String>
-    bool skate_json(std::basic_streambuf<StreamChar> &os, const basic_json_value<String> &j, json_write_options options) {
-        switch (j.current_type()) {
-            default:                      return json(nullptr, options).write(os);
-            case json_type::null:         return json(j.unsafe_get_null(), options).write(os);
-            case json_type::boolean:      return json(j.unsafe_get_bool(), options).write(os);
-            case json_type::floating:     return json(j.unsafe_get_floating(), options).write(os);
-            case json_type::int64:        return json(j.unsafe_get_int64(), options).write(os);
-            case json_type::uint64:       return json(j.unsafe_get_uint64(), options).write(os);
-            case json_type::string:       return json(j.unsafe_get_string(), options).write(os);
-            case json_type::array:        return json(j.unsafe_get_array(), options).write(os);
-            case json_type::object:       return json(j.unsafe_get_object(), options).write(os);
+    namespace detail {
+        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+        template<typename InputIterator>
+        class json_read_tuple {
+            InputIterator &m_first;
+            InputIterator m_last;
+            result_type &m_result;
+            bool &m_has_read_something;
+
+        public:
+            constexpr json_read_tuple(InputIterator &first, InputIterator last, result_type &result, bool &has_read_something) noexcept
+                : m_first(first)
+                , m_last(last)
+                , m_result(result)
+                , m_has_read_something(has_read_something)
+            {}
+
+            template<typename Param>
+            void operator()(Param &p) {
+                if (m_result != result_type::success)
+                    return;
+
+                if (m_has_read_something) {
+                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
+                    if (m_result != result_type::success)
+                        return;
+                }
+
+                m_has_read_something = true;
+
+                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, p);
+            }
+        };
+
+        template<typename InputIterator>
+        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
+            return starts_with(skip_whitespace(first, last), last, "null");
         }
+
+        template<typename InputIterator>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, bool &b) {
+            first = skip_whitespace(first, last);
+
+            if (first != last && *first == 't') {
+                b = true;
+                return starts_with(++first, last, "rue");
+            } else {
+                b = false;
+                return starts_with(first, last, "false");
+            }
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
+            return int_decode(skip_whitespace(first, last), last, i);
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
+            return fp_decode(skip_whitespace(first, last), last, f);
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &s) {
+            using OutputCharT = decltype(*begin(s));
+
+            result_type result = result_type::success;
+            unicode u;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"');
+            if (result != result_type::success)
+                return { first, result };
+
+            skate::clear(s);
+            auto back_inserter = skate::make_back_inserter(s);
+
+            while (first != last && result == result_type::success) {
+                std::tie(first, u) = utf_auto_decode_next(first, last);
+                if (!u.is_valid() || u.is_utf16_surrogate())
+                    return { first, result_type::failure };
+
+                switch (u.value()) {
+                    case '"': return { first, result_type::success };
+                    case '\\': {
+                        std::tie(first, u) = utf_auto_decode_next(first, last);
+                        switch (u.value()) {
+                            default: return { first, result_type::failure };
+                            case '"':
+                            case '\\':
+                            case '/': break;
+                            case 'b': u = '\b'; break;
+                            case 'f': u = '\f'; break;
+                            case 'n': u = '\n'; break;
+                            case 'r': u = '\r'; break;
+                            case 't': u = '\t'; break;
+                            case 'u': {
+                                std::array<unicode, 4> hex;
+                                std::uint16_t hi = 0, lo = 0;
+
+                                // Parse 4 hex characters after '\u'
+                                for (auto &h : hex) {
+                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    const auto nibble = hex_to_nibble(h.value());
+                                    if (nibble > 15)
+                                        return { first, result_type::failure };
+
+                                    hi = (hi << 4) | std::uint8_t(nibble);
+                                }
+
+                                if (!unicode(hi).is_utf16_surrogate()) {
+                                    u = hi;
+                                    break;
+                                }
+
+                                // If it's a surrogate, parse 4 hex characters after another '\u'
+                                std::tie(first, result) = starts_with(first, last, "\\u");
+                                if (result != result_type::success)
+                                    return { first, result };
+
+                                for (auto &h : hex) {
+                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    const auto nibble = hex_to_nibble(h.value());
+                                    if (nibble > 15)
+                                        return { first, result_type::failure };
+
+                                    lo = (lo << 4) | std::uint8_t(nibble);
+                                }
+
+                                u = unicode(hi, lo);
+                                break;
+                            }
+                        }
+
+                        break;
+                    }
+                    default: break;
+                }
+
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter);
+            }
+
+            return { first, result_type::failure };
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
+            using ElementType = typename std::decay<decltype(*begin(a))>::type;
+
+            skate::clear(a);
+
+            result_type result = result_type::success;
+            auto back_inserter = skate::make_back_inserter(a);
+            bool has_element = false;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            if (result != result_type::success)
+                return { first, result };
+
+            while (true) {
+                first = skip_whitespace(first, last);
+
+                if (first == last) {
+                    break;
+                } else if (*first == ']') {
+                    return { ++first, result_type::success };
+                } else if (has_element) {
+                    if (*first != ',')
+                        break;
+
+                    ++first;
+                } else {
+                    has_element = true;
+                }
+
+                ElementType element;
+
+                std::tie(first, result) = skate::read_json(first, last, element);
+                if (result != result_type::success)
+                    return { first, result };
+
+                *back_inserter++ = std::move(element);
+            }
+
+            return { first, result_type::failure };
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
+            result_type result = result_type::success;
+            bool has_read_something = false;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            if (result != result_type::success)
+                return { first, result };
+
+            skate::apply(json_read_tuple(first, last, result, has_read_something), a);
+            if (result != result_type::success)
+                return { first, result};
+
+            return starts_with(skip_whitespace(first, last), last, ']');
+        }
+
+        template<typename T, typename InputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
+        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &o) {
+            using KeyType = typename std::decay<decltype(skate::key_of(begin(o)))>::type;
+            using ValueType = typename std::decay<decltype(skate::value_of(begin(o)))>::type;
+
+            skate::clear(o);
+
+            result_type result = result_type::success;
+            bool has_element = false;
+
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{');
+            if (result != result_type::success)
+                return { first, result };
+
+            while (true) {
+                first = skip_whitespace(first, last);
+
+                if (first == last) {
+                    break;
+                } else if (*first == '}') {
+                    return { ++first, result_type::success };
+                } else if (has_element) {
+                    if (*first != ',')
+                        break;
+
+                    ++first;
+                } else {
+                    has_element = true;
+                }
+
+                KeyType key;
+                ValueType value;
+
+                std::tie(first, result) = skate::read_json(first, last, key);
+                if (result != result_type::success)
+                    return { first, result };
+
+                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':');
+                if (result != result_type::success)
+                    return { first, result };
+
+                std::tie(first, result) = skate::read_json(first, last, value);
+                if (result != result_type::success)
+                    return { first, result };
+
+                skate::insert(o, std::move(key), std::move(value));
+            }
+
+            return { first, result_type::failure };
+        }
+
+        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+        template<typename OutputIterator>
+        class json_write_tuple {
+            OutputIterator &m_out;
+            result_type &m_result;
+            bool &m_has_written_something;
+            const json_write_options &m_options;
+
+        public:
+            constexpr json_write_tuple(OutputIterator &out, result_type &result, bool &has_written_something, const json_write_options &options) noexcept
+                : m_out(out)
+                , m_result(result)
+                , m_has_written_something(has_written_something)
+                , m_options(options)
+            {}
+
+            template<typename Param>
+            void operator()(const Param &p) {
+                if (m_result != result_type::success)
+                    return;
+
+                if (m_has_written_something)
+                    *m_out++ = ',';
+                else
+                    m_has_written_something = true;
+
+                m_out = m_options.write_indent(m_out);
+
+                std::tie(m_out, m_result) = skate::write_json(p, m_out, m_options);
+            }
+        };
+
+        template<typename OutputIterator>
+        constexpr std::pair<OutputIterator, result_type> write_json(std::nullptr_t, OutputIterator out, const json_write_options & = {}) {
+            return { std::copy_n("null", 4, out), result_type::success };
+        }
+
+        template<typename OutputIterator>
+        constexpr std::pair<OutputIterator, result_type> write_json(bool b, OutputIterator out, const json_write_options & = {}) {
+            return { (b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out)), result_type::success };
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value && !std::is_same<typename std::decay<T>::type, bool>::value, int>::type = 0>
+        constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
+            return skate::int_encode(v, out);
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+        constexpr std::pair<OutputIterator, result_type> write_json(T v, OutputIterator out, const json_write_options & = {}) {
+            return skate::fp_encode(v, out, false, false);
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options & = {}) {
+            result_type result = result_type::success;
+
+            *out++ = '"';
+
+            {
+                auto it = json_escape_iterator(out);
+
+                std::tie(it, result) = utf_auto_decode(v, it);
+
+                out = it.underlying();
+            }
+
+            if (result == result_type::success)
+                *out++ = '"';
+
+            return { out, result };
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
+            const auto start = begin(v);
+            const auto end_iterator = end(v);
+            const auto nested_options = options.indented();
+
+            result_type result = result_type::success;
+
+            *out++ = '[';
+
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
+                if (it != start)
+                    *out++ = ',';
+
+                std::tie(out, result) = skate::write_json(*it, nested_options.write_indent(out), nested_options);
+            }
+
+            if (result == result_type::success) {
+                out = options.write_indent(out);
+
+                *out++ = ']';
+            }
+
+            return { out, result };
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
+            result_type result = result_type::success;
+            bool has_written_something = false;
+
+            *out++ = '[';
+
+            skate::apply(json_write_tuple(out, result, has_written_something, options.indented()), v);
+
+            if (result == result_type::success) {
+                out = options.write_indent(out);
+
+                *out++ = ']';
+            }
+
+            return { out, result };
+        }
+
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
+        std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options = {}) {
+            const auto start = begin(v);
+            const auto end_iterator = end(v);
+            const auto nested_options = options.indented();
+
+            result_type result = result_type::success;
+
+            *out++ = '{';
+
+            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
+                if (it != start)
+                    *out++ = ',';
+
+                out = nested_options.write_indent(out);
+
+                std::tie(out, result) = skate::write_json(skate::key_of(it), out);
+
+                if (result != result_type::success)
+                    return { out, result };
+
+                *out++ = ':';
+
+                if (options.indent)
+                    *out++ = ' ';
+
+                std::tie(out, result) = skate::write_json(skate::value_of(it), out);
+            }
+
+            if (result == result_type::success) {
+                out = options.write_indent(out);
+
+                *out++ = '}';
+            }
+
+            return { out, result };
+        }
+    }
+
+    template<typename T, typename InputIterator>
+    constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &v) {
+        return detail::read_json(first, last, v);
+    }
+
+    template<typename T, typename OutputIterator>
+    constexpr std::pair<OutputIterator, result_type> write_json(const T &v, OutputIterator out, const json_write_options &options) {
+        return detail::write_json(v, out, options);
+    }
+
+    template<typename Type>
+    class json_reader;
+
+    template<typename Type>
+    class json_writer;
+
+    template<typename Type>
+    class json_reader {
+        Type &m_ref;
+
+        template<typename> friend class json_writer;
+
+    public:
+        constexpr json_reader(Type &ref) : m_ref(ref) {}
+
+        constexpr Type &value_ref() noexcept { return m_ref; }
+    };
+
+    template<typename Type>
+    class json_writer {
+        const Type &m_ref;
+        const json_write_options m_options;
+
+    public:
+        constexpr json_writer(const json_reader<Type> &reader, const json_write_options &options = {})
+            : m_ref(reader.m_ref)
+            , m_options(options)
+        {}
+        constexpr json_writer(const Type &ref, const json_write_options &options = {})
+            : m_ref(ref)
+            , m_options(options)
+        {}
+
+        constexpr const Type &value() const noexcept { return m_ref; }
+        constexpr const json_write_options &options() const noexcept { return m_options; }
+    };
+
+    template<typename Type>
+    json_reader<Type> json(Type &value) { return json_reader<Type>(value); }
+
+    template<typename Type>
+    json_writer<Type> json(const Type &value, const json_write_options &options = {}) { return json_writer<Type>(value, options); }
+
+    template<typename Type, typename... StreamTypes>
+    std::basic_istream<StreamTypes...> &operator>>(std::basic_istream<StreamTypes...> &is, json_reader<Type> value) {
+        if (skate::read_json(std::istreambuf_iterator<StreamTypes...>(is),
+                             std::istreambuf_iterator<StreamTypes...>(),
+                             value.value_ref()).second != result_type::success)
+            is.setstate(std::ios_base::failbit);
+
+        return is;
+    }
+
+    template<typename Type, typename... StreamTypes>
+    std::basic_ostream<StreamTypes...> &operator<<(std::basic_ostream<StreamTypes...> &os, json_reader<Type> value) {
+        return os << json_writer<Type>(value);
+    }
+    template<typename Type, typename... StreamTypes>
+    std::basic_ostream<StreamTypes...> &operator<<(std::basic_ostream<StreamTypes...> &os, json_writer<Type> value) {
+        const auto result = skate::write_json(value.value(),
+                                              std::ostreambuf_iterator<StreamTypes...>(os),
+                                              value.options());
+
+        if (result.first.failed() || result.second != result_type::success)
+            os.setstate(std::ios_base::failbit);
+
+        return os;
     }
 
     template<typename StreamChar, typename String>
@@ -1755,6 +1162,25 @@ namespace skate {
     template<typename StreamChar, typename String>
     std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_json_value<String> &j) {
         return os << json(j);
+    }
+
+    template<typename Type = skate::json_value, typename Range>
+    std::pair<Type, result_type> from_json(const Range &r) {
+        Type value;
+
+        const auto result = skate::read_json(begin(r), end(r), value);
+
+        return { value, result.second };
+    }
+
+    template<typename String = std::string, typename Type>
+    String to_json(const Type &value, json_write_options options = {}) {
+        String j;
+
+        if (skate::write_json(value, skate::make_back_inserter(j), options).second != result_type::success)
+            return {};
+
+        return j;
     }
 }
 

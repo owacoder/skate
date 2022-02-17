@@ -20,10 +20,12 @@ namespace skate {
     }
 
     namespace impl {
+#if MSVC_COMPILER
         template<typename T>
         auto localtime_r_impl(const T *timer, struct tm *buf, int) -> typename std::decay<decltype(::localtime_r(timer, buf), buf)>::type {
             return ::localtime_r(timer, buf);
         }
+#endif
 
         template<typename T>
         auto localtime_r_impl(const T *timer, struct tm *buf, char) -> typename std::decay<decltype(buf)>::type {
@@ -40,10 +42,12 @@ namespace skate {
 #endif
         }
 
+#if MSVC_COMPILER
         template<typename T>
         auto gmtime_r_impl(const T *timer, struct tm *buf, int) -> typename std::decay<decltype(::gmtime_r(timer, buf), buf)>::type {
             return ::gmtime_r(timer, buf);
         }
+#endif
 
         template<typename T>
         auto gmtime_r_impl(const T *timer, struct tm *buf, char) -> typename std::decay<decltype(buf)>::type {

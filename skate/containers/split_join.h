@@ -7,14 +7,28 @@
 #ifndef SKATE_CONTAINERS_SPLIT_JOIN_H
 #define SKATE_CONTAINERS_SPLIT_JOIN_H
 
-#include <string>
-#include <vector>
-
-#if __cplusplus >= 201703L
-# include <string_view>
-#endif
+#include "abstract_list.h"
 
 namespace skate {
+    template<typename StringList, typename Separator, typename OutputIterator>
+    OutputIterator join_copy(const StringList &list, const Separator &sep, OutputIterator out) {
+        const auto last = end(list);
+        const auto separator_begin = begin(sep);
+        const auto separator_end = end(sep);
+        bool add_separator = false;
+
+        for (auto first = begin(list); first != last; ++first) {
+            if (add_separator)
+                out = std::copy(separator_begin, separator_end, out);
+            else
+                add_separator = true;
+
+            out = std::copy(begin(*first), end(*first), out);
+        }
+
+        return out;
+    }
+
     namespace impl {
         template<typename T>
         T &&identity(T &&item) { return std::forward<T>(item); }

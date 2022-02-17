@@ -162,6 +162,7 @@ void abstract_container_test() {
 
 #include "socket/protocol/http.h"
 
+#if 0
 void network_test() {
     skate::url url("http://username:password@www.jw.org/../path/content=5/../?#%20query=%65bc");
 
@@ -224,21 +225,12 @@ void server_test() {
     server.serve_socket(&httpserve);
     server.run();
 }
+#endif
 
 struct Point {
     int x, y;
     Point() : x(), y() {}
 };
-
-template<typename StreamChar>
-void skate_json(std::basic_istream<StreamChar> &, Point &) {
-
-}
-
-template<typename StreamChar>
-bool skate_json(std::basic_streambuf<StreamChar> &os, const Point &p, skate::json_write_options options) {
-    return skate::json(std::vector<int>{{p.x, p.y}}, options).write(os);
-}
 
 template<typename T>
 void io_buffer_consumer(skate::io_threadsafe_pipe<T> pipe, size_t id) {
@@ -286,13 +278,6 @@ void io_buffer_producer(skate::io_threadsafe_pipe<T> pipe) {
 template<typename T>
 constexpr int log10ceil(T num) {
     return num < 10? 1: 1 + log10ceil(num / 10);
-}
-
-namespace skate {
-    template<typename StreamChar>
-    bool skate_json(std::basic_streambuf<StreamChar> &os, const socket_address &a, const json_write_options &options) {
-        return skate::json(a.to_string(), options).write(os);
-    }
 }
 
 #include "math/safeint.h"
@@ -370,20 +355,23 @@ namespace skate {
 }
 
 void test_containers() {
+    std::string dest;
+    std::string src = "{\"user\":\"E\\uD83D\\uDE02\",\"n\":1000000000000000000,\"pass\":\"E\",\"type\":\"enetselect\"}";
+
+    const auto result = skate::from_json(src);
+
+    std::cout << skate::json(result.first) << '\n';
+
     std::map<std::string, std::string> m;
 
     skate::insert(m, "key", "value");
 
     std::cout << skate::json(m) << '\n';
 
-    const char *s = "-NAN ";
-    float v;
-    const auto result = skate::fp_decode(s, s + strlen(s) - 1, v);
-
     if (result.second == skate::result_type::failure)
         std::cout << "Failed" << '\n';
     else
-        std::cout << "Success: " << v << ' ' << result.first << '\n';
+        std::cout << "Success: " << result.first << '\n';
 }
 
 int main()
@@ -478,7 +466,7 @@ int main()
 
     return 0;
 
-    network_test();
+    // network_test();
     return 0;
 
 #if 0
@@ -695,8 +683,6 @@ int main()
     std::cout << skate::compare_nocase_ascii("textA", "TEXTa") << std::endl;
 #endif
 
-    network_test();
-
     return 0;
 
     std::cout << skate::json(skate::split<std::vector<std::string>>("Header, Test,,, None 2", ",", true)) << std::endl;
@@ -742,7 +728,6 @@ int main()
     std::cout << skate::json(b.read<std::vector<std::string>>(3)) << std::endl;
 
     std::error_code ec;
-    std::cout << "Interfaces: " << skate::json(skate::socket_address::interfaces(ec), skate::json_write_options(2)) << std::endl;
 
 #if 0
     auto buffer = skate::make_threadsafe_pipe<std::string>(3);
@@ -796,11 +781,11 @@ int main()
     xmap["st-1"] = "Test 1";
     xmap["st-2"] = "Test 2: <> or \" will be escaped, along with '";
 
-    std::cout << skate::xml_doc(xmap, 1) << std::endl;
+    //std::cout << skate::xml_doc(xmap, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
-    std::string narrow = skate::utf_convert<std::string>(L"Wide to narrow string");
-    std::wstring wide = skate::utf_convert<std::wstring>(std::string("Narrow to wide string\xf0\x9f\x8c\x8d"));
+    std::string narrow = skate::to_auto_utf<std::string>(L"Wide to narrow string").first;
+    std::wstring wide = skate::to_auto_utf<std::wstring>(std::string("Narrow to wide string\xf0\x9f\x8c\x8d")).first;
 
     for (const auto c : narrow) {
         std::cout << std::hex << std::setfill('0') << std::setw(2) << int(c & 0xff) << ' ';
@@ -832,9 +817,9 @@ int main()
     cvec["Header 2"] = {"Item"};
     cvec["Header 3"] = {"Orange", "Apple", "Banana", "Kiwi", "Mango"};
 
-    std::cout << skate::csv(csv) << '\n';
-    std::cout << skate::csv(cmap) << '\n';
-    std::cout << skate::csv(cvec) << '\n';
+    //std::cout << skate::csv(csv) << '\n';
+    //std::cout << skate::csv(cmap) << '\n';
+    //std::cout << skate::csv(cvec) << '\n';
 
     std::istringstream icsv("Header 1,-123456789,0.002\n333440,-3,44000\n\r0, -1, -2\n1,2,3\n");
     std::vector<std::string> csvline;
@@ -843,6 +828,7 @@ int main()
     skate::csv_options opts(',', '"', false);
 
     std::istringstream ijson("[\"string\",-1,1]");
+#if 0
     if (icsv >> skate::csv(tuple, opts))
         std::cout << "SUCCESS: " << skate::json(tuple) << '\n';
     else
@@ -850,10 +836,11 @@ int main()
 
     if (icsv >> skate::csv(tuple, opts))
         std::cout << "SUCCESS: " << skate::json(tuple) << '\n' << skate::csv(tuple, opts) << '\n';
+#endif
 
     std::array<std::string, 10> array;
 
-    std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple<decltype(std::make_tuple(std::string{}, 0))>::value));
+    //std::cout << skate::csv(std::make_tuple(std::string("std::string"), double(3.14159265), true, -1, 0, nullptr, skate::is_trivial_tuple<decltype(std::make_tuple(std::string{}, 0))>::value));
     std::cout << skate::json(array);
 
     time_t now = time(NULL);

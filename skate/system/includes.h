@@ -109,7 +109,7 @@ namespace skate {
                     if (len >= 2 && str[len-2] == '\r' && str[len-1] == '\n')
                         str[len-2] = 0;
 
-                    std::string result = to_utf8(static_cast<LPCWSTR>(str));
+                    std::string result = to_utf8(static_cast<LPCWSTR>(str)).first;
                     ::LocalFree(str);
                     return result;
                 }
