@@ -97,44 +97,6 @@ namespace skate {
     }
 
     template<typename String>
-    int compare_nocase_ascii(const String &l, const String &r) {
-        const size_t size = std::min(l.size(), r.size());
-
-        for (size_t i = 0; i < size; ++i) {
-            const auto left = tolower(l[i]);
-            const auto right = tolower(r[i]);
-
-            if (left != right)
-                return left - right;
-        }
-
-        if (l.size() > size)
-            return 1;
-        else if (r.size() > size)
-            return -1;
-
-        return 0;
-    }
-
-    template<typename String>
-    int compare_nocase_ascii(const String *l, const String *r) {
-        for (; *l && *r; ++l, ++r) {
-            const auto left = tolower(*l);
-            const auto right = tolower(*r);
-
-            if (left != right)
-                return left - right;
-        }
-
-        if (*l)
-            return 1;
-        else if (*r)
-            return -1;
-
-        return 0;
-    }
-
-    template<typename String>
     void uppercase_ascii(String &s) {
         const auto end_iterator = end(s);
         for (auto el = begin(s); el != end_iterator; ++el)
@@ -511,7 +473,7 @@ namespace skate {
             case 2:  // fallthrough
             case 3:  // fallthrough
             case 4: {
-                std::uint32_t continuation_bytes[3];
+                std::uint8_t continuation_bytes[3];
                 std::uint32_t codepoint;
 
                 // Eat start byte
@@ -531,9 +493,9 @@ namespace skate {
                 }
 
                 switch (bytes_in_code) {
-                    case 2: codepoint = (std::uint32_t(start_byte & 0x1F) <<  6) | (continuation_bytes[0]      ); break;
-                    case 3: codepoint = (std::uint32_t(start_byte & 0x0F) << 12) | (continuation_bytes[0] <<  6) | (continuation_bytes[1]     ); break;
-                    case 4: codepoint = (std::uint32_t(start_byte & 0x07) << 18) | (continuation_bytes[0] << 12) | (continuation_bytes[1] << 6) | (continuation_bytes[2]); break;
+                    case 2: codepoint = (std::uint32_t(start_byte & 0x1F) <<  6) | (std::uint32_t(continuation_bytes[0])      ); break;
+                    case 3: codepoint = (std::uint32_t(start_byte & 0x0F) << 12) | (std::uint32_t(continuation_bytes[0]) <<  6) | (std::uint32_t(continuation_bytes[1])     ); break;
+                    case 4: codepoint = (std::uint32_t(start_byte & 0x07) << 18) | (std::uint32_t(continuation_bytes[0]) << 12) | (std::uint32_t(continuation_bytes[1]) << 6) | (std::uint32_t(continuation_bytes[2])); break;
                 }
 
                 return { first, codepoint };

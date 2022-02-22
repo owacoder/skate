@@ -426,40 +426,6 @@ namespace skate {
 
     template<typename T, typename std::enable_if<std::is_pointer<T>::value, int>::type = 0>
     T end(T c) { while (*c) ++c; return c; }
-
-    // Determine if type is unique_ptr
-    template<typename T> struct is_unique_ptr_overload : public std::false_type {};
-    template<typename T, typename... ContainerParams> struct is_unique_ptr_overload<std::unique_ptr<T, ContainerParams...>> : public std::true_type {};
-
-    template<typename T> struct is_unique_ptr : public is_unique_ptr_overload<typename std::decay<T>::type> {};
-
-    // Determine if type is shared_ptr
-    template<typename T> struct is_shared_ptr_overload : public std::false_type {};
-    template<typename T> struct is_shared_ptr_overload<std::shared_ptr<T>> : public std::true_type {};
-
-    template<typename T> struct is_shared_ptr : public is_shared_ptr_overload<typename std::decay<T>::type> {};
-
-    // Determine if type is weak_ptr
-    template<typename T> struct is_weak_ptr_overload : public std::false_type {};
-    template<typename T> struct is_weak_ptr_overload<std::weak_ptr<T>> : public std::true_type {};
-
-    template<typename T> struct is_weak_ptr : public is_weak_ptr_overload<typename std::decay<T>::type> {};
-
-#if __cplusplus >= 201703L
-    // Determine if type is an optional
-    template<typename T> struct is_optional_overload : public std::false_type {};
-    template<typename T> struct is_optional_overload<std::optional<T>> : public std::true_type {};
-
-    template<typename T> struct is_optional : public is_optional_overload<typename std::decay<T>::type> {};
-#endif
-
-#if __cplusplus >= 202002L
-    // Determine if type is a variant
-    template<typename T> struct is_variant_overload : public std::false_type {};
-    template<typename... Args> struct is_variant_overload<std::variant<Args...>> : public std::true_type {};
-
-    template<typename T> struct is_variant : public is_variant_overload<typename std::decay<T>::type> {};
-#endif
 }
 
 #endif // SKATE_ABSTRACT_LIST_H

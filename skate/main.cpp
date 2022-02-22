@@ -356,7 +356,7 @@ namespace skate {
 
 void test_containers() {
     std::string dest;
-    std::string src = "{\"user\":\"E\\uD83D\\uDE02\",\"n\":1000000000000000000,\"pass\":\"E\",\"type\":\"enetselect\"}";
+    std::string src = "{\"user\":\"E\\uD83D\\uDE02\",\"n\":10000000000000000001,\"pass\":\"E\",\"type\":\"enetselect\"}";
 
     const auto result = skate::from_json(src);
 
