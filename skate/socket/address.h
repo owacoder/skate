@@ -530,14 +530,19 @@ namespace skate {
 
             for (size_t i = 0; i < s.size(); ++i) {
                 if (s[i] == '%') {
-                    if (i + 2 < s.size() && isxdigit(s[i+1] & 0xff) && isxdigit(s[i+2] & 0xff)) {
-                        result.push_back((toxdigit(s[i+1]) << 4) | toxdigit(s[i+2]));
-                        i += 2;
-                        continue;
-                    } else {
-                        if (error)
-                            *error = true;
+                    if (i + 2 < s.size()) {
+                        const auto hi = hex_to_nibble(s[i+1]);
+                        const auto lo = hex_to_nibble(s[i+2]);
+
+                        if (hi < 15 && lo < 15) {
+                            result.push_back((hi << 4) | lo);
+                            i += 2;
+                            continue;
+                        }
                     }
+
+                    if (error)
+                        *error = true;
                 }
 
                 result.push_back(s[i]);
@@ -552,8 +557,8 @@ namespace skate {
                     append_to.push_back(c);
                 else {
                     append_to.push_back('%');
-                    append_to.push_back(toxchar(c >> 4, true));
-                    append_to.push_back(toxchar(c     , true));
+                    append_to.push_back(nibble_to_hex(c >> 4));
+                    append_to.push_back(nibble_to_hex(c     ));
                 }
             }
         }

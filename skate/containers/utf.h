@@ -7,42 +7,60 @@
 #ifndef SKATE_UTF_H
 #define SKATE_UTF_H
 
-#include <array>
-
-#define UTF_MAX (0x10ffff)
-#define UTF_MASK (0x1fffff)
-#define UTF8_MAX_CHAR_BYTES 5
-#define UTF_ERROR (0x8000fffdul)
-
-#include <string>
-#include <iostream>
-#include <cstring>
-
 #include "abstract_list.h"
 
 namespace skate {
-    template<typename T>
-    constexpr int toxdigit(T c) {
-        return (c >= '0' && c <= '9')? int(c - '0'):
-               (c >= 'A' && c <= 'F')? int(c - 'A' + 10):
-               (c >= 'a' && c <= 'f')? int(c - 'a' + 10): -1;
+    namespace detail {
+        constexpr static const std::uint8_t cflg_u = 0x01;
+        constexpr static const std::uint8_t cflg_l = 0x02;
+        constexpr static const std::uint8_t cflg_d = 0x04;
+        constexpr static const std::uint8_t cflg_w = 0x08;
+        constexpr static const std::uint8_t cflg_p = 0x10;
+        constexpr static const std::uint8_t cflg_c = 0x20;
+        constexpr static const std::uint8_t cflg_h = 0x40;
+        constexpr static const std::uint8_t cflg_b = 0x80;
     }
 
-    namespace impl {
-        constexpr const char *hexupper = "0123456789ABCDEF";
-        constexpr const char *hexlower = "0123456789abcdef";
+    inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
+        return "0123456789ABCDEF"[nibble & 0xf];
     }
 
-    template<typename T = unsigned char>
-    constexpr T toxchar(unsigned int value, bool uppercase = false) {
-        return T(uppercase? impl::hexupper[value & 0xf]: impl::hexlower[value & 0xf]);
+    inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
+        return "0123456789abcdef"[nibble & 0xf];
     }
 
-    template<typename T>
-    constexpr bool isxdigit(T c) {
-        return (c >= '0' && c <= '9') ||
-               (c >= 'A' && c <= 'F') ||
-               (c >= 'a' && c <= 'f');
+    inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
+        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
+    }
+
+    template<typename Char>
+    constexpr std::uint8_t hex_to_nibble(Char c) noexcept {
+        return c >= '0' && c <= '9' ? c - '0' :
+               c >= 'A' && c <= 'F' ? c - 'A' + 10 :
+               c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+                                      16;
+    }
+
+    inline constexpr char int_to_base36(std::uint8_t v) noexcept {
+        return v < 10 ? '0' + v :
+               v < 36 ? 'A' + (v - 10) : 0;
+    }
+
+    inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
+        return v < 10 ? '0' + v :
+               v < 36 ? 'a' + (v - 10) : 0;
+    }
+
+    inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
+        return uppercase ? int_to_base36(v) : int_to_base36_lower(v);
+    }
+
+    template<typename Char>
+    constexpr std::uint8_t base36_to_int(Char c) noexcept {
+        return c >= '0' && c <= '9' ? c - '0' :
+               c >= 'A' && c <= 'Z' ? c - 'A' + 10 :
+               c >= 'a' && c <= 'z' ? c - 'a' + 10 :
+                                      36;
     }
 
     template<typename T>
@@ -168,6 +186,7 @@ namespace skate {
         constexpr bool is_valid() const noexcept { return cp <= utf_max; }
 
         constexpr std::uint32_t value() const noexcept { return cp & utf_mask; }
+        constexpr explicit operator std::uint32_t() const noexcept { return value(); }
 
         // Returns number of bytes needed for UTF-8 encoding
         constexpr unsigned int utf8_size() const noexcept {

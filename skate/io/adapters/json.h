@@ -8,7 +8,6 @@
 #define SKATE_JSON_H
 
 #include "core.h"
-#include "../../containers/split_join.h"
 
 namespace skate {
     template<typename OutputIterator>

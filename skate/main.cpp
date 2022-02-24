@@ -374,8 +374,25 @@ void test_containers() {
         std::cout << "Success: " << result.first << '\n';
 }
 
+void test_base64() {
+    const auto type = skate::base64_type::url;
+
+    for (int i = 0; i < 65; ++i) {
+        const auto encoded = skate::base64_encode_alphabet_for_type(type)[i];
+        const auto decoded = skate::base64_decode_alphabet_for_type(type)[std::uint8_t(encoded)];
+
+        if (decoded != i)
+            std::cout << i << " " << char(encoded) << ": Failure\n";
+        else
+            std::cout << i << " " << char(encoded) << ": Success\n";
+    }
+}
+
 int main()
 {
+    test_base64();
+
+    return 0;
     test_containers();
 
     std::string xzz;

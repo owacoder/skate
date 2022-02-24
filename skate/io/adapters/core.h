@@ -13,6 +13,7 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <cassert>
 
 #include <tuple>
 #include <array>
@@ -30,7 +31,6 @@
 
 #include "../../containers/utf.h"
 #include "../../containers/abstract_map.h"
-#include "../../containers/split_join.h"
 
 namespace skate {
     template<typename InputIterator>
@@ -99,13 +99,13 @@ namespace skate {
         static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
         static_assert(std::numeric_limits<DecayedT>::digits % 8 == 0, "Only integral types that are a multiple of 8 bits can be parsed");
 
-        T value = 0;
+        DecayedT value = 0;
 
         for (std::size_t i = 0; i < std::numeric_limits<DecayedT>::digits; i += 8, ++first) {
             if (first == last)
                 return { first, value, result_type::failure };
 
-            value |= T(std::uint8_t(*first)) << i;
+            value |= DecayedT(std::uint8_t(*first)) << i;
         }
 
         return { first, value, result_type::success };
@@ -116,7 +116,7 @@ namespace skate {
         result_type result = result_type::success;
 
         while (first != last) {
-            T value = 0;
+            typename std::decay<T>::type value = 0;
 
             std::tie(first, value, result) = little_endian_decode_next(first, last);
             if (result != result_type::success)
@@ -134,7 +134,7 @@ namespace skate {
         static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
         static_assert(std::numeric_limits<DecayedT>::digits % 8 == 0, "Only integral types that are a multiple of 8 bits can be parsed");
 
-        T value = 0;
+        DecayedT value = 0;
 
         for (std::size_t i = std::numeric_limits<DecayedT>::digits; i > 0; i -= 8) {
             if (first == last) {
@@ -152,7 +152,7 @@ namespace skate {
         result_type result = result_type::success;
 
         while (first != last) {
-            T value = 0;
+            typename std::decay<T>::type value = 0;
 
             std::tie(first, value, result) = big_endian_decode_next(first, last);
             if (result != result_type::success)
@@ -249,28 +249,6 @@ namespace skate {
 
         constexpr OutputIterator underlying() const { return m_out; }
     };
-
-    inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
-        return nibble < 10 ? '0' + nibble :
-               nibble < 16 ? 'A' + (nibble - 10) : 0;
-    }
-
-    inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
-        return nibble < 10 ? '0' + nibble :
-               nibble < 16 ? 'a' + (nibble - 10) : 0;
-    }
-
-    inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
-        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
-    }
-
-    template<typename Char>
-    inline constexpr std::uint8_t hex_to_nibble(Char c) noexcept {
-        return c >= '0' && c <= '9' ? c - '0' :
-               c >= 'A' && c <= 'F' ? c - 'A' + 10 :
-               c >= 'a' && c <= 'f' ? c - 'a' + 10 :
-                                      16;
-    }
 
     template<typename OutputIterator>
     OutputIterator hex_encode(std::uint8_t byte_value, OutputIterator out) {
@@ -376,28 +354,6 @@ namespace skate {
         constexpr OutputIterator underlying() const { return m_out; }
     };
 
-    inline constexpr char int_to_base36(std::uint8_t v) noexcept {
-        return v < 10 ? '0' + v :
-               v < 36 ? 'A' + (v - 10) : 0;
-    }
-
-    inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
-        return v < 10 ? '0' + v :
-               v < 36 ? 'a' + (v - 10) : 0;
-    }
-
-    inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
-        return uppercase ? int_to_base36(v) : int_to_base36_lower(v);
-    }
-
-    template<typename Char>
-    inline constexpr std::uint8_t base36_to_int(Char c) noexcept {
-        return c >= '0' && c <= '9' ? c - '0' :
-               c >= 'A' && c <= 'Z' ? c - 'A' + 10 :
-               c >= 'a' && c <= 'z' ? c - 'a' + 10 :
-                                      36;
-    }
-
 #if __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<const char *, result_type> int_decode(const char *first, const char *last, T &v, int base = 10) {
@@ -409,7 +365,9 @@ namespace skate {
 
     template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     std::pair<InputIterator, result_type> int_decode(InputIterator first, InputIterator last, T &v, int base = 10) {
-        if (base < 2 || base > 36 || first == last)
+        assert(base >= 2 && base <= 36);
+
+        if (first == last)
             return { first, result_type::failure };
 
         T temp = 0;
