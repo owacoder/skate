@@ -388,11 +388,26 @@ void test_base64() {
     }
 }
 
+void test_char_type() {
+    for (int i = 0; i < 128; ++i) {
+        std::cout << i << ": " << char(i) << " "
+                  << (skate::detail::char_type(i) & skate::detail::f_c ? " cntrl" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_p ? " print" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_g ? " graph" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_t ? " punct" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_u ? " upper" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_l ? " lower" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_w ? " white" : "")
+                  << (skate::detail::char_type(i) & skate::detail::f_b ? " blank" : "") << '\n';
+    }
+}
+
 int main()
 {
-    test_base64();
+    test_char_type();
 
     return 0;
+
     test_containers();
 
     std::string xzz;

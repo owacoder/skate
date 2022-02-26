@@ -593,8 +593,7 @@ namespace skate {
         std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, basic_json_value<String> &j) {
             first = skip_whitespace(first, last);
 
-            // TODO: shouldn't be switch for generic-ness?
-            switch (*first) {
+            switch (std::uint32_t(*first)) {
                 default: return { first, result_type::failure };
                 case '"': return skate::read_json(first, last, j.string_ref());
                 case '[': return skate::read_json(first, last, j.array_ref());

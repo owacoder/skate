@@ -11,56 +11,76 @@
 
 namespace skate {
     namespace detail {
-        constexpr static const std::uint8_t cflg_u = 0x01;
-        constexpr static const std::uint8_t cflg_l = 0x02;
-        constexpr static const std::uint8_t cflg_d = 0x04;
-        constexpr static const std::uint8_t cflg_w = 0x08;
-        constexpr static const std::uint8_t cflg_p = 0x10;
-        constexpr static const std::uint8_t cflg_c = 0x20;
-        constexpr static const std::uint8_t cflg_h = 0x40;
-        constexpr static const std::uint8_t cflg_b = 0x80;
-    }
+        // Digit and hexadecimal not included in flags because they can be inferred by a lookup and
+        // compare based on the digit value table instead.
+        constexpr static const std::uint8_t f_u = 0x01; // Uppercase
+        constexpr static const std::uint8_t f_l = 0x02; // Lowercase
+        constexpr static const std::uint8_t f_w = 0x04; // Whitespace (\t \n \v \f \r SP)
+        constexpr static const std::uint8_t f_p = 0x08; // Printable
+        constexpr static const std::uint8_t f_c = 0x10; // Control (0-31, 127)
+        constexpr static const std::uint8_t f_b = 0x20; // Blank (\t SP)
+        constexpr static const std::uint8_t f_t = 0x40; // Punctuation
+        constexpr static const std::uint8_t f_g = 0x80; // Has Graphical representation
 
-    inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
-        return "0123456789ABCDEF"[nibble & 0xf];
-    }
+        namespace char_traits {
+            // Only defined for 0-127, returns integer value for given character
+            inline std::uint8_t char_type(std::uint8_t v) noexcept {
+                static const std::uint8_t chars[128] = {
+                    f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        ,
+                    f_c        , f_c|f_w|f_b, f_c|f_w    , f_c|f_w    , f_c|f_w    , f_c|f_w    , f_c        , f_c        ,
+                    f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        ,
+                    f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        , f_c        ,
+                    f_p|f_w|f_b, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t,
+                    f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t,
+                    f_p|f_g    , f_p|f_g    , f_p|f_g    , f_p|f_g    , f_p|f_g    , f_p|f_g    , f_p|f_g    , f_p|f_g    ,
+                    f_p|f_g    , f_p|f_g    , f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t,
+                    f_p|f_g|f_t, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u,
+                    f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u,
+                    f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u,
+                    f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_u, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t,
+                    f_p|f_g|f_t, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l,
+                    f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l,
+                    f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l,
+                    f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_l, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_p|f_g|f_t, f_c
+                };
 
-    inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
-        return "0123456789abcdef"[nibble & 0xf];
-    }
+                return chars[v];
+            }
 
-    inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
-        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
-    }
+            // Only defined for 0-127, returns integer value for given character (supports 0-36)
+            inline std::uint8_t char_digit(std::uint8_t v) noexcept {
+                static const std::uint8_t digits[128] = {
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                    0x08, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+                    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+                    0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+                    0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff,
+                    0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+                    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+                    0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+                    0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff
+                };
 
-    template<typename Char>
-    constexpr std::uint8_t hex_to_nibble(Char c) noexcept {
-        return c >= '0' && c <= '9' ? c - '0' :
-               c >= 'A' && c <= 'F' ? c - 'A' + 10 :
-               c >= 'a' && c <= 'f' ? c - 'a' + 10 :
-                                      16;
-    }
+                return digits[v];
+            }
+        }
 
-    inline constexpr char int_to_base36(std::uint8_t v) noexcept {
-        return v < 10 ? '0' + v :
-               v < 36 ? 'A' + (v - 10) : 0;
-    }
+        template<typename T>
+        std::uint8_t char_type(T v) {
+            return char_traits::char_type(std::uint8_t(v)) | std::uint8_t(0x100 >> (v < 0 || v > 0x7f));
+        }
 
-    inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
-        return v < 10 ? '0' + v :
-               v < 36 ? 'a' + (v - 10) : 0;
-    }
-
-    inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
-        return uppercase ? int_to_base36(v) : int_to_base36_lower(v);
-    }
-
-    template<typename Char>
-    constexpr std::uint8_t base36_to_int(Char c) noexcept {
-        return c >= '0' && c <= '9' ? c - '0' :
-               c >= 'A' && c <= 'Z' ? c - 'A' + 10 :
-               c >= 'a' && c <= 'z' ? c - 'a' + 10 :
-                                      36;
+        template<typename T>
+        std::uint8_t char_digit(T v) {
+            return char_traits::char_digit(std::uint8_t(v)) | std::uint8_t(0x100 >> (v < 0 || v > 0x7f));
+        }
     }
 
     template<typename T>
@@ -159,6 +179,44 @@ namespace skate {
             return false;
 
         return haystack.compare(haystack.size() - needle.size(), needle.size(), needle) == 0;
+    }
+
+    inline constexpr char nibble_to_hex(std::uint8_t nibble) noexcept {
+        return "0123456789ABCDEF"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex_lower(std::uint8_t nibble) noexcept {
+        return "0123456789abcdef"[nibble & 0xf];
+    }
+
+    inline constexpr char nibble_to_hex(std::uint8_t nibble, bool uppercase) noexcept {
+        return uppercase ? nibble_to_hex(nibble) : nibble_to_hex_lower(nibble);
+    }
+
+    // Returns value of character from 0-15, or an undefined value greater than 15 if not a hex character
+    template<typename Char>
+    constexpr std::uint8_t hex_to_nibble(Char c) noexcept {
+        return detail::char_digit(c);
+    }
+
+    inline constexpr char int_to_base36(std::uint8_t v) noexcept {
+        return v < 10 ? '0' + v :
+               v < 36 ? 'A' + (v - 10) : 0;
+    }
+
+    inline constexpr char int_to_base36_lower(std::uint8_t v) noexcept {
+        return v < 10 ? '0' + v :
+               v < 36 ? 'a' + (v - 10) : 0;
+    }
+
+    inline constexpr char int_to_base36(std::uint8_t v, bool uppercase) noexcept {
+        return uppercase ? int_to_base36(v) : int_to_base36_lower(v);
+    }
+
+    // Returns value of character from 0-35, or an undefined value greater than 35 if not a Base-36 character
+    template<typename Char>
+    constexpr std::uint8_t base36_to_int(Char c) noexcept {
+        return detail::char_digit(c);
     }
 
     class unicode {

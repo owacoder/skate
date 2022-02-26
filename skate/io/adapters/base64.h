@@ -136,6 +136,7 @@ namespace skate {
     template<typename Container = std::string, typename Range>
     constexpr Container to_base64(const Range &range, base64_type type = base64_type::normal) { return to_base64<Container>(begin(range), end(range), type); }
 
+    // TODO: Base64 decoding not fully implemented at the moment.
     template<typename OutputIterator>
     class base64_decoder {
         OutputIterator m_out;
