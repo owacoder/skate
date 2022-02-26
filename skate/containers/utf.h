@@ -74,12 +74,12 @@ namespace skate {
 
         template<typename T>
         std::uint8_t char_type(T v) {
-            return char_traits::char_type(std::uint8_t(v)) | std::uint8_t(0x100 >> (v < 0 || v > 0x7f));
+            return char_traits::char_type(std::uint8_t(v)) | std::uint8_t(0x100 >> int(v < 0 || v > 0x7f));
         }
 
         template<typename T>
         std::uint8_t char_digit(T v) {
-            return char_traits::char_digit(std::uint8_t(v)) | std::uint8_t(0x100 >> (v < 0 || v > 0x7f));
+            return char_traits::char_digit(std::uint8_t(v)) | std::uint8_t(0x100 >> int(v < 0 || v > 0x7f));
         }
     }
 
