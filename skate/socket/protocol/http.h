@@ -83,7 +83,7 @@ namespace skate {
         }
 #ifdef SKATE_JSON_H
         http_client_request &set_body(const skate::json_value &body) {
-            m_body = skate::to_json(body);
+            m_body = skate::to_json(body).first;
             return set_header("Content-Type", "application/json").
                    set_header("Content-Length", std::to_string(m_body.size()));
         }
@@ -160,7 +160,7 @@ namespace skate {
         }
 #ifdef SKATE_JSON_H
         http_server_response &set_body(const skate::json_value &body) {
-            m_body = skate::to_json(body);
+            m_body = skate::to_json(body).first;
             return set_header("Content-Type", "application/json").
                    set_header("Content-Length", std::to_string(m_body.size()));
         }

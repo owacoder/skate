@@ -354,6 +354,18 @@ namespace skate {
     constexpr Container to_c_style_escape(const Range &range) { return to_c_style_escape<Container>(begin(range), end(range)); }
 }
 
+void test_csv() {
+    std::vector<std::map<std::string, std::string>> data = {{{"key", "value"}}, {{"key","none"},{"key2", "true"}}};
+    std::vector<std::string> vector;
+
+    skate::push_back(vector, "Testing");
+    skate::push_back(vector, "1", "2", "3");
+
+    std::wcout << skate::json(vector) << '\n';
+
+    std::wcout << skate::to_csv<std::wstring>(data).first << '\n';
+}
+
 void test_containers() {
     std::string dest;
     std::string src = "{\"user\":\"E\\uD83D\\uDE02\",\"n\":10000000000000000001,\"pass\":\"E\",\"type\":\"enetselect\"}";
@@ -404,8 +416,7 @@ void test_char_type() {
 
 int main()
 {
-    test_char_type();
-
+    test_csv();
     return 0;
 
     test_containers();
@@ -429,7 +440,7 @@ int main()
     if (json_result.second == skate::result_type::failure) {
         std::cout << "JSON error at " << json_result.first << '\n';
     } else {
-        std::cout << skate::to_json(xzz);
+        std::cout << skate::to_json(xzz).first;
     }
 
     return 0;

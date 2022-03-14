@@ -278,7 +278,7 @@ namespace skate {
         constexpr auto size_to_reserve_container(const Container &c, int) -> decltype(c.size()) { return c.size(); }
 
         template<typename Container>
-        constexpr auto size_to_reserve_container(const Container &c, ...) -> decltype(size_to_reserve(begin(c), end(c), 0)) { return size_to_reserve(begin(c), end(c), 0); }
+        constexpr auto size_to_reserve_container(const Container &c, ...) -> decltype(detail::size_to_reserve(begin(c), end(c), 0)) { return detail::size_to_reserve(begin(c), end(c), 0); }
 
         template<typename SizeT, typename Container>
         constexpr void reserve(Container &, SizeT) noexcept {}
@@ -373,14 +373,39 @@ namespace skate {
     template<typename Container>
     constexpr back_inserter<Container> make_back_inserter(Container &c) { return back_inserter<Container>(c); }
 
-    template<typename T, typename Container>
-    constexpr void push_back(Container &c, T &&value) { *skate::make_back_inserter(c)++ = std::forward<T>(value); }
+    namespace detail {
+        template<typename Iterator>
+        constexpr Iterator back_insert(Iterator it) { return it; }
 
-    // source must not be the same as the destination
+        template<typename Iterator, typename T, typename... Types>
+        Iterator back_insert(Iterator it, T &&value, Types &&... args) {
+            *it++ = std::forward<T>(value);
+
+            return detail::back_insert(it, std::forward<Types>(args)...);
+        }
+    }
+
+    template<typename Container, typename T, typename... Types>
+    void push_back(Container &c, T &&value, Types&&... types) {
+        skate::reserve(c, skate::size_to_reserve(c) + 1 + sizeof...(types));
+
+        detail::back_insert(skate::make_back_inserter(c), std::forward<T>(value), std::forward<Types>(types)...);
+    }
+
     template<typename To, typename From>
-    To &list_append(To &dest, From &&source) {
+    To &list_append(To &dest, const From &source) {
+        if (std::addressof(dest) == std::addressof(source)) {
+            const From copy = source;
+
+            return list_append(dest, copy);
+        }
+
+        const auto first = begin(source);
         const auto last = end(source);
-        auto back_inserter = make_back_inserter(dest);
+
+        skate::reserve(dest, skate::size_to_reserve(dest) + skate::size_to_reserve(first, last));
+
+        auto back_inserter = skate::make_back_inserter(dest);
 
         for (auto it = begin(source); it != last; ++it) {
             *back_inserter++ = *it;
@@ -390,10 +415,24 @@ namespace skate {
     }
 
     template<typename To, typename From>
+    To &list_append(To &dest, From &&source) {
+        const auto first = begin(source);
+        const auto last = end(source);
+
+        skate::reserve(dest, skate::size_to_reserve(dest) + skate::size_to_reserve(first, last));
+
+        auto back_inserter = skate::make_back_inserter(dest);
+
+        for (auto it = begin(source); it != last; ++it) {
+            *back_inserter++ = std::move(*it);
+        }
+
+        return dest;
+    }
+
+    template<typename To, typename From>
     To list_copy(From &&source) {
         To dest;
-
-        reserve(dest, size_to_reserve(source));
 
         return list_append(dest, std::forward<From>(source));
     }

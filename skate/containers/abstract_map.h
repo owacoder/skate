@@ -76,7 +76,10 @@ namespace skate {
     }
 
     template<typename To, typename From>
-    To &map_merge(To &dest, From &&source) {
+    To &map_merge(To &dest, const From &source) {
+        if (std::addressof(dest) == std::addressof(source))
+            return dest;
+
         const auto last = end(source);
 
         for (auto it = begin(source); it != last; ++it) {
@@ -87,10 +90,10 @@ namespace skate {
     }
 
     template<typename To, typename From>
-    To map_copy(From &&source) {
+    To map_copy(const From &source) {
         To dest;
 
-        return map_merge(dest, std::forward<From>(source));
+        return map_merge(dest, source);
     }
 
     namespace detail {

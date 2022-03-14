@@ -666,7 +666,7 @@ namespace skate {
     }
 
     namespace detail {
-        // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
+        // C++11 doesn't have generic lambdas, so create a functor class that allows reading a tuple
         template<typename InputIterator>
         class json_read_tuple {
             InputIterator &m_first;
@@ -691,9 +691,9 @@ namespace skate {
                     std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
                     if (m_result != result_type::success)
                         return;
+                } else {
+                    m_has_read_something = true;
                 }
-
-                m_has_read_something = true;
 
                 std::tie(m_first, m_result) = skate::read_json(m_first, m_last, p);
             }
@@ -718,12 +718,12 @@ namespace skate {
         }
 
         template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
+        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
             return int_decode(skip_whitespace(first, last), last, i);
         }
 
         template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
+        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
             return fp_decode(skip_whitespace(first, last), last, f);
         }
 
@@ -1172,13 +1172,12 @@ namespace skate {
     }
 
     template<typename String = std::string, typename Type>
-    String to_json(const Type &value, json_write_options options = {}) {
+    std::pair<String, result_type> to_json(const Type &value, json_write_options options = {}) {
         String j;
 
-        if (skate::write_json(value, skate::make_back_inserter(j), options).second != result_type::success)
-            return {};
+        const auto result = skate::write_json(value, skate::make_back_inserter(j), options);
 
-        return j;
+        return { result.second == result_type::success ? std::move(j) : String(), result.second };
     }
 }
 

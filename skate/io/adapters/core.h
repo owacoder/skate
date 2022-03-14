@@ -600,14 +600,14 @@ namespace skate {
 
             const char buf[] = "Infinity";
 
-            return { std::copy_n(buf, strlen(buf), out), result_type::success };
+            return { std::copy_n(buf, sizeof(buf) - 1, out), result_type::success };
         } else if (std::isnan(v)) {
             if (!allow_nan)
                 return { out, result_type::failure };
 
             const char buf[] = "NaN";
 
-            return { std::copy_n(buf, strlen(buf), out), result_type::success };
+            return { std::copy_n(buf, sizeof(buf) - 1, out), result_type::success };
         }
 
         // See https://stackoverflow.com/questions/68472720/stdto-chars-minimal-floating-point-buffer-size/68475665#68475665
@@ -618,7 +618,7 @@ namespace skate {
                          1 // Add for NUL terminator
                   > buf;
 
-#if __cplusplus >= 201703L
+#if MSVC_COMPILER && __cplusplus >= 201703L
         const auto result = std::to_chars(buf.data(), buf.data() + buf.size(), v, std::chars_format::general, std::numeric_limits<T>::max_digits10);
         if (result.ec != std::errc())
             return { out, result_type::failure };

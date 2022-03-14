@@ -150,8 +150,8 @@ namespace skate {
 
                 if (m_has_written_something)
                     *m_out++ = m_options.separator;
-
-                m_has_written_something = true;
+                else
+                    m_has_written_something = true;
 
                 std::tie(m_out, m_result) = skate::write_csv(p, m_out, m_options);
             }
@@ -322,23 +322,18 @@ namespace skate {
                                                                               skate::is_scalar<decltype(skate::key_of(begin(*begin(std::declval<T>()))))>::value &&
                                                                               skate::is_scalar<decltype(skate::value_of(begin(*begin(std::declval<T>()))))>::value, int>::type = 0>
         std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
-            using Key = typename std::decay<decltype(skate::key_of(*begin(std::declval<T>())))>::type;
-            using Value = typename std::decay<decltype(skate::value_of(*begin(std::declval<T>())))>::type;
+            using Key = typename std::decay<decltype(skate::key_of(begin(*begin(std::declval<T>()))))>::type;
 
             const auto last = end(v);
 
-            std::unordered_set<Key> header_set;
-            std::vector<Key> headers;
+            std::set<Key> headers;
 
             // First gather all headers
             for (auto first = begin(v); first != last; ++first) {
                 const auto it_last = end(*first);
 
                 for (auto it = begin(*first); it != it_last; ++it) {
-                    if (header_set.find(skate::key_of(it)) == header_set.end()) {
-                        header_set.insert(skate::key_of(it));
-                        headers.push_back(skate::key_of(it));
-                    }
+                    headers.insert(skate::key_of(it));
                 }
             }
 
@@ -346,10 +341,76 @@ namespace skate {
 
             std::tie(out, result) = skate::write_csv(headers, out, options);
 
-            // TODO
             for (auto first = begin(v); first != last && result == result_type::success; ++first) {
-                std::tie(out, result) = skate::write_csv(*first, out, options);
+                bool write_separator = false;
+
+                for (const auto &header : headers) {
+                    if (write_separator)
+                        *out++ = options.separator;
+
+                    std::tie(out, result) = skate::write_csv(skate::value_of(*first, header), out, options);
+                    if (result != result_type::success)
+                        break;
+
+                    write_separator = true;
+                }
+
+                if (result == result_type::success)
+                    out = options.write_line_ending(out);
             }
+
+            return { out, result };
+        }
+
+        // Object of arrays overload, writes CSV document with header line containing all keys
+        // Map contains column names mapped to column values. Since column data can be jagged, default-constructed elements are written for row items that don't have column data specified
+        template<typename T, typename OutputIterator, typename std::enable_if<skate::is_map<T>::value && // Type must be map
+                                                                              skate::is_scalar<decltype(skate::key_of(begin(std::declval<T>())))>::value &&  // Key type must be scalar
+                                                                              skate::is_array<decltype(skate::value_of(begin(std::declval<T>())))>::value && // Value type must be array
+                                                                              skate::is_scalar<decltype(*begin(skate::value_of(begin(std::declval<T>()))))>::value && // Elements of value arrays must be scalars
+                                                                              std::is_reference<decltype(skate::value_of(begin(std::declval<T>())))>::value // Value arrays must be references to actual data
+                                                                                 , int>::type = 0>
+        std::pair<OutputIterator, result_type> write(const T &v, OutputIterator out, const csv_options &options = {}) {
+            using Array = typename std::decay<decltype(skate::value_of(begin(v)))>::type;
+            using Iterator = typename std::decay<decltype(begin(std::declval<Array>()))>::type;
+            using Value = typename std::decay<decltype(*std::declval<Iterator>())>::type;
+
+            std::vector<std::pair<Iterator, Iterator>> iterators;
+            result_type result = result_type::success;
+
+            // First write all keys as headers
+            const auto first = begin(v);
+            const auto last = end(v);
+            for (auto it = first; it != last && result == result_type::success; ++it) {
+                if (it == first)
+                    *out++ = options.separator;
+
+                std::tie(out, result) = skate::write_csv(skate::key_of(it), out, options);
+
+                // Enable-if for template requires that skate::value_of(it) is a reference, not a copying function, so saving the iterators is safe
+                iterators.push_back({ begin(skate::value_of(it)), end(skate::value_of(it)) });
+            }
+
+            if (result == result_type::success)
+                out = options.write_line_ending(out);
+
+            for (std::size_t i = 0; i < iterators.size() && result == result_type::success; ++i) {
+                auto &iterator_pair = iterators[i];
+
+                if (i != 0)
+                    *out++ = options.separator;
+
+                if (iterator_pair.first != iterator_pair.second) { // Still more in column
+                    std::tie(out, result) = skate::write_csv(*iterator_pair.first, out, options);
+
+                    ++iterator_pair.first;
+                } else {
+                    std::tie(out, result) = skate::write_csv(Value(), out, options);
+                }
+            }
+
+            if (result == result_type::success)
+                out = options.write_line_ending(out);
 
             return { out, result };
         }
@@ -358,6 +419,104 @@ namespace skate {
     template<typename T, typename OutputIterator>
     std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options) {
         return detail::write_csv(v, out, options);
+    }
+
+    template<typename Type>
+    class csv_reader;
+
+    template<typename Type>
+    class csv_writer;
+
+    template<typename Type>
+    class csv_reader {
+        Type &m_ref;
+        const csv_options m_options;
+
+        template<typename> friend class csv_writer;
+
+    public:
+        constexpr csv_reader(Type &ref, const csv_options &options = {})
+            : m_ref(ref)
+            , m_options(options)
+        {}
+
+        constexpr Type &value_ref() noexcept { return m_ref; }
+        constexpr const csv_options &options() const noexcept { return m_options; }
+    };
+
+    template<typename Type>
+    class csv_writer {
+        const Type &m_ref;
+        const csv_options m_options;
+
+    public:
+        constexpr csv_writer(const csv_reader<Type> &reader)
+            : m_ref(reader.m_ref)
+            , m_options(reader.m_options)
+        {}
+        constexpr csv_writer(const Type &ref, const csv_options &options = {})
+            : m_ref(ref)
+            , m_options(options)
+        {}
+
+        constexpr const Type &value() const noexcept { return m_ref; }
+        constexpr const csv_options &options() const noexcept { return m_options; }
+    };
+
+    template<typename Type>
+    csv_reader<Type> csv(Type &value) { return csv_reader<Type>(value); }
+
+    template<typename Type>
+    csv_writer<Type> csv(const Type &value, const csv_options &options = {}) { return csv_writer<Type>(value, options); }
+
+#if 0
+    template<typename Type, typename... StreamTypes>
+    std::basic_istream<StreamTypes...> &operator>>(std::basic_istream<StreamTypes...> &is, csv_reader<Type> value) {
+        if (skate::read_csv(std::istreambuf_iterator<StreamTypes...>(is),
+                            std::istreambuf_iterator<StreamTypes...>(),
+                            value.value_ref()).second != result_type::success)
+            is.setstate(std::ios_base::failbit);
+
+        return is;
+    }
+#endif
+
+    template<typename Type, typename... StreamTypes>
+    std::basic_ostream<StreamTypes...> &operator<<(std::basic_ostream<StreamTypes...> &os, csv_reader<Type> value) {
+        return os << csv_writer<Type>(value);
+    }
+    template<typename Type, typename CharT, typename... StreamTypes>
+    std::basic_ostream<CharT, StreamTypes...> &operator<<(std::basic_ostream<CharT, StreamTypes...> &os, csv_writer<Type> value) {
+        const auto result = skate::write_csv(value.value(),
+                                             skate::utf_encode_iterator<CharT, std::ostreambuf_iterator<CharT, StreamTypes...>>(std::ostreambuf_iterator<CharT, StreamTypes...>(os)),
+                                             value.options());
+
+        if (result.first.failed() || result.second != result_type::success)
+            os.setstate(std::ios_base::failbit);
+
+        return os;
+    }
+
+#if 0
+    template<typename Type, typename Range>
+    std::pair<Type, result_type> from_csv(const Range &r) {
+        Type value;
+
+        const auto result = skate::read_csv(begin(r), end(r), value);
+
+        return { value, result.second };
+    }
+#endif
+
+    template<typename String = std::string, typename Type>
+    std::pair<String, result_type> to_csv(const Type &value, csv_options options = {}) {
+        String j;
+
+        const auto result = skate::write_csv(value,
+                                             skate::utf_encode_iterator<decltype(*begin(j)), decltype(skate::make_back_inserter(j))>(skate::make_back_inserter(j)),
+                                             options);
+
+        return { result.second == result_type::success ? std::move(j) : String(), result.second };
     }
 
     ///////////////////////////////////////////////////////////////////////
