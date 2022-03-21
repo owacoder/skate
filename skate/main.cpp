@@ -355,15 +355,24 @@ namespace skate {
 }
 
 void test_csv() {
-    std::vector<std::map<std::string, std::string>> data = {{{"key", "value"}}, {{"key","none"},{"key2", "true"}}};
-    std::vector<std::string> vector;
+    std::vector<std::string> carr = {"Orange", "Apple", "Banana", "Kiwi", "Mango"};
+    std::map<std::string, std::string> cmap = {{"Header 1", "Orange"}, {"Header 2", "Banana"}};
+    std::vector<std::map<std::string, std::string>> carrmap {{{"Header 1", "Orange"}, {"Header 2", "Banana"}}, {{"Header 3", "Mango"}}};
+    std::map<std::string, std::vector<std::string>> cvec;
 
-    skate::push_back(vector, "Testing");
-    skate::push_back(vector, "1", "2", "3");
+    cvec["Header 1"] = {"Row 1", "Row 2", "Row 3", "Row 4"};
+    cvec["Header 2"] = {"Item"};
+    cvec["Header 3"] = {"Orange", "Apple", "Banana", "Kiwi", "Mango"};
 
-    std::wcout << skate::json(vector) << '\n';
+    std::wcout << skate::json(cvec) << '\n';
 
-    std::wcout << skate::to_csv<std::wstring>(data).first << '\n';
+    std::wcout << skate::to_csv<std::wstring>(carr).first << '\n';
+    std::wcout << skate::to_csv<std::wstring>(cmap).first << '\n';
+    std::wcout << skate::to_csv<std::wstring>(carrmap).first << '\n';
+    std::wcout << skate::to_csv<std::wstring>(cvec).first << '\n';
+
+    const char *str = "Test text";
+    std::wcout << (skate::istarts_with(str, str + strlen(str), "TEST").second == skate::result_type::success) << '\n';
 }
 
 void test_containers() {

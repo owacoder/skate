@@ -233,23 +233,23 @@ namespace skate {
         static constexpr  unsigned int utf_max_bytes = 5;
         static constexpr std::uint32_t utf_error = 0x8000fffdul;
 
-        constexpr unicode(std::uint32_t codepoint = 0) noexcept : cp(codepoint <= utf_max ? codepoint : utf_error) {}
+        constexpr unicode(std::uint32_t codepoint = 0) noexcept : cp(codepoint < utf_max && !is_utf16_surrogate(codepoint) ? codepoint : utf_error) {}
         template<typename T>
         constexpr unicode(T hi_surrogate, T lo_surrogate) noexcept
-            : cp((hi_surrogate >= 0xd800u && hi_surrogate <= 0xdbffu) &&
-                 (lo_surrogate >= 0xdc00u && lo_surrogate <= 0xdfffu) ? (((hi_surrogate & 0x3fful) << 10) | (lo_surrogate & 0x3fful)) + 0x10000ul : utf_error)
+            : cp(is_utf16_hi_surrogate(hi_surrogate) &&
+                 is_utf16_lo_surrogate(lo_surrogate) ? (((hi_surrogate & 0x3fful) << 10) | (lo_surrogate & 0x3fful)) + 0x10000ul : utf_error)
         {}
 
-        constexpr bool is_utf16_surrogate() const noexcept { return cp >= 0xd800u && cp <= 0xdfffu; }
         constexpr bool is_valid() const noexcept { return cp <= utf_max; }
 
         constexpr std::uint32_t value() const noexcept { return cp & utf_mask; }
         constexpr explicit operator std::uint32_t() const noexcept { return value(); }
 
-        // Returns number of bytes needed for UTF-8 encoding
+        // Returns number of bytes needed for UTF-8 encoding (excludes UTF-16 surrogates since they cannot be encoded legally in UTF-8)
+        // Returns 0 if not valid in UTF-8
         constexpr unsigned int utf8_size() const noexcept {
             return cp <= 0x7fu? 1:
-                   cp <= 0xffu? 2:
+                   cp <= 0x7ffu? 2:
                    cp <= 0xffffu? 3:
                    cp <= utf_max? 4: 0;
         }
@@ -265,6 +265,16 @@ namespace skate {
             return cp > 0xffffu ? utf16_surrogate_helper(cp - 0x10000) : std::pair<std::uint16_t, std::uint16_t>{ std::uint16_t(cp), std::uint16_t(cp) };
         }
 
+        static bool is_utf16_surrogate(std::uint32_t cp) noexcept {
+            return cp >= 0xd800u && cp <= 0xdfffu;
+        }
+        static bool is_utf16_hi_surrogate(std::uint32_t cp) noexcept {
+            return cp >= 0xd800u && cp <= 0xdbffu;
+        }
+        static bool is_utf16_lo_surrogate(std::uint32_t cp) noexcept {
+            return cp >= 0xdc00u && cp <= 0xdfffu;
+        }
+
         constexpr bool operator==(unicode other) const noexcept { return cp == other.cp; }
         constexpr bool operator!=(unicode other) const noexcept { return cp != other.cp; }
         constexpr bool operator <(unicode other) const noexcept { return cp  < other.cp; }
@@ -275,9 +285,6 @@ namespace skate {
 
     template<typename OutputIterator>
     std::pair<OutputIterator, result_type> utf8_encode(unicode value, OutputIterator out) {
-        if (!value.is_valid() || value.is_utf16_surrogate())
-            return { out, result_type::failure };
-
         switch (value.utf8_size()) {
             default: return { out, result_type::failure };
             case 1:
@@ -334,7 +341,7 @@ namespace skate {
 
     template<typename OutputIterator>
     std::pair<OutputIterator, result_type> utf16_encode(unicode value, OutputIterator out) {
-        if (!value.is_valid() || value.is_utf16_surrogate())
+        if (!value.is_valid())
             return { out, result_type::failure };
 
         const auto surrogates = value.utf16_surrogates();
@@ -378,7 +385,7 @@ namespace skate {
 
     template<typename OutputIterator>
     std::pair<OutputIterator, result_type> utf32_encode(unicode value, OutputIterator out) {
-        if (!value.is_valid() || value.is_utf16_surrogate())
+        if (!value.is_valid())
             return { out, result_type::failure };
 
         *out++ = value.value();
@@ -575,6 +582,9 @@ namespace skate {
                     case 4: codepoint = (std::uint32_t(start_byte & 0x07) << 18) | (std::uint32_t(continuation_bytes[0]) << 12) | (std::uint32_t(continuation_bytes[1]) << 6) | (std::uint32_t(continuation_bytes[2])); break;
                 }
 
+                if (unicode(codepoint).utf8_size() != bytes_in_code)
+                    return { first, unicode::utf_error };
+
                 return { first, codepoint };
             }
         }
@@ -587,7 +597,7 @@ namespace skate {
 
         const std::uint16_t start_word = *first++;
 
-        if (!unicode(start_word).is_utf16_surrogate())
+        if (!unicode::is_utf16_hi_surrogate(start_word))
             return { first, start_word };
         else if (first == last)
             return { first, unicode::utf_error };

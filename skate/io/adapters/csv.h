@@ -370,42 +370,53 @@ namespace skate {
                                                                               skate::is_scalar<decltype(*begin(skate::value_of(begin(std::declval<T>()))))>::value && // Elements of value arrays must be scalars
                                                                               std::is_reference<decltype(skate::value_of(begin(std::declval<T>())))>::value // Value arrays must be references to actual data
                                                                                  , int>::type = 0>
-        std::pair<OutputIterator, result_type> write(const T &v, OutputIterator out, const csv_options &options = {}) {
+        std::pair<OutputIterator, result_type> write_csv(const T &v, OutputIterator out, const csv_options &options = {}) {
             using Array = typename std::decay<decltype(skate::value_of(begin(v)))>::type;
             using Iterator = typename std::decay<decltype(begin(std::declval<Array>()))>::type;
             using Value = typename std::decay<decltype(*std::declval<Iterator>())>::type;
 
             std::vector<std::pair<Iterator, Iterator>> iterators;
             result_type result = result_type::success;
+            bool has_data = false;
 
             // First write all keys as headers
             const auto first = begin(v);
             const auto last = end(v);
             for (auto it = first; it != last && result == result_type::success; ++it) {
-                if (it == first)
+                if (it != first)
                     *out++ = options.separator;
 
                 std::tie(out, result) = skate::write_csv(skate::key_of(it), out, options);
 
                 // Enable-if for template requires that skate::value_of(it) is a reference, not a copying function, so saving the iterators is safe
-                iterators.push_back({ begin(skate::value_of(it)), end(skate::value_of(it)) });
+                const auto l = begin(skate::value_of(it));
+                const auto r = end(skate::value_of(it));
+
+                has_data |= l != r;
+
+                iterators.push_back({ l, r });
             }
 
-            if (result == result_type::success)
+            while (has_data && result == result_type::success) {
+                has_data = false;
+
                 out = options.write_line_ending(out);
 
-            for (std::size_t i = 0; i < iterators.size() && result == result_type::success; ++i) {
-                auto &iterator_pair = iterators[i];
+                for (auto it = iterators.begin(); it != iterators.end() && result == result_type::success; ++it) {
+                    auto &iterator_pair = *it;
 
-                if (i != 0)
-                    *out++ = options.separator;
+                    if (it != iterators.begin())
+                        *out++ = options.separator;
 
-                if (iterator_pair.first != iterator_pair.second) { // Still more in column
-                    std::tie(out, result) = skate::write_csv(*iterator_pair.first, out, options);
+                    if (iterator_pair.first != iterator_pair.second) { // Still more in column
+                        std::tie(out, result) = skate::write_csv(*iterator_pair.first, out, options);
 
-                    ++iterator_pair.first;
-                } else {
-                    std::tie(out, result) = skate::write_csv(Value(), out, options);
+                        ++iterator_pair.first;
+
+                        has_data |= iterator_pair.first != iterator_pair.second;
+                    } else {
+                        std::tie(out, result) = skate::write_csv(Value(), out, options);
+                    }
                 }
             }
 

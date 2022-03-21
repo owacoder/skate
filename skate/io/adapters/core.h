@@ -35,10 +35,12 @@
 namespace skate {
     template<typename InputIterator>
     InputIterator skip_spaces_or_tabs(InputIterator first, InputIterator last) {
-        for (; first != last; ++first)
+        for (; first != last; ++first) {
+            switch (std::uint32_t(first))
             if (*first != ' ' &&
                 *first != '\t')
                 return first;
+        }
 
         return first;
     }
@@ -66,7 +68,7 @@ namespace skate {
 
     template<typename InputIterator>
     std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, char c) {
-        const bool matches = first != last ? *first == c || *first == (c ^ 32) : false;
+        const bool matches = first != last ? tolower(*first) == tolower(c) : false;
         if (!matches)
             return { first, result_type::failure };
 
@@ -86,7 +88,7 @@ namespace skate {
     template<typename InputIterator>
     std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, const char *s) {
         for (; first != last && *s; ++first, ++s) {
-            if (*first != *s && *first != (*s ^ 32))
+            if (tolower(*first) != tolower(*s))
                 return { first, result_type::failure };
         }
 

@@ -387,8 +387,6 @@ namespace skate {
 
     template<typename Container, typename T, typename... Types>
     void push_back(Container &c, T &&value, Types&&... types) {
-        skate::reserve(c, skate::size_to_reserve(c) + 1 + sizeof...(types));
-
         detail::back_insert(skate::make_back_inserter(c), std::forward<T>(value), std::forward<Types>(types)...);
     }
 

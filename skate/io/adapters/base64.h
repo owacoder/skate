@@ -75,9 +75,8 @@ namespace skate {
 
         base64_encoder &push_back(std::uint8_t byte_value) {
             m_state = (m_state << 8) | byte_value;
-            ++m_bytes_in_state;
 
-            if (m_bytes_in_state == 3) {
+            if (++m_bytes_in_state == 3) {
                 *m_out++ = m_alphabet[(m_state >> 18)       ];
                 *m_out++ = m_alphabet[(m_state >> 12) & 0x3f];
                 *m_out++ = m_alphabet[(m_state >>  6) & 0x3f];
@@ -165,9 +164,8 @@ namespace skate {
                 m_result = result_type::failure;
             } else {
                 m_state = (m_state << 6) | (b & 0x3f);
-                ++m_bytes_in_state;
 
-                if (m_bytes_in_state == 4) {
+                if (++m_bytes_in_state == 4) {
                     *m_out++ = std::uint8_t((m_state >> 16)       );
                     *m_out++ = std::uint8_t((m_state >>  8) & 0xff);
                     *m_out++ = std::uint8_t((m_state      ) & 0xff);

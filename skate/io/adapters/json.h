@@ -28,15 +28,13 @@ namespace skate {
                     {
                         *out++ = '\\';
                         *out++ = 'u';
-                        auto hex = hex_encode_iterator(out);
-                        out = big_endian_encode(surrogates.first, hex).underlying();
+                        out = big_endian_encode(surrogates.first, hex_encode_iterator(out)).underlying();
                     }
 
                     if (surrogates.first != surrogates.second) {
                         *out++ = '\\';
                         *out++ = 'u';
-                        auto hex = hex_encode_iterator(out);
-                        out = big_endian_encode(surrogates.second, hex).underlying();
+                        out = big_endian_encode(surrogates.second, hex_encode_iterator(out)).underlying();
                     }
                 } else {
                     *out++ = char(value.value());
@@ -743,7 +741,7 @@ namespace skate {
 
             while (first != last && result == result_type::success) {
                 std::tie(first, u) = utf_auto_decode_next(first, last);
-                if (!u.is_valid() || u.is_utf16_surrogate())
+                if (!u.is_valid())
                     return { first, result_type::failure };
 
                 switch (u.value()) {
@@ -774,7 +772,7 @@ namespace skate {
                                     hi = (hi << 4) | std::uint8_t(nibble);
                                 }
 
-                                if (!unicode(hi).is_utf16_surrogate()) {
+                                if (!unicode::is_utf16_hi_surrogate(hi)) {
                                     u = hi;
                                     break;
                                 }
