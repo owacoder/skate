@@ -426,7 +426,6 @@ void test_char_type() {
 int main()
 {
     test_csv();
-    return 0;
 
     test_containers();
 
@@ -436,8 +435,8 @@ int main()
 
     // vec.push_back({{"test", 2}, {"b", -3.1}});
 
-    skate::write_csv(txx, skate::utf8_encode_iterator(skate::make_back_inserter(xzz)));
-    skate::write_csv(mxx, skate::utf8_encode_iterator(skate::make_back_inserter(xzz)));
+    skate::write_csv(skate::utf8_encode_iterator(skate::make_back_inserter(xzz)), skate::csv_options(), mxx);
+    skate::write_csv(skate::utf8_encode_iterator(skate::make_back_inserter(xzz)), skate::csv_options(), txx);
 
     std::cout << xzz << std::endl;
 
