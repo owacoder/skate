@@ -18,8 +18,8 @@ namespace skate {
     }
 
     // Returns the Base64-decoded value for the character for the given encoding type
-    // Each alphabet is 128 bytes long. Character values over 0x7f are assumed to be invalid
-    // The values returned are the actual byte values for the character (0 - 63), 64 if a padding character, or 0x7f if invalid
+    // Each alphabet is 128 bytes long. Character values over 0x7f are not allowed
+    // The values returned are the actual byte values for the character (0 - 63), 64 if a padding character, 0x7e if character should be skipped, or 0x7f if invalid
     inline constexpr const char *base64_decode_alphabet_for_type(base64_type type) {
         return type == base64_type::normal ? "\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f"
                                              "\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f"
@@ -56,24 +56,21 @@ namespace skate {
     }
 
     template<typename OutputIterator>
-    class base64_encoder {
+    class base64_encode_iterator {
         OutputIterator m_out;
         unsigned long m_state;
         unsigned int m_bytes_in_state;
         const char *m_alphabet;
 
     public:
-        constexpr base64_encoder(OutputIterator out, base64_type type = base64_type::normal) : m_out(out), m_state(0), m_bytes_in_state(0), m_alphabet(base64_encode_alphabet_for_type(type)) {}
+        constexpr base64_encode_iterator(OutputIterator out, base64_type type = base64_type::normal)
+            : m_out(out)
+            , m_state(0)
+            , m_bytes_in_state(0)
+            , m_alphabet(base64_encode_alphabet_for_type(type))
+        {}
 
-        template<typename InputIterator>
-        base64_encoder &append(InputIterator first, InputIterator last) {
-            for (; first != last; ++first)
-                push_back(*first);
-
-            return *this;
-        }
-
-        base64_encoder &push_back(std::uint8_t byte_value) {
+        base64_encode_iterator &operator=(std::uint8_t byte_value) {
             m_state = (m_state << 8) | byte_value;
 
             if (++m_bytes_in_state == 3) {
@@ -89,7 +86,11 @@ namespace skate {
             return *this;
         }
 
-        base64_encoder &finish() {
+        constexpr base64_encode_iterator &operator*() noexcept { return *this; }
+        constexpr base64_encode_iterator &operator++() noexcept { return *this; }
+        constexpr base64_encode_iterator &operator++(int) noexcept { return *this; }
+
+        base64_encode_iterator &finish() {
             if (m_bytes_in_state) {
                 m_state <<= 8 * (3 - m_bytes_in_state);
 
@@ -118,7 +119,13 @@ namespace skate {
 
     template<typename InputIterator, typename OutputIterator>
     OutputIterator base64_encode(InputIterator first, InputIterator last, OutputIterator out, base64_type type = base64_type::normal) {
-        return base64_encoder(out, type).append(first, last).finish().underlying();
+        auto encode = base64_encode_iterator(out, type);
+
+        while (first != last) {
+            *encode++ = std::uint8_t(*first++);
+        }
+
+        return encode.finish().underlying();
     }
 
     template<typename Container = std::string, typename InputIterator>
@@ -135,57 +142,82 @@ namespace skate {
     template<typename Container = std::string, typename Range>
     constexpr Container to_base64(const Range &range, base64_type type = base64_type::normal) { return to_base64<Container>(begin(range), end(range), type); }
 
-    // TODO: Base64 decoding not fully implemented at the moment.
-    template<typename OutputIterator>
-    class base64_decoder {
-        OutputIterator m_out;
-        unsigned long m_state;
-        unsigned int m_bytes_in_state;
-        result_type m_result;
-        const char *m_alphabet;
+    template<typename InputIterator, typename OutputIterator>
+    std::tuple<InputIterator, OutputIterator, result_type> base64_decode(InputIterator first, InputIterator last, OutputIterator out, base64_type type = base64_type::normal) {
+        const char *alphabet = base64_decode_alphabet_for_type(type);
+        unsigned long state = 0;
+        unsigned int bytes_in_state = 0;
+        bool padding_reached = false;
 
-    public:
-        constexpr base64_decoder(OutputIterator out, base64_type type = base64_type::normal) : m_out(out), m_state(0), m_bytes_in_state(0), m_result(result_type::success), m_alphabet(base64_decode_alphabet_for_type(type)) {}
+        for (; first != last; ++first) {
+            const std::uint32_t chr = std::uint32_t(*first);
+            const std::uint8_t b = chr >= 0x80 ? 0x7f : alphabet[chr];
 
-        template<typename InputIterator>
-        base64_decoder &append(InputIterator first, InputIterator last) {
-            for (; first != last; ++first)
-                push_back(*first);
+            switch (b) {
+                case 0x7e: continue; // Skip character
+                case 0x7f: return { first, out, result_type::failure }; // Invalid character
+                case 64:
+                    padding_reached = true;
+                    break;
+                default:
+                    if (padding_reached) {
+                        // If padding reached and bytes still in state, that's incomplete padding
+                        // If padding reached and no bytes in state, padding is properly aligned
+                        return { first, out, bytes_in_state ? result_type::failure : result_type::success };
+                    }
 
-            return *this;
-        }
-
-        template<typename T>
-        base64_decoder &push_back(T value) {
-            const std::uint32_t chr = std::uint32_t(value);
-            const std::uint8_t b = chr >= 0x80 ? 0x7f : m_alphabet[chr];
-
-            if (b == 0x7f) {
-                m_result = result_type::failure;
-            } else {
-                m_state = (m_state << 6) | (b & 0x3f);
-
-                if (++m_bytes_in_state == 4) {
-                    *m_out++ = std::uint8_t((m_state >> 16)       );
-                    *m_out++ = std::uint8_t((m_state >>  8) & 0xff);
-                    *m_out++ = std::uint8_t((m_state      ) & 0xff);
-
-                    m_state = 0;
-                    m_bytes_in_state = 0;
-                }
+                    break;
             }
 
-            return *this;
+            // IMPORTANT: It's important that padding is specified as 64, because a simple AND operation will work to reduce it to 0 (mod 64)
+            state = (state << 6) | (b & 0x3f);
+
+            if (++bytes_in_state == 4) {
+                *out++ = std::uint8_t((state >> 16)       );
+                *out++ = std::uint8_t((state >>  8) & 0xff);
+                *out++ = std::uint8_t((state      ) & 0xff);
+
+                state = 0;
+                bytes_in_state = 0;
+            }
         }
 
-        base64_decoder &finish() {
-            /* TODO */
+        // Add implicit padding if it wasn't explicitly included
+        if (bytes_in_state) {
+            while (bytes_in_state < 4) {
+                state <<= 6;
+                ++bytes_in_state;
+            }
 
-            return *this;
+            *out++ = std::uint8_t((state >> 16)       );
+            *out++ = std::uint8_t((state >>  8) & 0xff);
+            *out++ = std::uint8_t((state      ) & 0xff);
         }
 
-        constexpr OutputIterator underlying() const { return m_out; }
-    };
+        return { first, out, result_type::success };
+    }
+
+    inline void test_base64() {
+        const char *encode[] = {
+            "The quick brown fox jumps over the lazy dog",
+            "Many hands make light work.",
+            "1234567890"
+        };
+
+        const char *decode[] = {
+            "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZw==",
+            "TWFueSBoYW5kcyBtYWtlIGxpZ2h0IHdvcmsu",
+            "MTIzNDU2Nzg5MA=="
+        };
+
+        for (std::size_t i = 0; i < sizeof(encode) / sizeof(*encode); ++i) {
+            base64_encode(encode[i], encode[i] + strlen(encode[i]), std::ostreambuf_iterator(std::cout.rdbuf())); std::cout << '\n';
+        }
+
+        for (std::size_t i = 0; i < sizeof(decode) / sizeof(*decode); ++i) {
+            base64_decode(decode[i], decode[i] + strlen(decode[i]), std::ostreambuf_iterator(std::cout.rdbuf())); std::cout << '\n';
+        }
+    }
 }
 
 #endif // SKATE_BASE64_H
