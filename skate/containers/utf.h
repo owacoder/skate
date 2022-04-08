@@ -283,8 +283,24 @@ namespace skate {
         constexpr bool operator>=(unicode other) const noexcept { return cp >= other.cp; }
     };
 
+    template<typename InputIterator>
+    struct unicode_input_result {
+        constexpr unicode_input_result(InputIterator input, unicode chr)
+            : input(input)
+            , character(chr)
+        {}
+
+        template<typename I, typename U>
+        constexpr operator std::tuple<I, U>() {
+            return { input, character };
+        }
+
+        InputIterator input;
+        unicode character;
+    };
+
     template<typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf8_encode(unicode value, OutputIterator out) {
+    output_result<OutputIterator> utf8_encode(unicode value, OutputIterator out) {
         switch (value.utf8_size()) {
             default: return { out, result_type::failure };
             case 1:
@@ -340,7 +356,7 @@ namespace skate {
     };
 
     template<typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf16_encode(unicode value, OutputIterator out) {
+    output_result<OutputIterator> utf16_encode(unicode value, OutputIterator out) {
         if (!value.is_valid())
             return { out, result_type::failure };
 
@@ -384,7 +400,7 @@ namespace skate {
     };
 
     template<typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf32_encode(unicode value, OutputIterator out) {
+    output_result<OutputIterator> utf32_encode(unicode value, OutputIterator out) {
         if (!value.is_valid())
             return { out, result_type::failure };
 
@@ -425,21 +441,21 @@ namespace skate {
     template<typename CharT,
              typename OutputIterator,
              typename std::enable_if<sizeof(CharT) == sizeof(std::uint8_t), int>::type = 0>
-    constexpr std::pair<OutputIterator, result_type> utf_encode(unicode value, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf_encode(unicode value, OutputIterator out) {
         return utf8_encode(value, out);
     }
 
     template<typename CharT,
              typename OutputIterator,
              typename std::enable_if<sizeof(CharT) == sizeof(std::uint16_t), int>::type = 0>
-    constexpr std::pair<OutputIterator, result_type> utf_encode(unicode value, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf_encode(unicode value, OutputIterator out) {
         return utf16_encode(value, out);
     }
 
     template<typename CharT,
              typename OutputIterator,
              typename std::enable_if<sizeof(CharT) == sizeof(std::uint32_t), int>::type = 0>
-    constexpr std::pair<OutputIterator, result_type> utf_encode(unicode value, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf_encode(unicode value, OutputIterator out) {
         return utf32_encode(value, out);
     }
 
@@ -473,7 +489,7 @@ namespace skate {
 
     namespace detail {
         template<typename InputIterator, typename OutputIterator, typename Predicate>
-        std::pair<OutputIterator, result_type> utf_encode_range(InputIterator first, InputIterator last, OutputIterator out, Predicate p) {
+        output_result<OutputIterator> utf_encode_range(InputIterator first, InputIterator last, OutputIterator out, Predicate p) {
             result_type result = result_type::success;
 
             for (; first != last && result == result_type::success; ++first)
@@ -484,22 +500,22 @@ namespace skate {
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::pair<OutputIterator, result_type> utf8_encode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf8_encode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_encode_range(first, last, out, utf8_encode<OutputIterator>);
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::pair<OutputIterator, result_type> utf16_encode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf16_encode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_encode_range(first, last, out, utf16_encode<OutputIterator>);
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::pair<OutputIterator, result_type> utf32_encode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf32_encode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_encode_range(first, last, out, utf32_encode<OutputIterator>);
     }
 
     template<typename CharT, typename InputIterator, typename OutputIterator>
-    constexpr std::pair<OutputIterator, result_type> utf_encode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr output_result<OutputIterator> utf_encode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_encode_range(first, last, out, utf_encode<CharT, OutputIterator>);
     }
 
@@ -543,7 +559,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, unicode> utf8_decode_next(InputIterator first, InputIterator last) {
+    unicode_input_result<InputIterator> utf8_decode_next(InputIterator first, InputIterator last) {
         if (first == last)
             return { first, unicode::utf_error };
 
@@ -591,7 +607,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, unicode> utf16_decode_next(InputIterator first, InputIterator last) {
+    unicode_input_result<InputIterator> utf16_decode_next(InputIterator first, InputIterator last) {
         if (first == last)
             return { first, unicode::utf_error };
 
@@ -611,7 +627,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, unicode> utf32_decode_next(InputIterator first, InputIterator last) {
+    unicode_input_result<InputIterator> utf32_decode_next(InputIterator first, InputIterator last) {
         if (first == last)
             return { first, unicode::utf_error };
 
@@ -621,34 +637,34 @@ namespace skate {
     }
 
     template<typename CharT,
-        typename InputIterator,
-        typename std::enable_if<sizeof(CharT) == sizeof(std::uint8_t), int>::type = 0>
-        constexpr std::pair<InputIterator, unicode> utf_decode_next(InputIterator first, InputIterator last) {
+             typename InputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint8_t), int>::type = 0>
+    constexpr unicode_input_result<InputIterator> utf_decode_next(InputIterator first, InputIterator last) {
         return utf8_decode_next(first, last);
     }
 
     template<typename CharT,
-        typename InputIterator,
-        typename std::enable_if<sizeof(CharT) == sizeof(std::uint16_t), int>::type = 0>
-        constexpr std::pair<InputIterator, unicode> utf_decode_next(InputIterator first, InputIterator last) {
+             typename InputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint16_t), int>::type = 0>
+    constexpr unicode_input_result<InputIterator> utf_decode_next(InputIterator first, InputIterator last) {
         return utf16_decode_next(first, last);
     }
 
     template<typename CharT,
-        typename InputIterator,
-        typename std::enable_if<sizeof(CharT) == sizeof(std::uint32_t), int>::type = 0>
-        constexpr std::pair<InputIterator, unicode> utf_decode_next(InputIterator first, InputIterator last) {
+             typename InputIterator,
+             typename std::enable_if<sizeof(CharT) == sizeof(std::uint32_t), int>::type = 0>
+    constexpr unicode_input_result<InputIterator> utf_decode_next(InputIterator first, InputIterator last) {
         return utf32_decode_next(first, last);
     }
 
     template<typename InputIterator>
-    constexpr std::pair<InputIterator, unicode> utf_auto_decode_next(InputIterator first, InputIterator last) {
+    constexpr unicode_input_result<InputIterator> utf_auto_decode_next(InputIterator first, InputIterator last) {
         return utf_decode_next<decltype(*first), InputIterator>(first, last);
     }
 
     namespace detail {
         template<typename InputIterator, typename OutputIterator, typename Predicate>
-        std::tuple<InputIterator, OutputIterator, result_type> utf_decode_range(InputIterator first, InputIterator last, OutputIterator out, Predicate p) {
+        parsing_result<InputIterator, OutputIterator> utf_decode_range(InputIterator first, InputIterator last, OutputIterator out, Predicate p) {
             unicode codepoint;
 
             while (first != last) {
@@ -665,131 +681,117 @@ namespace skate {
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::tuple<InputIterator, OutputIterator, result_type> utf8_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr parsing_result<InputIterator, OutputIterator> utf8_decode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_decode_range(first, last, out, utf8_decode_next);
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::tuple<InputIterator, OutputIterator, result_type> utf16_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr parsing_result<InputIterator, OutputIterator> utf16_decode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_decode_range(first, last, out, utf16_decode_next);
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::tuple<InputIterator, OutputIterator, result_type> utf32_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr parsing_result<InputIterator, OutputIterator> utf32_decode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_decode_range(first, last, out, utf32_decode_next);
     }
 
     template<typename CharT, typename InputIterator, typename OutputIterator>
-    constexpr std::tuple<InputIterator, OutputIterator, result_type> utf_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr parsing_result<InputIterator, OutputIterator> utf_decode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_decode_range(first, last, out, utf_decode_next<CharT, InputIterator>);
     }
 
     template<typename CharT, typename Range, typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf_decode(const Range &range, OutputIterator out) {
-        const auto tuple = utf_decode<CharT>(begin(range), end(range), out);
-
-        return { std::get<1>(tuple), std::get<2>(tuple) };
+    constexpr output_result<OutputIterator> utf_decode(const Range &range, OutputIterator out) {
+        return utf_decode<CharT>(begin(range), end(range), out);
     }
 
     template<typename InputIterator, typename OutputIterator>
-    constexpr std::tuple<InputIterator, OutputIterator, result_type> utf_auto_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    constexpr parsing_result<InputIterator, OutputIterator> utf_auto_decode(InputIterator first, InputIterator last, OutputIterator out) {
         return detail::utf_decode_range(first, last, out, utf_decode_next<decltype(*first), InputIterator>);
     }
 
     template<typename Range, typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf_auto_decode(const Range &range, OutputIterator out) {
-        const auto tuple = utf_auto_decode(begin(range), end(range), out);
-
-        return { std::get<1>(tuple), std::get<2>(tuple) };
+    constexpr output_result<OutputIterator> utf_auto_decode(const Range &range, OutputIterator out) {
+        return utf_auto_decode(begin(range), end(range), out);
     }
 
     template<typename FromCharT, typename ToCharT, typename InputIterator, typename OutputIterator>
-    std::tuple<InputIterator, OutputIterator, result_type> utf_transcode(InputIterator first, InputIterator last, OutputIterator out) {
+    parsing_result<InputIterator, OutputIterator> utf_transcode(InputIterator first, InputIterator last, OutputIterator out) {
         const auto tuple = utf_decode<FromCharT>(first, last, utf_encode_iterator<ToCharT, OutputIterator>(out));
 
-        const auto input = std::get<0>(tuple);
-        const auto output = std::get<1>(tuple);
-        const auto result = std::get<2>(tuple);
-
-        return {
-            input,
-            output.underlying(),
-            merge_results(result, output.result())
-        };
+        return { tuple.input, tuple.output.underlying(), merge_results(tuple.result, tuple.output.result()) };
     }
 
     template<typename FromCharT, typename ToCharT, typename Range, typename OutputIterator>
-    std::pair<OutputIterator, result_type> utf_transcode(const Range &range, OutputIterator out) {
-        const auto tuple = utf_transcode<FromCharT, ToCharT>(begin(range), end(range), out);
-
-        return { std::get<1>(tuple), std::get<2>(tuple) };
+    constexpr output_result<OutputIterator> utf_transcode(const Range &range, OutputIterator out) {
+        return utf_transcode<FromCharT, ToCharT>(begin(range), end(range), out);
     }
 
     template<typename From, typename To>
     constexpr result_type utf_auto_transcode(const From &from, To &to) {
-        return utf_transcode<decltype(*begin(from)), decltype(*begin(to))>(from, skate::make_back_inserter(to)).second;
+        return utf_transcode<decltype(*begin(from)), decltype(*begin(to))>(from, skate::make_back_inserter(to)).result;
     }
 
     template<typename Container = std::string, typename InputIterator>
-    std::pair<Container, result_type> to_utf8(InputIterator first, InputIterator last) {
+    container_result<Container> to_utf8(InputIterator first, InputIterator last) {
         Container container;
 
         const auto tuple = utf_transcode<decltype(*first), std::uint8_t>(first, last, skate::make_back_inserter(container));
 
-        return { container, std::get<2>(tuple) };
+        return { container, tuple.result };
     }
 
     template<typename Container = typename std::conditional<sizeof(wchar_t) == sizeof(std::uint16_t), std::wstring, std::vector<std::uint16_t>>::type, typename InputIterator>
-        std::pair<Container, result_type> to_utf16(InputIterator first, InputIterator last) {
+    container_result<Container> to_utf16(InputIterator first, InputIterator last) {
         Container container;
 
         const auto tuple = utf_transcode<decltype(*first), std::uint16_t>(first, last, skate::make_back_inserter(container));
 
-        return { container, std::get<2>(tuple) };
+        return { container, tuple.result };
     }
 
     template<typename Container = typename std::conditional<sizeof(wchar_t) == sizeof(std::uint32_t), std::wstring, std::vector<std::uint32_t>>::type, typename InputIterator>
-        std::pair<Container, result_type> to_utf32(InputIterator first, InputIterator last) {
+    container_result<Container> to_utf32(InputIterator first, InputIterator last) {
         Container container;
 
         const auto tuple = utf_transcode<decltype(*first), std::uint32_t>(first, last, skate::make_back_inserter(container));
 
-        return { container, std::get<2>(tuple) };
+        return { container, tuple.result };
     }
 
     template<typename Container = std::string, typename InputIterator>
-    std::pair<Container, result_type> to_auto_utf(InputIterator first, InputIterator last) {
+    container_result<Container> to_auto_utf(InputIterator first, InputIterator last) {
         Container container;
 
         const auto tuple = utf_transcode<decltype(*first), decltype(*begin(container))>(first, last, skate::make_back_inserter(container));
 
-        return { container, std::get<2>(tuple) };
+        return { container, tuple.result };
     }
 
     template<typename Container = std::string, typename Range>
-    std::pair<Container, result_type> to_utf8(const Range &range) { return to_utf8(begin(range), end(range)); }
+    container_result<Container> to_utf8(const Range &range) { return to_utf8(begin(range), end(range)); }
 
     template<typename Container = typename std::conditional<sizeof(wchar_t) == sizeof(std::uint16_t), std::wstring, std::vector<std::uint16_t>>::type,
              typename Range>
-    std::pair<Container, result_type> to_utf16(const Range &range) { return to_utf16(begin(range), end(range)); }
+    container_result<Container> to_utf16(const Range &range) { return to_utf16(begin(range), end(range)); }
 
     template<typename Container = typename std::conditional<sizeof(wchar_t) == sizeof(std::uint32_t), std::wstring, std::vector<std::uint32_t>>::type,
              typename Range>
-    std::pair<Container, result_type> to_utf32(const Range &range) { return to_utf32(begin(range), end(range)); }
+    container_result<Container> to_utf32(const Range &range) { return to_utf32(begin(range), end(range)); }
 
     template<typename Container = std::string,
              typename Range>
-    std::pair<Container, result_type> to_auto_utf(const Range &range) { return to_auto_utf<Container>(begin(range), end(range)); }
+    container_result<Container> to_auto_utf(const Range &range) { return to_auto_utf<Container>(begin(range), end(range)); }
 
     template<typename Container = std::string,
              typename Range,
              typename std::enable_if<std::is_same<typename std::decay<Container>::type, typename std::decay<Range>::type>::value, int>::type = 0>
-    std::pair<const Container &, result_type> to_auto_utf_weak_convert(const Range &range) { return { range, result_type::success }; }
+    container_result<const Container &> to_auto_utf_weak_convert(const Range &range) { return { range, result_type::success }; }
 
     template<typename Container = std::string,
              typename Range,
              typename std::enable_if<!std::is_same<typename std::decay<Container>::type, typename std::decay<Range>::type>::value, int>::type = 0>
-    std::pair<Container, result_type> to_auto_utf_weak_convert(const Range &range) { return to_auto_utf<Container>(range); }
+    container_result<Container> to_auto_utf_weak_convert(const Range &range) { return to_auto_utf<Container>(range); }
 }
 
 #endif // SKATE_UTF_H

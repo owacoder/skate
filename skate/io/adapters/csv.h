@@ -124,7 +124,7 @@ namespace skate {
     }
 
     template<typename OutputIterator, typename T>
-    std::pair<OutputIterator, result_type> write_csv(OutputIterator, const csv_options &, const T &);
+    output_result<OutputIterator> write_csv(OutputIterator, const csv_options &, const T &);
 
     namespace detail {
         // C++11 doesn't have generic lambdas, so create a functor class that allows writing a tuple
@@ -158,12 +158,12 @@ namespace skate {
         };
 
         template<typename OutputIterator>
-        constexpr std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &, std::nullptr_t) {
+        constexpr output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &, std::nullptr_t) {
             return { out, result_type::success };
         }
 
         template<typename OutputIterator>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, bool b) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, bool b) {
             switch (options.bool_fmt) {
                 default:                        *out++ = b ? '1' : '0'; return { out, result_type::success };
                 case csv_bool_type::truefalse:  return { b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out), result_type::success };
@@ -181,17 +181,17 @@ namespace skate {
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &, T v) {
+        constexpr output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &, T v) {
             return int_encode(v, out);
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &, T v) {
+        constexpr output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &, T v) {
             return fp_encode(v, out);
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             result_type result = result_type::success;
 
             if (csv_requires_escaping(begin(v), end(v))) {
@@ -217,7 +217,7 @@ namespace skate {
 
         // Array of scalars, simple CSV row
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_array<T>::value && skate::is_scalar<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             const auto first = begin(v);
             const auto last = end(v);
 
@@ -239,7 +239,7 @@ namespace skate {
 
         // Tuple of scalars, simple CSV row
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_trivial_tuple<T>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             result_type result = result_type::success;
             bool has_written_something = false;
 
@@ -256,7 +256,7 @@ namespace skate {
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_array<T>::value &&
                                                                               skate::is_array<decltype(*begin(std::declval<T>()))>::value &&
                                                                               skate::is_scalar<decltype(*begin(*begin(std::declval<T>())))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             result_type result = result_type::success;
             const auto last = end(v);
 
@@ -270,7 +270,7 @@ namespace skate {
         // Array of tuples of scalars, CSV document
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_array<T>::value &&
                                                                               skate::is_trivial_tuple<decltype(*begin(std::declval<T>()))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             result_type result = result_type::success;
             const auto last = end(v);
 
@@ -285,7 +285,7 @@ namespace skate {
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_map<T>::value &&
                                                                               skate::is_scalar<decltype(skate::key_of(begin(std::declval<T>())))>::value &&
                                                                               skate::is_scalar<decltype(skate::value_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             const auto first = begin(v);
             const auto last = end(v);
 
@@ -321,7 +321,7 @@ namespace skate {
                                                                               skate::is_map<decltype(*begin(std::declval<T>()))>::value &&
                                                                               skate::is_scalar<decltype(skate::key_of(begin(*begin(std::declval<T>()))))>::value &&
                                                                               skate::is_scalar<decltype(skate::value_of(begin(*begin(std::declval<T>()))))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             using Key = typename std::decay<decltype(skate::key_of(begin(*begin(std::declval<T>()))))>::type;
 
             const auto last = end(v);
@@ -370,7 +370,7 @@ namespace skate {
                                                                               skate::is_scalar<decltype(*begin(skate::value_of(begin(std::declval<T>()))))>::value && // Elements of value arrays must be scalars
                                                                               std::is_reference<decltype(skate::value_of(begin(std::declval<T>())))>::value // Value arrays must be references to actual data
                                                                                  , int>::type = 0>
-        std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+        output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
             using Array = typename std::decay<decltype(skate::value_of(begin(v)))>::type;
             using Iterator = typename std::decay<decltype(begin(std::declval<Array>()))>::type;
             using Value = typename std::decay<decltype(*std::declval<Iterator>())>::type;
@@ -428,7 +428,7 @@ namespace skate {
     }
 
     template<typename OutputIterator, typename T>
-    std::pair<OutputIterator, result_type> write_csv(OutputIterator out, const csv_options &options, const T &v) {
+    output_result<OutputIterator> write_csv(OutputIterator out, const csv_options &options, const T &v) {
         return detail::write_csv(out, options, v);
     }
 
@@ -502,7 +502,7 @@ namespace skate {
                                              value.options(),
                                              value.value());
 
-        if (result.first.failed() || result.second != result_type::success)
+        if (result.output.failed() || result.result != result_type::success)
             os.setstate(std::ios_base::failbit);
 
         return os;
@@ -520,14 +520,14 @@ namespace skate {
 #endif
 
     template<typename String = std::string, typename Type>
-    std::pair<String, result_type> to_csv(const Type &value, csv_options options = {}) {
+    container_result<String> to_csv(const Type &value, csv_options options = {}) {
         String j;
 
         const auto result = skate::write_csv(skate::utf_encode_iterator<decltype(*begin(j)), decltype(skate::make_back_inserter(j))>(skate::make_back_inserter(j)),
                                              options,
                                              value);
 
-        return { result.second == result_type::success ? std::move(j) : String(), result.second };
+        return { result.result == result_type::success ? std::move(j) : String(), result.result };
     }
 
     ///////////////////////////////////////////////////////////////////////

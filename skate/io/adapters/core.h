@@ -58,7 +58,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, result_type> starts_with(InputIterator first, InputIterator last, char c) {
+    input_result<InputIterator> starts_with(InputIterator first, InputIterator last, char c) {
         const bool matches = first != last ? *first == c : false;
         if (!matches)
             return { first, result_type::failure };
@@ -67,7 +67,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, char c) {
+    input_result<InputIterator> istarts_with(InputIterator first, InputIterator last, char c) {
         const bool matches = first != last ? tolower(*first) == tolower(c) : false;
         if (!matches)
             return { first, result_type::failure };
@@ -76,7 +76,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, result_type> starts_with(InputIterator first, InputIterator last, const char *s) {
+    input_result<InputIterator> starts_with(InputIterator first, InputIterator last, const char *s) {
         for (; first != last && *s; ++first, ++s) {
             if (*first != *s)
                 return { first, result_type::failure };
@@ -86,7 +86,7 @@ namespace skate {
     }
 
     template<typename InputIterator>
-    std::pair<InputIterator, result_type> istarts_with(InputIterator first, InputIterator last, const char *s) {
+    input_result<InputIterator> istarts_with(InputIterator first, InputIterator last, const char *s) {
         for (; first != last && *s; ++first, ++s) {
             if (tolower(*first) != tolower(*s))
                 return { first, result_type::failure };
@@ -96,7 +96,7 @@ namespace skate {
     }
 
     template<typename T, typename InputIterator>
-    std::tuple<InputIterator, T, result_type> little_endian_decode_next(InputIterator first, InputIterator last) {
+    parsing_result<InputIterator, T> little_endian_decode_next(InputIterator first, InputIterator last) {
         using DecayedT = typename std::decay<T>::type;
         static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
         static_assert(std::numeric_limits<DecayedT>::digits % 8 == 0, "Only integral types that are a multiple of 8 bits can be parsed");
@@ -114,7 +114,7 @@ namespace skate {
     }
 
     template<typename T, typename InputIterator, typename OutputIterator>
-    std::tuple<InputIterator, OutputIterator, result_type> little_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    parsing_result<InputIterator, OutputIterator> little_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
         result_type result = result_type::success;
 
         while (first != last) {
@@ -131,7 +131,7 @@ namespace skate {
     }
 
     template<typename T, typename InputIterator>
-    std::tuple<InputIterator, T, result_type> big_endian_decode_next(InputIterator first, InputIterator last) {
+    parsing_result<InputIterator, T> big_endian_decode_next(InputIterator first, InputIterator last) {
         using DecayedT = typename std::decay<T>::type;
         static_assert(std::is_unsigned<DecayedT>::value, "Only unsigned integer types can be parsed");
         static_assert(std::numeric_limits<DecayedT>::digits % 8 == 0, "Only integral types that are a multiple of 8 bits can be parsed");
@@ -150,7 +150,7 @@ namespace skate {
     }
 
     template<typename T, typename InputIterator, typename OutputIterator>
-    std::tuple<InputIterator, OutputIterator, result_type> big_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
+    parsing_result<InputIterator, OutputIterator> big_endian_decode(InputIterator first, InputIterator last, OutputIterator out) {
         result_type result = result_type::success;
 
         while (first != last) {
@@ -218,8 +218,10 @@ namespace skate {
         using reference = void;
 
         constexpr little_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+        constexpr little_endian_encode_iterator(const little_endian_encode_iterator &) = default;
 
-        template<typename T>
+        constexpr little_endian_encode_iterator &operator=(const little_endian_encode_iterator &) = default;
+        template<typename T, typename std::enable_if<std::is_unsigned<typename std::decay<T>::type>::value, int>::type = 0>
         constexpr little_endian_encode_iterator &operator=(T &&value) { return m_out = little_endian_encode(std::forward<T>(value), m_out), *this; }
 
         constexpr little_endian_encode_iterator &operator*() noexcept { return *this; }
@@ -241,8 +243,10 @@ namespace skate {
         using reference = void;
 
         constexpr big_endian_encode_iterator(OutputIterator out) : m_out(out) {}
+        constexpr big_endian_encode_iterator(const big_endian_encode_iterator &) = default;
 
-        template<typename T>
+        constexpr big_endian_encode_iterator &operator=(const big_endian_encode_iterator &) = default;
+        template<typename T, typename std::enable_if<std::is_unsigned<typename std::decay<T>::type>::value, int>::type = 0>
         constexpr big_endian_encode_iterator &operator=(T &&value) { return m_out = big_endian_encode(std::forward<T>(value), m_out), *this; }
 
         constexpr big_endian_encode_iterator &operator*() noexcept { return *this; }
@@ -358,7 +362,7 @@ namespace skate {
 
 #if __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-    std::pair<const char *, result_type> int_decode(const char *first, const char *last, T &v, int base = 10) {
+    input_result<const char *> int_decode(const char *first, const char *last, T &v, int base = 10) {
         const auto result = std::from_chars(first, last, v, base);
 
         return { result.ptr, result.ec == std::errc() ? result_type::success : result_type::failure };
@@ -366,7 +370,7 @@ namespace skate {
 #endif
 
     template<typename T, typename InputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-    std::pair<InputIterator, result_type> int_decode(InputIterator first, InputIterator last, T &v, int base = 10) {
+    input_result<InputIterator> int_decode(InputIterator first, InputIterator last, T &v, int base = 10) {
         assert(base >= 2 && base <= 36);
 
         if (first == last)
@@ -433,7 +437,7 @@ namespace skate {
     }
 
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-    std::pair<OutputIterator, result_type> int_encode(T v, OutputIterator out, int base = 10) {
+    output_result<OutputIterator> int_encode(T v, OutputIterator out, int base = 10) {
         if (base < 2 || base > 36)
             return { out, result_type::failure };
 
@@ -481,7 +485,7 @@ namespace skate {
 
 #if MSVC_COMPILER && __cplusplus >= 201703L
     template<typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    constexpr std::pair<const char *, result_type> fp_decode(const char *first, const char *last, T &v) {
+    constexpr input_result<const char *> fp_decode(const char *first, const char *last, T &v) {
         const auto result = std::from_chars(first, last, v);
 
         return { result.ptr, result.ec == std::errc() ? result_type::success : result_type::failure };
@@ -491,7 +495,7 @@ namespace skate {
     // TODO: This algorithm cannot be single-pass for floating point values due to 'e' handling for inputs like '1.12e+' (which should parse as 1.12) or similar
     // This can cause issues with validation of inputs that std::from_chars would accept just fine
     template<typename T, typename InputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    std::pair<InputIterator, result_type> fp_decode(InputIterator first, InputIterator last, T &v) {
+    input_result<InputIterator> fp_decode(InputIterator first, InputIterator last, T &v) {
         if (first == last)
             return { first, result_type::failure };
 
@@ -509,14 +513,14 @@ namespace skate {
             if (*first == 'n' || *first == 'N') { // Check for NaN
                 const auto result = istarts_with(++first, last, "an");
 
-                if (result.second == result_type::success)
+                if (result.result == result_type::success)
                     v = negative ? -std::numeric_limits<T>::quiet_NaN() : std::numeric_limits<T>::quiet_NaN();
 
                 return result;
             } else if (*first == 'i' || *first == 'I') { // Check for Infinity
                 const auto result = istarts_with(++first, last, "nfinity");
 
-                if (result.second == result_type::success)
+                if (result.result == result_type::success)
                     v = negative ? -std::numeric_limits<T>::infinity() : std::numeric_limits<T>::infinity();
 
                 return result;
@@ -587,7 +591,7 @@ namespace skate {
     }
 
     template<typename T, typename OutputIterator, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    std::pair<OutputIterator, result_type> fp_encode(T v, OutputIterator out, bool allow_inf = true, bool allow_nan = true) {
+    output_result<OutputIterator> fp_encode(T v, OutputIterator out, bool allow_inf = true, bool allow_nan = true) {
         static_assert(std::is_same<typename std::decay<T>::type, float>::value ||
                       std::is_same<typename std::decay<T>::type, double>::value ||
                       std::is_same<typename std::decay<T>::type, long double>::value, "floating point type must be float, double, or long double");

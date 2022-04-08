@@ -11,7 +11,7 @@
 
 namespace skate {
     template<typename OutputIterator>
-    std::pair<OutputIterator, result_type> json_escape(unicode value, OutputIterator out) {
+    output_result<OutputIterator> json_escape(unicode value, OutputIterator out) {
         if (!value.is_valid())
             return { out, result_type::failure };
 
@@ -50,7 +50,7 @@ namespace skate {
     }
 
     template<typename InputIterator, typename OutputIterator>
-    std::pair<OutputIterator, result_type> json_escape(InputIterator first, InputIterator last, OutputIterator out) {
+    output_result<OutputIterator> json_escape(InputIterator first, InputIterator last, OutputIterator out) {
         result_type result = result_type::success;
 
         for (; first != last && result == result_type::success; ++first)
@@ -122,10 +122,10 @@ namespace skate {
     };
 
     template<typename InputIterator, typename T>
-    constexpr std::pair<InputIterator, result_type> read_json(InputIterator, InputIterator, T &);
+    constexpr input_result<InputIterator> read_json(InputIterator, InputIterator, T &);
 
     template<typename OutputIterator, typename T>
-    constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator, const json_write_options &, const T &);
+    constexpr output_result<OutputIterator> write_json(OutputIterator, const json_write_options &, const T &);
 
     // JSON classes that allow serialization and deserialization
     template<typename String>
@@ -595,7 +595,7 @@ namespace skate {
 
     namespace detail {
         template<typename String, typename InputIterator>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, basic_json_value<String> &j) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, basic_json_value<String> &j) {
             first = skip_whitespace(first, last);
 
             switch (std::uint32_t(*first)) {
@@ -631,31 +631,33 @@ namespace skate {
                     const char *tfirst = temp.c_str();
                     const char *tlast = temp.c_str() + temp.size();
 
-                    std::pair<const char *, result_type> result;
-
                     if (floating) {
-                        result = fp_decode(tfirst, tlast, j.number_ref());
+                        const auto result = fp_decode(tfirst, tlast, j.number_ref());
+
+                        return { first, result.input == tlast ? result.result : result_type::failure };
                     } else if (negative) {
-                        result = int_decode(tfirst, tlast, j.int64_ref());
+                        auto result = int_decode(tfirst, tlast, j.int64_ref());
 
-                        if (result.first != tlast || result.second != result_type::success) {
+                        if (result.input != tlast || result.result != result_type::success) {
                             result = fp_decode(tfirst, tlast, j.number_ref());
                         }
+
+                        return { first, result.input == tlast ? result.result : result_type::failure };
                     } else {
-                        result = int_decode(tfirst, tlast, j.uint64_ref());
+                        auto result = int_decode(tfirst, tlast, j.uint64_ref());
 
-                        if (result.first != tlast || result.second != result_type::success) {
+                        if (result.input != tlast || result.result != result_type::success) {
                             result = fp_decode(tfirst, tlast, j.number_ref());
                         }
-                    }
 
-                    return { first, result.first == tlast ? result.second : result_type::failure };
+                        return { first, result.input == tlast ? result.result : result_type::failure };
+                    }
                 }
             }
         }
 
         template<typename OutputIterator, typename String>
-        std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &options, const basic_json_value<String> &j) {
+        output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &options, const basic_json_value<String> &j) {
             switch (j.current_type()) {
                 default:                      return skate::write_json(out, options, nullptr);
                 case json_type::null:         return skate::write_json(out, options, j.unsafe_get_null());
@@ -705,12 +707,12 @@ namespace skate {
         };
 
         template<typename InputIterator>
-        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
             return starts_with(skip_whitespace(first, last), last, "null");
         }
 
         template<typename InputIterator>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, bool &b) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, bool &b) {
             first = skip_whitespace(first, last);
 
             if (first != last && *first == 't') {
@@ -723,17 +725,17 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &i) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &i) {
             return int_decode(skip_whitespace(first, last), last, i);
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &f) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &f) {
             return fp_decode(skip_whitespace(first, last), last, f);
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &s) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &s) {
             using OutputCharT = decltype(*begin(s));
 
             result_type result = result_type::success;
@@ -815,7 +817,7 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &a) {
             using ElementType = typename std::decay<decltype(*begin(a))>::type;
 
             skate::clear(a);
@@ -857,7 +859,7 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &a) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &a) {
             result_type result = result_type::success;
             bool has_read_something = false;
 
@@ -873,7 +875,7 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &o) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &o) {
             using KeyType = typename std::decay<decltype(skate::key_of(begin(o)))>::type;
             using ValueType = typename std::decay<decltype(skate::value_of(begin(o)))>::type;
 
@@ -956,27 +958,27 @@ namespace skate {
         };
 
         template<typename OutputIterator>
-        constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &, std::nullptr_t) {
+        constexpr output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &, std::nullptr_t) {
             return { std::copy_n("null", 4, out), result_type::success };
         }
 
         template<typename OutputIterator>
-        constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &, bool b) {
+        constexpr output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &, bool b) {
             return { (b ? std::copy_n("true", 4, out) : std::copy_n("false", 5, out)), result_type::success };
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<typename std::decay<T>::type, bool>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &, T v) {
+        constexpr output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &, T v) {
             return skate::int_encode(v, out);
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &, T v) {
+        constexpr output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &, T v) {
             return skate::fp_encode(v, out, false, false);
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &, const T &v) {
+        output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &, const T &v) {
             result_type result = result_type::success;
 
             *out++ = '"';
@@ -997,7 +999,7 @@ namespace skate {
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &options, const T &v) {
+        output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &options, const T &v) {
             const auto start = begin(v);
             const auto end_iterator = end(v);
             const auto nested_options = options.indented();
@@ -1023,7 +1025,7 @@ namespace skate {
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &options, const T &v) {
+        output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &options, const T &v) {
             result_type result = result_type::success;
             bool has_written_something = false;
 
@@ -1041,7 +1043,7 @@ namespace skate {
         }
 
         template<typename OutputIterator, typename T, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &options, const T &v) {
+        output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &options, const T &v) {
             const auto start = begin(v);
             const auto end_iterator = end(v);
             const auto nested_options = options.indented();
@@ -1080,12 +1082,12 @@ namespace skate {
     }
 
     template<typename InputIterator, typename T>
-    constexpr std::pair<InputIterator, result_type> read_json(InputIterator first, InputIterator last, T &v) {
+    constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &v) {
         return detail::read_json(first, last, v);
     }
 
     template<typename OutputIterator, typename T>
-    constexpr std::pair<OutputIterator, result_type> write_json(OutputIterator out, const json_write_options &options, const T &v) {
+    constexpr output_result<OutputIterator> write_json(OutputIterator out, const json_write_options &options, const T &v) {
         return detail::write_json(out, options, v);
     }
 
@@ -1136,7 +1138,7 @@ namespace skate {
     std::basic_istream<StreamTypes...> &operator>>(std::basic_istream<StreamTypes...> &is, json_reader<Type> value) {
         if (skate::read_json(std::istreambuf_iterator<StreamTypes...>(is),
                              std::istreambuf_iterator<StreamTypes...>(),
-                             value.value_ref()).second != result_type::success)
+                             value.value_ref()).result != result_type::success)
             is.setstate(std::ios_base::failbit);
 
         return is;
@@ -1152,7 +1154,7 @@ namespace skate {
                                               value.options(),
                                               value.value());
 
-        if (result.first.failed() || result.second != result_type::success)
+        if (result.output.failed() || result.result != result_type::success)
             os.setstate(std::ios_base::failbit);
 
         return os;
@@ -1169,21 +1171,21 @@ namespace skate {
     }
 
     template<typename Type = skate::json_value, typename Range>
-    std::pair<Type, result_type> from_json(const Range &r) {
+    container_result<Type> from_json(const Range &r) {
         Type value;
 
         const auto result = skate::read_json(begin(r), end(r), value);
 
-        return { value, result.second };
+        return { value, result.result };
     }
 
     template<typename String = std::string, typename Type>
-    std::pair<String, result_type> to_json(const Type &value, json_write_options options = {}) {
+    container_result<String> to_json(const Type &value, json_write_options options = {}) {
         String j;
 
         const auto result = skate::write_json(skate::make_back_inserter(j), options, value);
 
-        return { result.second == result_type::success ? std::move(j) : String(), result.second };
+        return { result.result == result_type::success ? std::move(j) : String(), result.result };
     }
 }
 

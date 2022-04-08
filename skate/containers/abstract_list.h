@@ -71,6 +71,84 @@ namespace skate {
         return a != result_type::success ? a : b != result_type::success ? b : result_type::success;
     }
 
+    template<typename InputIterator, typename OutputIterator>
+    struct parsing_result {
+        constexpr parsing_result(InputIterator input, OutputIterator output, result_type result)
+            : input(input)
+            , output(output)
+            , result(result)
+        {}
+
+        template<typename I, typename O, typename R>
+        constexpr operator std::tuple<I, O, R>() {
+            return { input, output, result };
+        }
+
+        InputIterator input;
+        OutputIterator output;
+        result_type result;
+    };
+
+    template<typename InputIterator>
+    struct input_result {
+        constexpr input_result(InputIterator input, result_type result)
+            : input(input)
+            , result(result)
+        {}
+
+        template<typename OutputIterator>
+        constexpr input_result(parsing_result<InputIterator, InputIterator> presult)
+            : input(presult.input)
+            , result(presult.result)
+        {}
+
+        template<typename I, typename R>
+        constexpr operator std::tuple<I, R>() {
+            return { input, result };
+        }
+
+        InputIterator input;
+        result_type result;
+    };
+
+    template<typename OutputIterator>
+    struct output_result {
+        constexpr output_result(OutputIterator output, result_type result)
+            : output(output)
+            , result(result)
+        {}
+
+        template<typename InputIterator>
+        constexpr output_result(parsing_result<InputIterator, OutputIterator> presult)
+            : output(presult.output)
+            , result(presult.result)
+        {}
+
+        template<typename O, typename R>
+        constexpr operator std::tuple<O, R>() {
+            return { output, result };
+        }
+
+        OutputIterator output;
+        result_type result;
+    };
+
+    template<typename Container>
+    struct container_result {
+        constexpr container_result(Container container, result_type result)
+            : value(std::move(container))
+            , result(result)
+        {}
+
+        template<typename R>
+        constexpr explicit operator std::tuple<const Container &, R>() const {
+            return { value, result };
+        }
+
+        Container value;
+        result_type result;
+    };
+
     // Determine if type is a string
     template<typename T> struct is_string_overload : public std::false_type {};
     template<typename... ContainerParams>

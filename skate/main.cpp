@@ -366,13 +366,13 @@ void test_csv() {
 
     std::wcout << skate::json(cvec) << '\n';
 
-    std::wcout << skate::to_csv<std::wstring>(carr).first << '\n';
-    std::wcout << skate::to_csv<std::wstring>(cmap).first << '\n';
-    std::wcout << skate::to_csv<std::wstring>(carrmap).first << '\n';
-    std::wcout << skate::to_csv<std::wstring>(cvec).first << '\n';
+    std::wcout << skate::to_csv<std::wstring>(carr).value << '\n';
+    std::wcout << skate::to_csv<std::wstring>(cmap).value << '\n';
+    std::wcout << skate::to_csv<std::wstring>(carrmap).value << '\n';
+    std::wcout << skate::to_csv<std::wstring>(cvec).value << '\n';
 
     const char *str = "Test text";
-    std::wcout << (skate::istarts_with(str, str + strlen(str), "TEST").second == skate::result_type::success) << '\n';
+    std::wcout << (skate::istarts_with(str, str + strlen(str), "TEST").result == skate::result_type::success) << '\n';
 }
 
 void test_containers() {
@@ -381,7 +381,7 @@ void test_containers() {
 
     const auto result = skate::from_json(src);
 
-    std::cout << skate::json(result.first) << '\n';
+    std::cout << skate::json(result.value) << '\n';
 
     std::map<std::string, std::string> m;
 
@@ -389,10 +389,10 @@ void test_containers() {
 
     std::cout << skate::json(m) << '\n';
 
-    if (result.second == skate::result_type::failure)
+    if (result.result == skate::result_type::failure)
         std::cout << "Failed" << '\n';
     else
-        std::cout << "Success: " << result.first << '\n';
+        std::cout << "Success: " << result.value << '\n';
 }
 
 void test_char_type() {
@@ -423,8 +423,8 @@ int main()
 
     // vec.push_back({{"test", 2}, {"b", -3.1}});
 
-    skate::write_csv(skate::utf8_encode_iterator(skate::make_back_inserter(xzz)), skate::csv_options(), mxx);
-    skate::write_csv(skate::utf8_encode_iterator(skate::make_back_inserter(xzz)), skate::csv_options(), txx);
+    skate::write_csv(skate::utf32_encode_iterator(skate::big_endian_encode_iterator(skate::hex_encode_iterator(skate::make_back_inserter(xzz)))), skate::csv_options(), mxx);
+    skate::write_csv(skate::utf32_encode_iterator(skate::big_endian_encode_iterator(skate::hex_encode_iterator(skate::make_back_inserter(xzz)))), skate::csv_options(), txx);
 
     std::cout << xzz << std::endl;
 
@@ -433,10 +433,10 @@ int main()
     const auto json_string = "   \"string\\n\\ud83d\\ude02abc\"";
     const auto json_result = skate::detail::read_json(json_string, json_string + strlen(json_string), xzz);
 
-    if (json_result.second == skate::result_type::failure) {
-        std::cout << "JSON error at " << json_result.first << '\n';
+    if (json_result.result == skate::result_type::failure) {
+        std::cout << "JSON error at " << json_result.input << '\n';
     } else {
-        std::cout << skate::to_json(xzz).first;
+        std::cout << skate::to_json(xzz).value;
     }
 
     return 0;
@@ -465,7 +465,7 @@ int main()
 
     skate::utf_auto_transcode(narrowstr, widestr);
 
-    for (const auto c : skate::to_utf16(narrowstr).first) {
+    for (const auto c : skate::to_utf16(narrowstr).value) {
         skate::big_endian_encode(c, skate::hex_encode_iterator(cout));
 
         std::cout << ": " << (char) c << '\n';
@@ -497,7 +497,7 @@ int main()
 
     std::cout << '\n';
 
-    skate::utf_encode<uint16_t>(0x1F602, skate::big_endian_encode_iterator(skate::hex_encode_iterator(cout)));
+    //skate::utf_encode<uint16_t>(0x1F602u, skate::utf16_encode_iterator(it));
     // js.push_back(0x1F602);
 
     std::cout << '\n';
@@ -823,8 +823,8 @@ int main()
     //std::cout << skate::xml_doc(xmap, 1) << std::endl;
     //std::cout << Skate::json(v) << Skate::json(nullptr) << std::endl;
 
-    std::string narrow = skate::to_auto_utf<std::string>(L"Wide to narrow string").first;
-    std::wstring wide = skate::to_auto_utf<std::wstring>(std::string("Narrow to wide string\xf0\x9f\x8c\x8d")).first;
+    std::string narrow = skate::to_auto_utf<std::string>(L"Wide to narrow string").value;
+    std::wstring wide = skate::to_auto_utf<std::wstring>(std::string("Narrow to wide string\xf0\x9f\x8c\x8d")).value;
 
     for (const auto c : narrow) {
         std::cout << std::hex << std::setfill('0') << std::setw(2) << int(c & 0xff) << ' ';

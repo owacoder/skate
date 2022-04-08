@@ -57,10 +57,10 @@ namespace skate {
 #ifdef SKATE_JSON_H
         skate::json_value json(skate::json_value default_value = {}) const {
             const auto result = skate::from_json<skate::json_value>(m_body);
-            if (result.second != result_type::success)
+            if (result.result != result_type::success)
                 return default_value;
 
-            return result.first;
+            return result.value;
         }
 #endif
 
@@ -83,7 +83,7 @@ namespace skate {
         }
 #ifdef SKATE_JSON_H
         http_client_request &set_body(const skate::json_value &body) {
-            m_body = skate::to_json(body).first;
+            m_body = skate::to_json(body).value;
             return set_header("Content-Type", "application/json").
                    set_header("Content-Length", std::to_string(m_body.size()));
         }
@@ -139,10 +139,10 @@ namespace skate {
 #ifdef SKATE_JSON_H
         skate::json_value json(skate::json_value default_value = {}) const {
             const auto result = skate::from_json<skate::json_value>(m_body);
-            if (result.second != result_type::success)
+            if (result.result != result_type::success)
                 return default_value;
 
-            return result.first;
+            return result.value;
         }
 #endif
 
@@ -160,7 +160,7 @@ namespace skate {
         }
 #ifdef SKATE_JSON_H
         http_server_response &set_body(const skate::json_value &body) {
-            m_body = skate::to_json(body).first;
+            m_body = skate::to_json(body).value;
             return set_header("Content-Type", "application/json").
                    set_header("Content-Length", std::to_string(m_body.size()));
         }

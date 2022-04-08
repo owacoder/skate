@@ -66,7 +66,7 @@ namespace skate {
 
             std::lock_guard<std::mutex> lock(gaierror_mtx);
 
-            return to_utf8(static_cast<LPCWSTR>(::gai_strerrorW(ev))).first;
+            return to_utf8(static_cast<LPCWSTR>(::gai_strerrorW(ev))).value;
 #elif POSIX_OS
             return ::gai_strerror(ev);
 #else
