@@ -481,11 +481,7 @@ namespace skate {
 
         skate::reserve(dest, skate::size_to_reserve(dest) + skate::size_to_reserve(first, last));
 
-        auto back_inserter = skate::make_back_inserter(dest);
-
-        for (auto it = begin(source); it != last; ++it) {
-            *back_inserter++ = *it;
-        }
+        std::copy(first, last, skate::make_back_inserter(dest));
 
         return dest;
     }
@@ -497,11 +493,7 @@ namespace skate {
 
         skate::reserve(dest, skate::size_to_reserve(dest) + skate::size_to_reserve(first, last));
 
-        auto back_inserter = skate::make_back_inserter(dest);
-
-        for (auto it = begin(source); it != last; ++it) {
-            *back_inserter++ = std::move(*it);
-        }
+        std::copy(first, last, skate::make_back_inserter(dest));
 
         return dest;
     }
