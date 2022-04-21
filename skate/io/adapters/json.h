@@ -210,7 +210,7 @@ namespace skate {
         basic_json_value(T v) : t(json_type::uint64) { d.u = v; }
         template<typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
         basic_json_value(const T &v) : t(json_type::string) {
-            d.p = new String(to_auto_utf_weak_convert<String>(v).first);
+            d.p = new String(to_auto_utf_weak_convert<String>(v).value);
         }
         ~basic_json_value() { clear(); }
 
@@ -325,7 +325,7 @@ namespace skate {
         }
         String get_string(String default_value = {}) const { return is_string()? unsafe_get_string(): default_value; }
         template<typename S>
-        S get_string(S default_value = {}) const { return is_string()? to_auto_utf_weak_convert<S>(unsafe_get_string()).first: default_value; }
+        S get_string(S default_value = {}) const { return is_string() ? to_auto_utf_weak_convert<S>(unsafe_get_string()).value : default_value; }
         array get_array(array default_value = {}) const { return is_array()? unsafe_get_array(): default_value; }
         object get_object(object default_value = {}) const { return is_object()? unsafe_get_object(): default_value; }
 
@@ -356,7 +356,7 @@ namespace skate {
         // Object helpers
         void erase(const String &key) { object_ref().erase(key); }
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
-        void erase(const S &key) { object_ref().erase(to_auto_utf_weak_convert<String>(key).first); }
+        void erase(const S &key) { object_ref().erase(to_auto_utf_weak_convert<String>(key).value); }
 
         template<typename S, typename std::enable_if<skate::is_string<S>::value, int>::type = 0>
         basic_json_value value(const S &key, basic_json_value default_value = {}) const {
@@ -538,7 +538,7 @@ namespace skate {
 
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> value(const S &key, basic_json_value<String> default_value = {}) const {
-            const auto it = v.find(to_auto_utf_weak_convert<String>(key).first);
+            const auto it = v.find(to_auto_utf_weak_convert<String>(key).value);
             if (it == v.end())
                 return default_value;
 
@@ -547,7 +547,7 @@ namespace skate {
 
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         const basic_json_value<String> &operator[](const S &key) const {
-            const auto it = v.find(to_auto_utf_weak_convert<String>(key).first);
+            const auto it = v.find(to_auto_utf_weak_convert<String>(key).value);
             if (it == v.end())
                 return static_null();
 
@@ -570,7 +570,7 @@ namespace skate {
         }
         template<typename S, typename std::enable_if<is_string<S>::value, int>::type = 0>
         basic_json_value<String> &operator[](const S &key) {
-            return (*this)[to_auto_utf_weak_convert<String>(key).first];
+            return (*this)[to_auto_utf_weak_convert<String>(key).value];
         }
 
         void clear() noexcept { v.clear(); }
