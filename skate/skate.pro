@@ -19,6 +19,7 @@ HEADERS += \
     io/adapters/base64.h \
     io/adapters/csv.h \
     containers/tree.h \
+    io/adapters/md5.h \
     io/adapters/msgpack.h \
     io/buffer.h \
     io/logger.h \

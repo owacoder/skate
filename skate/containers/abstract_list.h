@@ -97,7 +97,7 @@ namespace skate {
         {}
 
         template<typename OutputIterator>
-        constexpr input_result(parsing_result<InputIterator, InputIterator> presult)
+        constexpr input_result(parsing_result<InputIterator, OutputIterator> presult)
             : input(presult.input)
             , result(presult.result)
         {}
@@ -155,19 +155,19 @@ namespace skate {
     struct is_string_overload<std::basic_string<ContainerParams...>> : public std::true_type {};
     template<>
     struct is_string_overload<char *> : public std::true_type {};
-    template<size_t N>
+    template<std::size_t N>
     struct is_string_overload<char [N]> : public std::true_type {};
     template<>
     struct is_string_overload<wchar_t *> : public std::true_type {};
-    template<size_t N>
+    template<std::size_t N>
     struct is_string_overload<wchar_t [N]> : public std::true_type {};
     template<>
     struct is_string_overload<char16_t *> : public std::true_type {};
-    template<size_t N>
+    template<std::size_t N>
     struct is_string_overload<char16_t [N]> : public std::true_type {};
     template<>
     struct is_string_overload<char32_t *> : public std::true_type {};
-    template<size_t N>
+    template<std::size_t N>
     struct is_string_overload<char32_t [N]> : public std::true_type {};
 #if __cplusplus >= 201703L
     template<typename... ContainerParams>
@@ -176,7 +176,7 @@ namespace skate {
 #if __cplusplus >= 202002L
     template<>
     struct is_string<char8_t *> : public std::true_type {};
-    template<size_t N>
+    template<std::size_t N>
     struct is_string<char8_t [N]> : public std::true_type {};
 #endif
 
