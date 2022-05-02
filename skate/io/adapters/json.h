@@ -1165,7 +1165,7 @@ namespace skate {
     };
 
     template<typename Type>
-    json_reader<Type> json(Type &value) { return json_reader<Type>(value); }
+    json_reader<Type> json(Type &value, const json_read_options &options = {}) { return json_reader<Type>(value, options); }
 
     template<typename Type>
     json_writer<Type> json(const Type &value, const json_write_options &options = {}) { return json_writer<Type>(value, options); }
