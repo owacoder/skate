@@ -430,13 +430,13 @@ int main()
 
     skate::clear(xzz);
 
-    const auto json_string = "   \"string\\n\\ud83d\\ude02abc\"";
-    const auto json_result = skate::detail::read_json(json_string, json_string + strlen(json_string), xzz);
+    const auto json_string = "   {\"string\\n\\ud83d\\ude02abc\":123}";
+    const auto json_result = skate::detail::read_json(json_string, json_string + strlen(json_string), skate::json_read_options(1), mxx);
 
     if (json_result.result == skate::result_type::failure) {
         std::cout << "JSON error at " << json_result.input << '\n';
     } else {
-        std::cout << skate::to_json(xzz).value;
+        std::cout << skate::to_json(mxx).value;
     }
 
     return 0;

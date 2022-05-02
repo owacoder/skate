@@ -63,7 +63,7 @@ namespace skate {
         if (it == end(m))
             return empty;
 
-        return value_of(it);
+        return skate::value_of(it);
     }
 
     template<typename Map, typename Key, typename Value>
@@ -72,7 +72,7 @@ namespace skate {
         if (it == end(m))
             return std::forward<Value>(v);
 
-        return value_of(it);
+        return skate::value_of(it);
     }
 
     template<typename To, typename From>
@@ -83,7 +83,7 @@ namespace skate {
         const auto last = end(source);
 
         for (auto it = begin(source); it != last; ++it) {
-            insert(dest, key_of(it), value_of(it));
+            skate::insert(dest, key_of(it), skate::value_of(it));
         }
 
         return dest;
@@ -93,7 +93,7 @@ namespace skate {
     To map_copy(const From &source) {
         To dest;
 
-        return map_merge(dest, source);
+        return skate::map_merge(dest, source);
     }
 
     namespace detail {
@@ -103,9 +103,9 @@ namespace skate {
             List get(const Map &m) const {
                 List result;
 
-                reserve(result, skate::size_to_reserve(m));
+                skate::reserve(result, skate::size_to_reserve(m));
                 for (auto el = begin(m); el != end(m); ++el) {
-                    push_back(result, key_of(el));
+                    skate::push_back(result, key_of(el));
                 }
 
                 return result;
@@ -126,9 +126,9 @@ namespace skate {
             List get(const Map &m) const {
                 List result;
 
-                reserve(result, skate::size_to_reserve(m));
+                skate::reserve(result, skate::size_to_reserve(m));
                 for (auto el = begin(m); el != end(m); ++el) {
-                    push_back(result, value_of(el));
+                    skate::push_back(result, value_of(el));
                 }
 
                 return result;

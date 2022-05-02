@@ -99,6 +99,24 @@ namespace skate {
     template<typename Container = std::string, typename Range>
     constexpr Container to_json_escape(const Range &range) { return to_json_escape<Container>(begin(range), end(range)); }
 
+    struct json_read_options {
+        constexpr json_read_options(unsigned max_nesting = 512, unsigned current_nesting = 0) noexcept
+            : max_nesting(max_nesting)
+            , current_nesting(current_nesting)
+        {}
+
+        constexpr json_read_options nested() const noexcept {
+            return { max_nesting, current_nesting + 1 };
+        }
+
+        constexpr bool nesting_limit_reached() const noexcept {
+            return current_nesting >= max_nesting;
+        }
+
+        unsigned max_nesting;
+        unsigned current_nesting;
+    };
+
     struct json_write_options {
         constexpr json_write_options(unsigned indent = 0, unsigned current_indentation = 0) noexcept
             : current_indentation(current_indentation)
@@ -122,7 +140,7 @@ namespace skate {
     };
 
     template<typename InputIterator, typename T>
-    constexpr input_result<InputIterator> read_json(InputIterator, InputIterator, T &);
+    constexpr input_result<InputIterator> read_json(InputIterator, InputIterator, const json_read_options &, T &);
 
     template<typename OutputIterator, typename T>
     constexpr output_result<OutputIterator> write_json(OutputIterator, const json_write_options &, const T &);
@@ -595,17 +613,17 @@ namespace skate {
 
     namespace detail {
         template<typename String, typename InputIterator>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, basic_json_value<String> &j) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, basic_json_value<String> &j) {
             first = skip_whitespace(first, last);
 
             switch (std::uint32_t(*first)) {
                 default: return { first, result_type::failure };
-                case '"': return skate::read_json(first, last, j.string_ref());
-                case '[': return skate::read_json(first, last, j.array_ref());
-                case '{': return skate::read_json(first, last, j.object_ref());
+                case '"': return skate::read_json(first, last, options, j.string_ref());
+                case '[': return skate::read_json(first, last, options, j.array_ref());
+                case '{': return skate::read_json(first, last, options, j.object_ref());
                 case 't': // fallthrough
-                case 'f': return skate::read_json(first, last, j.bool_ref());
-                case 'n': return skate::read_json(first, last, j.null_ref());
+                case 'f': return skate::read_json(first, last, options, j.bool_ref());
+                case 'n': return skate::read_json(first, last, options, j.null_ref());
                 case '0': // fallthrough
                 case '1': // fallthrough
                 case '2': // fallthrough
@@ -679,13 +697,15 @@ namespace skate {
             InputIterator &m_first;
             InputIterator m_last;
             result_type &m_result;
+            const json_read_options &m_options;
             bool &m_has_read_something;
 
         public:
-            constexpr json_read_tuple(InputIterator &first, InputIterator last, result_type &result, bool &has_read_something) noexcept
+            constexpr json_read_tuple(InputIterator &first, InputIterator last, result_type &result, const json_read_options &options, bool &has_read_something) noexcept
                 : m_first(first)
                 , m_last(last)
                 , m_result(result)
+                , m_options(options)
                 , m_has_read_something(has_read_something)
             {}
 
@@ -702,17 +722,17 @@ namespace skate {
                     m_has_read_something = true;
                 }
 
-                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, p);
+                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, m_options, p);
             }
         };
 
         template<typename InputIterator>
-        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, std::nullptr_t &) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &, std::nullptr_t &) {
             return starts_with(skip_whitespace(first, last), last, "null");
         }
 
         template<typename InputIterator>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, bool &b) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &, bool &b) {
             first = skip_whitespace(first, last);
 
             if (first != last && *first == 't') {
@@ -725,17 +745,17 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
-        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &i) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &, T &i) {
             return int_decode(skip_whitespace(first, last), last, i);
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &f) {
+        constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &, T &f) {
             return fp_decode(skip_whitespace(first, last), last, f);
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &s) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &, T &s) {
             using OutputCharT = decltype(*begin(s));
 
             result_type result = result_type::success;
@@ -817,11 +837,15 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_array<T>::value, int>::type = 0>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &a) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, T &a) {
             using ElementType = typename std::decay<decltype(*begin(a))>::type;
 
             skate::clear(a);
 
+            if (options.nesting_limit_reached())
+                return { first, result_type::failure };
+
+            const auto nested_options = options.nested();
             result_type result = result_type::success;
             auto back_inserter = skate::make_back_inserter(a);
             bool has_element = false;
@@ -848,7 +872,7 @@ namespace skate {
 
                 ElementType element;
 
-                std::tie(first, result) = skate::read_json(first, last, element);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, element);
                 if (result != result_type::success)
                     return { first, result };
 
@@ -859,15 +883,18 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_tuple<T>::value, int>::type = 0>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &a) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, T &a) {
             result_type result = result_type::success;
             bool has_read_something = false;
+
+            if (options.nesting_limit_reached())
+                return { first, result_type::failure };
 
             std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
             if (result != result_type::success)
                 return { first, result };
 
-            skate::apply(json_read_tuple(first, last, result, has_read_something), a);
+            skate::apply(json_read_tuple(first, last, result, options.nested(), has_read_something), a);
             if (result != result_type::success)
                 return { first, result};
 
@@ -875,12 +902,16 @@ namespace skate {
         }
 
         template<typename InputIterator, typename T, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &o) {
+        input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, T &o) {
             using KeyType = typename std::decay<decltype(skate::key_of(begin(o)))>::type;
             using ValueType = typename std::decay<decltype(skate::value_of(begin(o)))>::type;
 
             skate::clear(o);
 
+            if (options.nesting_limit_reached())
+                return { first, result_type::failure };
+
+            const auto nested_options = options.nested();
             result_type result = result_type::success;
             bool has_element = false;
 
@@ -907,7 +938,7 @@ namespace skate {
                 KeyType key;
                 ValueType value;
 
-                std::tie(first, result) = skate::read_json(first, last, key);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, key);
                 if (result != result_type::success)
                     return { first, result };
 
@@ -915,7 +946,7 @@ namespace skate {
                 if (result != result_type::success)
                     return { first, result };
 
-                std::tie(first, result) = skate::read_json(first, last, value);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, value);
                 if (result != result_type::success)
                     return { first, result };
 
@@ -1082,8 +1113,8 @@ namespace skate {
     }
 
     template<typename InputIterator, typename T>
-    constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, T &v) {
-        return detail::read_json(first, last, v);
+    constexpr input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, T &v) {
+        return detail::read_json(first, last, options, v);
     }
 
     template<typename OutputIterator, typename T>
@@ -1100,13 +1131,18 @@ namespace skate {
     template<typename Type>
     class json_reader {
         Type &m_ref;
+        const json_read_options m_options;
 
         template<typename> friend class json_writer;
 
     public:
-        constexpr json_reader(Type &ref) : m_ref(ref) {}
+        constexpr json_reader(Type &ref, const json_read_options &options = {})
+            : m_ref(ref)
+            , m_options(options)
+        {}
 
         constexpr Type &value_ref() noexcept { return m_ref; }
+        constexpr const json_read_options &options() const noexcept { return m_options; }
     };
 
     template<typename Type>
@@ -1138,6 +1174,7 @@ namespace skate {
     std::basic_istream<StreamTypes...> &operator>>(std::basic_istream<StreamTypes...> &is, json_reader<Type> value) {
         if (skate::read_json(std::istreambuf_iterator<StreamTypes...>(is),
                              std::istreambuf_iterator<StreamTypes...>(),
+                             value.options(),
                              value.value_ref()).result != result_type::success)
             is.setstate(std::ios_base::failbit);
 
@@ -1171,10 +1208,10 @@ namespace skate {
     }
 
     template<typename Type = skate::json_value, typename Range>
-    container_result<Type> from_json(const Range &r) {
+    container_result<Type> from_json(const Range &r, json_read_options options = {}) {
         Type value;
 
-        const auto result = skate::read_json(begin(r), end(r), value);
+        const auto result = skate::read_json(begin(r), end(r), options, value);
 
         return { value, result.result };
     }
