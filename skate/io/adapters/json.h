@@ -615,6 +615,8 @@ namespace skate {
         template<typename String, typename InputIterator>
         input_result<InputIterator> read_json(InputIterator first, InputIterator last, const json_read_options &options, basic_json_value<String> &j) {
             first = skip_whitespace(first, last);
+            if (first == last)
+                return { first, result_type::failure };
 
             switch (std::uint32_t(*first)) {
                 default: return { first, result_type::failure };
@@ -1089,7 +1091,7 @@ namespace skate {
 
                 out = nested_options.write_indent(out);
 
-                std::tie(out, result) = skate::write_json(out, options, skate::key_of(it));
+                std::tie(out, result) = skate::write_json(out, nested_options, skate::key_of(it));
 
                 if (result != result_type::success)
                     return { out, result };
@@ -1099,7 +1101,7 @@ namespace skate {
                 if (options.indent)
                     *out++ = ' ';
 
-                std::tie(out, result) = skate::write_json(out, options, skate::value_of(it));
+                std::tie(out, result) = skate::write_json(out, nested_options, skate::value_of(it));
             }
 
             if (result == result_type::success) {

@@ -409,8 +409,40 @@ void test_char_type() {
     }
 }
 
+void test_json() {
+    skate::json_value v;
+
+    v["Data"]["Object"] = 3.14;
+
+    std::cout << "JSON: " << skate::json(v, skate::json_write_options(2)) << '\n';
+}
+
+void test_xml() {
+    skate::xml_node n = skate::xml_node::element("XMLTag");
+
+    n.add_child(skate::xml_node::comment("Comment"));
+    n.add_child(skate::xml_node::text("Text\r\n"));
+    n.add_child(skate::xml_node::cdata("<greeting>Hello, world!</greeting>"));
+
+
+    skate::xml_node child = skate::xml_node::element("Nested");
+
+    child["key"] = "value&";
+    child["key"] = "value";
+
+    n.add_child(child);
+
+    std::cout << "XML: " << skate::xml(n, skate::xml_write_options(2)) << '\n';
+}
+
 int main()
 {
+    test_json();
+
+    test_xml();
+
+    return 0;
+
     skate::test_base64();
 
     test_csv();

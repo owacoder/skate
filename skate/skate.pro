@@ -3,7 +3,7 @@ CONFIG += console c++11
 CONFIG -= app_bundle
 CONFIG -= qt
 
-SOURCES +=
+SOURCES += main.cpp
 
 HEADERS += \
     containers/MFC/mfc_abstract_list.h \

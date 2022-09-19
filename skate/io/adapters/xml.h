@@ -55,29 +55,58 @@ namespace skate {
     };
 
     template<typename OutputIterator>
-    output_result<OutputIterator> xml_escape(unicode previous, unicode value, OutputIterator out, xml_string_type type) {
-        if (!value.is_valid())
+    output_result<OutputIterator> xml_escape(unicode back2, unicode back, unicode value, OutputIterator out, xml_string_type type) {
+        if (!value.is_valid() || !detail::xml_is_char(value))
             return { out, result_type::failure };
 
-        switch (value.value()) {
-            case '<': return { std::copy_n("&lt;", 4, out), result_type::success };
-            case '>': return { std::copy_n("&gt;", 4, out), result_type::success };
-            case '&': return { std::copy_n("&amp;", 5, out), result_type::success };
-            case '\\': return { std::copy_n("&apos;", 6, out), result_type::success };
-            case '\"': return { std::copy_n("&quot;", 6, out), result_type::success };
+        switch (type) {
+            case xml_string_type::cdata:
+                if (back2 == ']' && back == ']' && value == '>')
+                    return { out, result_type::failure };
+
+                *out++ = value;
+                break;
+            case xml_string_type::comment:
+                if (back == '-' && value == '-')
+                    return { out, result_type::failure };
+
+                *out++ = value;
+                break;
+            case xml_string_type::processing_instruction:
+                if (back == '?' && value == '>')
+                    return { out, result_type::failure };
+
+                *out++ = value;
+                break;
+            case xml_string_type::name:
+                if ((back == 0 && !detail::xml_is_name_start_char(value)) ||
+                        (back != 0 && !detail::xml_is_name_char(value)))
+                    return { out, result_type::failure };
+
+                *out++ = value;
+                break;
             default:
-                if (type == xml_string_type::text && (value.value() < 32 || value.value() >= 127)) {
-                    result_type result = result_type::success;
+                switch (value.value()) {
+                    case '<': return { std::copy_n("&lt;", 4, out), result_type::success };
+                    case '>': return { std::copy_n("&gt;", 4, out), result_type::success };
+                    case '&': return { std::copy_n("&amp;", 5, out), result_type::success };
+                    case '\\': return { std::copy_n("&apos;", 6, out), result_type::success };
+                    case '\"': return { std::copy_n("&quot;", 6, out), result_type::success };
+                    default:
+                        if (type == xml_string_type::text && (value.value() < 32 || value.value() >= 127)) {
+                            result_type result = result_type::success;
 
-                    *out++ = '&';
-                    *out++ = '#';
-                    std::tie(out, result) = skate::int_encode(value.value(), out);
-                    if (result == result_type::success)
-                        *out++ = ';';
-                } else {
-                    *out++ = value;
+                            *out++ = '&';
+                            *out++ = '#';
+                            std::tie(out, result) = skate::int_encode(value.value(), out);
+                            if (result == result_type::success)
+                                *out++ = ';';
+                        } else {
+                            *out++ = value;
+                        }
+
+                        break;
                 }
-
                 break;
         }
 
@@ -87,9 +116,13 @@ namespace skate {
     template<typename InputIterator, typename OutputIterator>
     output_result<OutputIterator> xml_escape(InputIterator first, InputIterator last, OutputIterator out, xml_string_type type) {
         result_type result = result_type::success;
+        unicode back[2];
 
-        for (; first != last && result == result_type::success; ++first)
-            std::tie(out, result) = xml_escape(*first, out, type);
+        for (; first != last && result == result_type::success; ++first) {
+            std::tie(out, result) = xml_escape(back[1], back[0], *first, out, type);
+            back[1] = back[0];
+            back[0] = *first;
+        }
 
         return { out, result };
     }
@@ -98,7 +131,8 @@ namespace skate {
     class xml_escape_iterator {
         OutputIterator m_out;
         result_type m_result;
-        unicode m_previous;
+        xml_string_type m_type;
+        unicode m_back[2];
 
     public:
         using iterator_category = std::output_iterator_tag;
@@ -107,10 +141,10 @@ namespace skate {
         using pointer = void;
         using reference = void;
 
-        constexpr xml_escape_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
+        constexpr xml_escape_iterator(OutputIterator out, xml_string_type type) : m_out(out), m_result(result_type::success), m_type(type) {}
 
         constexpr xml_escape_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = xml_escape(value, m_out), m_previous = value, *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = xml_escape(m_back[1], m_back[0], value, m_out, m_type), m_back[1] = m_back[0], m_back[0] = value, *this);
         }
 
         constexpr xml_escape_iterator &operator*() noexcept { return *this; }
@@ -124,10 +158,10 @@ namespace skate {
     };
 
     template<typename Container = std::string, typename InputIterator>
-    Container to_xml_escape(InputIterator first, InputIterator last) {
+    Container to_xml_escape(InputIterator first, InputIterator last, xml_string_type type) {
         Container result;
 
-        xml_escape(first, last, skate::make_back_inserter(result));
+        xml_escape(first, last, skate::make_back_inserter(result), type);
 
         return result;
     }
@@ -181,6 +215,9 @@ namespace skate {
     template<typename OutputIterator, typename T>
     constexpr output_result<OutputIterator> write_xml(OutputIterator, const xml_write_options &, const T &);
 
+    template<typename OutputIterator, typename T>
+    constexpr output_result<OutputIterator> write_xml(OutputIterator, const xml_write_options &, const T &, xml_string_type);
+
     // XML classes that allow serialization and deserialization
     template<typename String>
     class basic_xml_child_list;
@@ -192,7 +229,7 @@ namespace skate {
         comment,
         cdata,
         element,
-        element_without_children,
+        empty_element,
     };
 
     template<typename String>
@@ -227,29 +264,35 @@ namespace skate {
 
     // The basic_xml_value class holds a generic XML value. Strings are expected to be stored as UTF-formatted strings, but this is not required.
     template<typename String>
-    class basic_xml_value {
+    class basic_xml_node {
     public:
         typedef std::vector<basic_xml_attribute<String>> attribute_list;
         typedef basic_xml_child_list<String> child_list;
 
-        basic_xml_value() : t(xml_element_type::text) {}
-        basic_xml_value(const basic_xml_value &other) = default;
-        basic_xml_value(basic_xml_value &&other) noexcept = default;
-        basic_xml_value(String tag, attribute_list attributes) : t(xml_element_type::element_without_children), m_tagdata(tag), m_attributes(std::move(attributes)) {}
-        basic_xml_value(String tag, attribute_list attributes, child_list children) : t(xml_element_type::element), m_tagdata(tag), m_attributes(std::move(attributes)), m_children(std::move(children)) {}
-        basic_xml_value(String s) : t(xml_element_type::text), m_tagdata(s) {}
-        basic_xml_value(const typename std::remove_reference<decltype(*begin(std::declval<String>()))>::type *s) : t(xml_element_type::text), m_tagdata(String(s)) {}
-        template<typename T, typename std::enable_if<skate::is_string<T>::value, int>::type = 0>
-        basic_xml_value(const T &v) : t(xml_element_type::text), m_tagdata(to_auto_utf_weak_convert<String>(v).value) {}
+    private:
+        basic_xml_node(xml_element_type type, String tag, attribute_list attributes, child_list children) : t(type), m_tagdata(tag), m_attributes(std::move(attributes)), m_children(std::move(children)) {}
 
-        basic_xml_value &operator=(const basic_xml_value &other) = default;
-        basic_xml_value &operator=(basic_xml_value &&other) noexcept = default;
+    public:
+        basic_xml_node() : t(xml_element_type::text) {}
+        basic_xml_node(const basic_xml_node &other) = default;
+        basic_xml_node(basic_xml_node &&other) noexcept = default;
+
+        basic_xml_node &operator=(const basic_xml_node &other) = default;
+        basic_xml_node &operator=(basic_xml_node &&other) noexcept = default;
+
+        static basic_xml_node processing_instruction(String value) { return { xml_element_type::processing_instruction, value, {}, {} }; }
+        static basic_xml_node doctype_instruction(String value) { return { xml_element_type::doctype_instruction, value, {}, {} }; }
+        static basic_xml_node text(String value) { return { xml_element_type::text, value, {}, {} }; }
+        static basic_xml_node comment(String value) { return { xml_element_type::comment, value, {}, {} }; }
+        static basic_xml_node cdata(String value) { return { xml_element_type::cdata, value, {}, {} }; }
+        static basic_xml_node element(String tag, attribute_list attributes = {}) { return { xml_element_type::empty_element, tag, attributes, {} }; }
+        static basic_xml_node element(String tag, attribute_list attributes, child_list children) { return { xml_element_type::element, tag, attributes, children }; }
 
         xml_element_type current_type() const noexcept { return t; }
         bool is_processing_instruction() const noexcept { return t == xml_element_type::processing_instruction; }
         bool is_doctype_instruction() const noexcept { return t == xml_element_type::doctype_instruction; }
         bool is_comment() const noexcept { return t == xml_element_type::comment; }
-        bool is_element() const noexcept { return t == xml_element_type::element || t == xml_element_type::element_without_children; }
+        bool is_element() const noexcept { return t == xml_element_type::element || t == xml_element_type::empty_element; }
         bool is_character_data() const noexcept { return t == xml_element_type::text || t == xml_element_type::cdata; }
 
         void clear() noexcept {
@@ -264,13 +307,47 @@ namespace skate {
         const attribute_list &attributes() const { return m_attributes; }
         const child_list &children() const { return m_children; }
 
-        bool operator==(const basic_xml_value &other) const {
+        void clear_attributes() { m_attributes.clear(); }
+        void clear_children() { m_children.clear(); }
+
+        basic_xml_attribute_value<String> attribute(const String &key, basic_xml_attribute_value<String> default_value = {}) const {
+            const auto it = std::find_if(m_attributes.begin(), m_attributes.end(), [&key](const basic_xml_attribute<String> &item) { return item.key == key; });
+            if (it == m_attributes.end())
+                return default_value;
+
+            return it->value;
+        }
+
+        basic_xml_attribute_value<String> &operator[](const String &key) {
+            auto it = std::find_if(m_attributes.begin(), m_attributes.end(), [&key](const basic_xml_attribute<String> &item) { return item.key == key; });
+            if (it == m_attributes.end())
+                it = m_attributes.insert(m_attributes.end(), { key, {} });
+
+            return it->value;
+        }
+
+        basic_xml_node &add_attribute(basic_xml_attribute<String> attribute) {
+            if (!is_element())
+                t = xml_element_type::empty_element;
+
+            m_attributes.push_back(attribute);
+            return *this;
+        }
+
+        basic_xml_node &add_child(basic_xml_node child) {
+            t = xml_element_type::element;
+            m_children.push_back(child);
+
+            return *this;
+        }
+
+        bool operator==(const basic_xml_node &other) const {
             return t == other.t &&
                     m_tagdata == other.tagdata &&
                     m_attributes == other.m_attributes &&
                     m_children == other.m_children;
         }
-        bool operator!=(const basic_xml_value &other) const { return !(*this == other); }
+        bool operator!=(const basic_xml_node &other) const { return !(*this == other); }
 
     private:
         xml_element_type t;
@@ -282,13 +359,13 @@ namespace skate {
 
     template<typename String>
     class basic_xml_child_list {
-        typedef std::vector<basic_xml_value<String>> array;
+        typedef std::vector<basic_xml_node<String>> array;
 
         array v;
 
     public:
         basic_xml_child_list() {}
-        basic_xml_child_list(std::initializer_list<basic_xml_value<String>> il) : v(std::move(il)) {}
+        basic_xml_child_list(std::initializer_list<basic_xml_node<String>> il) : v(std::move(il)) {}
 
         typedef typename array::const_iterator const_iterator;
         typedef typename array::iterator iterator;
@@ -299,12 +376,12 @@ namespace skate {
         const_iterator end() const noexcept { return v.end(); }
 
         void erase(size_t index, size_t count = 1) { v.erase(v.begin() + index, v.begin() + std::min(size() - index, count)); }
-        void insert(size_t before, basic_xml_value<String> item) { v.insert(v.begin() + before, std::move(item)); }
-        void push_back(basic_xml_value<String> item) { v.push_back(std::move(item)); }
+        void insert(size_t before, basic_xml_node<String> item) { v.insert(v.begin() + before, std::move(item)); }
+        void push_back(basic_xml_node<String> item) { v.push_back(std::move(item)); }
         void pop_back() noexcept { v.pop_back(); }
 
-        const basic_xml_value<String> &operator[](size_t index) const noexcept { return v[index]; }
-        basic_xml_value<String> &operator[](size_t index) noexcept { return v[index]; }
+        const basic_xml_node<String> &operator[](size_t index) const noexcept { return v[index]; }
+        basic_xml_node<String> &operator[](size_t index) noexcept { return v[index]; }
 
         void resize(size_t size) { v.resize(size); }
         void reserve(size_t size) { v.reserve(size); }
@@ -317,99 +394,148 @@ namespace skate {
     };
 
     template<typename String, typename K, typename V>
-    void insert(basic_xml_value<String> &obj, K &&key, V &&value) {
+    void insert(basic_xml_node<String> &obj, K &&key, V &&value) {
         obj.insert(std::forward<K>(key), std::forward<V>(value));
     }
 
-    typedef basic_xml_value<std::string> xml_value;
+    typedef basic_xml_node<std::string> xml_node;
 
-    typedef basic_xml_value<std::wstring> xml_wvalue;
+    typedef basic_xml_node<std::wstring> xml_wnode;
 
     namespace detail {
         template<typename String, typename InputIterator>
-        input_result<InputIterator> read_xml(InputIterator first, InputIterator last, const xml_read_options &options, basic_xml_value<String> &j) {
-            first = skip_whitespace(first, last);
+        input_result<InputIterator> read_xml(InputIterator first, InputIterator last, const xml_read_options &options, basic_xml_node<String> &j) {
+            if (first == last || options.nesting_limit_reached())
+                return { first, result_type::failure };
 
             switch (std::uint32_t(*first)) {
-                default: return { first, result_type::failure };
-                case '"': return skate::read_xml(first, last, options, j.string_ref());
-                case '[': return skate::read_xml(first, last, options, j.array_ref());
-                case '{': return skate::read_xml(first, last, options, j.object_ref());
-                case 't': // fallthrough
-                case 'f': return skate::read_xml(first, last, options, j.bool_ref());
-                case 'n': return skate::read_xml(first, last, options, j.null_ref());
-                case '0': // fallthrough
-                case '1': // fallthrough
-                case '2': // fallthrough
-                case '3': // fallthrough
-                case '4': // fallthrough
-                case '5': // fallthrough
-                case '6': // fallthrough
-                case '7': // fallthrough
-                case '8': // fallthrough
-                case '9': // fallthrough
-                case '-': {
-                    std::string temp;
-                    const bool negative = *first == '-';
-                    bool floating = false;
+                default: {
+                    String value;
+                    auto back_inserter = skate::make_back_inserter(value);
 
-                    do {
-                        temp.push_back(char(*first));
-                        floating |= *first == '.' || *first == 'e' || *first == 'E';
+                    for (; first != last; ++first) {
+                        const auto c = std::uint32_t(*first);
 
-                        ++first;
-                    } while (first != last && isfpdigit(*first));
+                        if (c == '<' || c == '&')
+                            break;
 
-                    const char *tfirst = temp.c_str();
-                    const char *tlast = temp.c_str() + temp.size();
-
-                    if (floating) {
-                        const auto result = fp_decode(tfirst, tlast, j.number_ref());
-
-                        return { first, result.input == tlast ? result.result : result_type::failure };
-                    } else if (negative) {
-                        auto result = int_decode(tfirst, tlast, j.int64_ref());
-
-                        if (result.input != tlast || result.result != result_type::success) {
-                            result = fp_decode(tfirst, tlast, j.number_ref());
-                        }
-
-                        return { first, result.input == tlast ? result.result : result_type::failure };
-                    } else {
-                        auto result = int_decode(tfirst, tlast, j.uint64_ref());
-
-                        if (result.input != tlast || result.result != result_type::success) {
-                            result = fp_decode(tfirst, tlast, j.number_ref());
-                        }
-
-                        return { first, result.input == tlast ? result.result : result_type::failure };
+                        *back_inserter++ = c;
                     }
+
+                    j = basic_xml_node<String>::text(std::move(value));
+
+                    break;
+                }
+                case '<': { // Tag
+                    ++first;
+                    if (first == last)
+                        return { first, result_type::failure };
+
+
+
+                    break;
+                }
+                case '&': { // Entity
+                    ++first;
+                    if (first == last)
+                        return { first, result_type::failure };
+
+                    break;
                 }
             }
+
+            return { first, result_type::success };
         }
 
         template<typename OutputIterator, typename String>
-        output_result<OutputIterator> write_xml(OutputIterator out, const xml_write_options &options, const basic_xml_value<String> &j) {
+        output_result<OutputIterator> write_xml(OutputIterator out, const xml_write_options &options, const basic_xml_node<String> &j) {
+            result_type result = result_type::success;
+
+            xml_string_type type = xml_string_type::text;
+            const char *ending = nullptr;
+
+            if (j.is_element()) {
+                const auto nested_options = options.indented();
+
+                *out++ = '<';
+
+                std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name);
+                if (result != result_type::success)
+                    return { out, result };
+
+                for (const auto &attribute : j.attributes()) {
+                    *out++ = ' ';
+
+                    std::tie(out, result) = skate::write_xml(out, options, attribute.key, xml_string_type::name);
+                    if (result != result_type::success)
+                        return { out, result };
+
+                    *out++ = '=';
+                    *out++ = '"';
+
+                    std::tie(out, result) = skate::write_xml(out, options, attribute.value.value());
+                    if (result != result_type::success)
+                        return { out, result };
+
+                    *out++ = '"';
+                }
+
+                if (j.current_type() == xml_element_type::empty_element) {
+                    *out++ = '/';
+                    *out++ = '>';
+                } else {
+                    *out++ = '>';
+
+                    for (const auto &child : j.children()) {
+                        out = nested_options.write_indent(out);
+
+                        std::tie(out, result) = skate::write_xml(out, nested_options, child);
+                        if (result != result_type::success)
+                            return { out, result };
+                    }
+
+                    out = options.write_indent(out);
+                    *out++ = '<';
+                    *out++ = '/';
+
+                    std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name);
+                    if (result != result_type::success)
+                        return { out, result };
+
+                    *out++ = '>';
+                }
+
+                return { out, result_type::success };
+            }
+
             switch (j.current_type()) {
                 default: return { out, result_type::failure };
                 case xml_element_type::processing_instruction:
                     out = std::copy_n("<?", 2, out);
 
-                    out = std::copy_n("?>", 2, out);
+                    type = xml_string_type::processing_instruction;
+                    ending = "?>";
                     break;
-                case xml_element_type::doctype_instruction: break;
-                case xml_element_type::text: break;
-                case xml_element_type::comment: break;
+                case xml_element_type::text:
+                    break;
+                case xml_element_type::comment:
                     out = std::copy_n("<!-- ", 5, out);
 
-                    out = std::copy_n(" -->", 4, out);
+                    type = xml_string_type::comment;
+                    ending = " -->";
                     break;
-                case xml_element_type::cdata: break;
+                case xml_element_type::cdata:
                     out = std::copy_n("<![CDATA[", 9, out);
 
-                    out = std::copy_n("]]>", 3, out);
+                    type = xml_string_type::cdata;
+                    ending = "]]>";
                     break;
             }
+
+            std::tie(out, result) = skate::write_xml(out, options, j.tag(), type);
+
+            if (result == result_type::success && ending)
+                out = std::copy_n(ending, strlen(ending), out);
 
             return { out, result_type::success };
         }
@@ -686,14 +812,12 @@ namespace skate {
         class xml_write_tuple {
             OutputIterator &m_out;
             result_type &m_result;
-            bool &m_has_written_something;
             const xml_write_options &m_options;
 
         public:
-            constexpr xml_write_tuple(OutputIterator &out, result_type &result, bool &has_written_something, const xml_write_options &options) noexcept
+            constexpr xml_write_tuple(OutputIterator &out, result_type &result, const xml_write_options &options) noexcept
                 : m_out(out)
                 , m_result(result)
-                , m_has_written_something(has_written_something)
                 , m_options(options)
             {}
 
@@ -701,11 +825,6 @@ namespace skate {
             void operator()(const Param &p) {
                 if (m_result != result_type::success)
                     return;
-
-                if (m_has_written_something)
-                    *m_out++ = ',';
-                else
-                    m_has_written_something = true;
 
                 m_out = m_options.write_indent(m_out);
 
@@ -757,20 +876,12 @@ namespace skate {
 
             result_type result = result_type::success;
 
-            *out++ = '[';
-
             for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
-                if (it != start)
-                    *out++ = ',';
-
                 std::tie(out, result) = skate::write_xml(nested_options.write_indent(out), nested_options, *it);
             }
 
-            if (result == result_type::success) {
+            if (result == result_type::success)
                 out = options.write_indent(out);
-
-                *out++ = ']';
-            }
 
             return { out, result };
         }
@@ -780,52 +891,10 @@ namespace skate {
             result_type result = result_type::success;
             bool has_written_something = false;
 
-            *out++ = '[';
-
             skate::apply(xml_write_tuple(out, result, has_written_something, options.indented()), v);
 
             if (result == result_type::success) {
                 out = options.write_indent(out);
-
-                *out++ = ']';
-            }
-
-            return { out, result };
-        }
-
-        template<typename OutputIterator, typename T, typename std::enable_if<skate::is_map<T>::value && skate::is_string<decltype(skate::key_of(begin(std::declval<T>())))>::value, int>::type = 0>
-        output_result<OutputIterator> write_xml(OutputIterator out, const xml_write_options &options, const T &v) {
-            const auto start = begin(v);
-            const auto end_iterator = end(v);
-            const auto nested_options = options.indented();
-
-            result_type result = result_type::success;
-
-            *out++ = '{';
-
-            for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
-                if (it != start)
-                    *out++ = ',';
-
-                out = nested_options.write_indent(out);
-
-                std::tie(out, result) = skate::write_xml(out, options, skate::key_of(it));
-
-                if (result != result_type::success)
-                    return { out, result };
-
-                *out++ = ':';
-
-                if (options.indent)
-                    *out++ = ' ';
-
-                std::tie(out, result) = skate::write_xml(out, options, skate::value_of(it));
-            }
-
-            if (result == result_type::success) {
-                out = options.write_indent(out);
-
-                *out++ = '}';
             }
 
             return { out, result };
@@ -840,6 +909,11 @@ namespace skate {
     template<typename OutputIterator, typename T>
     constexpr output_result<OutputIterator> write_xml(OutputIterator out, const xml_write_options &options, const T &v) {
         return detail::write_xml(out, options, v);
+    }
+
+    template<typename OutputIterator, typename T>
+    constexpr output_result<OutputIterator> write_xml(OutputIterator out, const xml_write_options &options, const T &v, xml_string_type type) {
+        return detail::write_xml(out, options, v, type);
     }
 
     template<typename Type>
@@ -905,9 +979,10 @@ namespace skate {
     std::basic_ostream<StreamTypes...> &operator<<(std::basic_ostream<StreamTypes...> &os, xml_reader<Type> value) {
         return os << xml_writer<Type>(value);
     }
-    template<typename Type, typename... StreamTypes>
-    std::basic_ostream<StreamTypes...> &operator<<(std::basic_ostream<StreamTypes...> &os, xml_writer<Type> value) {
-        const auto result = skate::write_xml(std::ostreambuf_iterator<StreamTypes...>(os),
+    template<typename Type, typename CharType, typename... StreamTypes>
+    std::basic_ostream<CharType, StreamTypes...> &operator<<(std::basic_ostream<CharType, StreamTypes...> &os, xml_writer<Type> value) {
+        using ostream_iterator = std::ostreambuf_iterator<CharType, StreamTypes...>;
+        const auto result = skate::write_xml(skate::utf_encode_iterator<CharType, ostream_iterator>(ostream_iterator(os)),
                                               value.options(),
                                               value.value());
 
@@ -918,16 +993,16 @@ namespace skate {
     }
 
     template<typename StreamChar, typename String>
-    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_xml_value<String> &j) {
+    std::basic_istream<StreamChar> &operator>>(std::basic_istream<StreamChar> &is, basic_xml_node<String> &j) {
         return is >> xml(j);
     }
 
     template<typename StreamChar, typename String>
-    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_xml_value<String> &j) {
+    std::basic_ostream<StreamChar> &operator<<(std::basic_ostream<StreamChar> &os, const basic_xml_node<String> &j) {
         return os << xml(j);
     }
 
-    template<typename Type = skate::xml_value, typename Range>
+    template<typename Type = skate::xml_node, typename Range>
     container_result<Type> from_xml(const Range &r, xml_read_options options = {}) {
         Type value;
 
