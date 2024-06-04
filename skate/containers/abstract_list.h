@@ -175,9 +175,9 @@ namespace skate {
 #endif
 #if __cplusplus >= 202002L
     template<>
-    struct is_string<char8_t *> : public std::true_type {};
+    struct is_string_overload<char8_t *> : public std::true_type {};
     template<std::size_t N>
-    struct is_string<char8_t [N]> : public std::true_type {};
+    struct is_string_overload<char8_t [N]> : public std::true_type {};
 #endif
 
     namespace detail {
