@@ -574,7 +574,7 @@ namespace skate {
             case 3:  // fallthrough
             case 4: {
                 std::uint8_t continuation_bytes[3];
-                std::uint32_t codepoint;
+                std::uint32_t codepoint{};
 
                 // Eat start byte
                 ++first;
