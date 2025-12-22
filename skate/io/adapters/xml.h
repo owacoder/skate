@@ -35,9 +35,10 @@ namespace skate {
         }
 
         inline bool xml_is_char(unicode ch) {
-            return (ch <= 0xd7ff) ||
-                    (ch >= 0xe000 && ch <= 0xfffd) ||
-                    (ch >= 0x10000 && ch <= 0x10ffff);
+            return ch.is_valid() && (
+                        (ch <= 0xd7ff) ||
+                        (ch >= 0xe000 && ch <= 0xfffd) ||
+                        (ch >= 0x10000 && ch <= 0x10ffff));
         }
 
         inline bool xml_is_restricted_char(unicode ch) {
@@ -90,7 +91,7 @@ namespace skate {
                     case '<': return { std::copy_n("&lt;", 4, out), result_type::success };
                     case '>': return { std::copy_n("&gt;", 4, out), result_type::success };
                     case '&': return { std::copy_n("&amp;", 5, out), result_type::success };
-                    case '\\': return { std::copy_n("&apos;", 6, out), result_type::success };
+                    case '\'': return { std::copy_n("&apos;", 6, out), result_type::success };
                     case '\"': return { std::copy_n("&quot;", 6, out), result_type::success };
                     default:
                         if (type == xml_string_type::text && (value.value() < 32 || value.value() >= 127)) {
@@ -98,9 +99,12 @@ namespace skate {
 
                             *out++ = '&';
                             *out++ = '#';
+
                             std::tie(out, result) = skate::int_encode(value.value(), out);
-                            if (result == result_type::success)
-                                *out++ = ';';
+                            if (result != result_type::success)
+                                return { out, result };
+
+                            *out++ = ';';
                         } else {
                             *out++ = value;
                         }
@@ -230,6 +234,8 @@ namespace skate {
         cdata,
         element,
         empty_element,
+        entity,
+        parameter_entity
     };
 
     template<typename String>
@@ -285,6 +291,8 @@ namespace skate {
         static basic_xml_node text(String value) { return { xml_element_type::text, value, {}, {} }; }
         static basic_xml_node comment(String value) { return { xml_element_type::comment, value, {}, {} }; }
         static basic_xml_node cdata(String value) { return { xml_element_type::cdata, value, {}, {} }; }
+        static basic_xml_node entity(String value) { return { xml_element_type::entity, value, {}, {} }; }
+        static basic_xml_node parameter_entity(String value) { return { xml_element_type::parameter_entity, value, {}, {} }; }
         static basic_xml_node element(String tag, attribute_list attributes = {}) { return { xml_element_type::empty_element, tag, attributes, {} }; }
         static basic_xml_node element(String tag, attribute_list attributes, child_list children) { return { xml_element_type::element, tag, attributes, children }; }
 
@@ -395,7 +403,7 @@ namespace skate {
 
     template<typename String, typename K, typename V>
     void insert(basic_xml_node<String> &obj, K &&key, V &&value) {
-        obj.insert(std::forward<K>(key), std::forward<V>(value));
+        obj[std::forward<K>(key)] = std::forward<V>(value);
     }
 
     typedef basic_xml_node<std::string> xml_node;
@@ -403,35 +411,82 @@ namespace skate {
     typedef basic_xml_node<std::wstring> xml_wnode;
 
     namespace detail {
+        // Returns unicode character following name and iterator following the same trailing character on success
+        // Returns NUL character if no characters following name (which isn't valid XML so it shouldn't be an issue)
         template<typename String, typename InputIterator>
-        input_result<InputIterator> read_xml(InputIterator first, InputIterator last, const xml_read_options &options, basic_xml_node<String> &j) {
+        unicode_input_result<InputIterator> read_xml_name(InputIterator first, InputIterator last, const xml_read_options &options, String &name) {
+            using OutputCharT = decltype(*begin(name));
+
+            if (first == last)
+                return { first, unicode::utf_error };
+
+            skate::clear(name);
+            auto back_inserter = skate::make_back_inserter(name);
+            unicode c;
+            result_type result = result_type::success;
+
+            std::tie(first, c) = utf_auto_decode(first, last);
+            if (!detail::xml_is_name_start_char(c))
+                return { first, unicode::utf_error };
+
+            std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+            if (result != result_type::success)
+                return { first, unicode::utf_error };
+
+            while (first != last) {
+                std::tie(first, c) = utf_auto_decode(first, last);
+                if (!detail::xml_is_name_char(c))
+                    return { first, c };
+
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+                if (result != result_type::success)
+                    return { first, unicode::utf_error };
+            }
+
+            return { first, 0 };
+        }
+
+        template<typename String, typename InputIterator>
+        unicode_input_result<InputIterator> read_xml(InputIterator first, InputIterator last, const xml_read_options &options, basic_xml_node<String> &j) {
             if (first == last || options.nesting_limit_reached())
                 return { first, result_type::failure };
 
             switch (std::uint32_t(*first)) {
                 default: {
                     String value;
+                    unicode c;
                     auto back_inserter = skate::make_back_inserter(value);
 
-                    for (; first != last; ++first) {
-                        const auto c = std::uint32_t(*first);
+                    using OutputCharT = decltype(*begin(value));
 
-                        if (c == '<' || c == '&')
+                    while (first != last) {
+                        std::tie(first, c) = utf_auto_decode(first, last);
+                        if (c == '<' || c == '&' || !detail::xml_is_char(c))
                             break;
 
-                        *back_inserter++ = c;
+                        result_type result = result_type::success;
+                        std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+                        if (result != result_type::success)
+                            return { first, unicode::utf_error };
                     }
 
                     j = basic_xml_node<String>::text(std::move(value));
 
-                    break;
+                    return { first, c };
                 }
                 case '<': { // Tag
                     ++first;
                     if (first == last)
                         return { first, result_type::failure };
 
+                    String stag;
+                    unicode c;
+                    std::tie(first, c) = read_xml_name(first, last, options, stag);
+                    if (c == ' ') {
+                        // Parse attributes, if any
+                    }
 
+                    j = basic_xml_node<String>::element(std::move(stag));
 
                     break;
                 }
@@ -440,11 +495,19 @@ namespace skate {
                     if (first == last)
                         return { first, result_type::failure };
 
-                    break;
+                    // TODO: Handle character references
+
+                    String entity;
+                    unicode c;
+                    std::tie(first, c) = read_xml_name(first, last, options, entity);
+                    if (c != ';')
+                        return { first, unicode::utf_error };
+
+                    j = basic_xml_node<String>::entity(std::move(entity));
+
+                    return { first, c };
                 }
             }
-
-            return { first, result_type::success };
         }
 
         template<typename OutputIterator, typename String>
@@ -529,6 +592,18 @@ namespace skate {
 
                     type = xml_string_type::cdata;
                     ending = "]]>";
+                    break;
+                case xml_element_type::entity:
+                    *out++ = '&';
+
+                    type = xml_string_type::name;
+                    ending = ";";
+                    break;
+                case xml_element_type::parameter_entity:
+                    *out++ = '%';
+
+                    type = xml_string_type::name;
+                    ending = ";";
                     break;
             }
 

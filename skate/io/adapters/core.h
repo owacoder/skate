@@ -36,7 +36,6 @@ namespace skate {
     template<typename InputIterator>
     InputIterator skip_spaces_or_tabs(InputIterator first, InputIterator last) {
         for (; first != last; ++first) {
-            switch (std::uint32_t(first))
             if (*first != ' ' &&
                 *first != '\t')
                 return first;

@@ -423,7 +423,7 @@ void test_xml() {
     n.add_child(skate::xml_node::comment("Comment"));
     n.add_child(skate::xml_node::text("Text\r\n"));
     n.add_child(skate::xml_node::cdata("<greeting>Hello, world!</greeting>"));
-
+    n.add_child(skate::xml_node::entity("amp"));
 
     skate::xml_node child = skate::xml_node::element("Nested");
 
@@ -432,11 +432,26 @@ void test_xml() {
 
     n.add_child(child);
 
-    std::cout << "XML: " << skate::xml(n, skate::xml_write_options(2)) << '\n';
+    std::cout << "XML: " << skate::xml(n, skate::xml_write_options()) << '\n';
 }
 
 int main()
 {
+    {
+        skate::json_value value;
+        std::ifstream in("F:\\Test.json", std::ios_base::binary);
+
+        std::cout << in.rdbuf() << '\n';
+
+        if (in >> skate::json(value)) {
+            std::cout << skate::json(value);
+        } else {
+            std::cerr << "ERROR!\n";
+        }
+
+        return 0;
+    }
+
     test_json();
 
     test_xml();
