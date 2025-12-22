@@ -54,7 +54,7 @@ namespace skate {
         result_type result = result_type::success;
 
         for (; first != last && result == result_type::success; ++first)
-            std::tie(out, result) = json_escape(*first, out);
+            std::tie(out, result) = json_escape(*first, out).get();
 
         return { out, result };
     }
@@ -74,7 +74,7 @@ namespace skate {
         constexpr json_escape_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
 
         constexpr json_escape_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = json_escape(value, m_out), *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = json_escape(value, m_out).get(), *this);
         }
 
         constexpr json_escape_iterator &operator*() noexcept { return *this; }
@@ -717,14 +717,14 @@ namespace skate {
                     return;
 
                 if (m_has_read_something) {
-                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
+                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last).get(), m_last, ',');
                     if (m_result != result_type::success)
                         return;
                 } else {
                     m_has_read_something = true;
                 }
 
-                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, m_options, p);
+                std::tie(m_first, m_result) = skate::read_json(m_first, m_last, m_options, p).get();
             }
         };
 
@@ -763,7 +763,7 @@ namespace skate {
             result_type result = result_type::success;
             unicode u;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -771,14 +771,14 @@ namespace skate {
             auto back_inserter = skate::make_back_inserter(s);
 
             while (first != last && result == result_type::success) {
-                std::tie(first, u) = utf_auto_decode_next(first, last);
+                std::tie(first, u) = utf_auto_decode_next(first, last).get();
                 if (!u.is_valid())
                     return { first, result_type::failure };
 
                 switch (u.value()) {
                     case '"': return { first, result_type::success };
                     case '\\': {
-                        std::tie(first, u) = utf_auto_decode_next(first, last);
+                        std::tie(first, u) = utf_auto_decode_next(first, last).get();
                         switch (u.value()) {
                             default: return { first, result_type::failure };
                             case '"':
@@ -795,7 +795,7 @@ namespace skate {
 
                                 // Parse 4 hex characters after '\u'
                                 for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    std::tie(first, h) = utf_auto_decode_next(first, last).get();
                                     const auto nibble = hex_to_nibble(h.value());
                                     if (nibble > 15)
                                         return { first, result_type::failure };
@@ -809,12 +809,12 @@ namespace skate {
                                 }
 
                                 // If it's a surrogate, parse 4 hex characters after another '\u'
-                                std::tie(first, result) = starts_with(first, last, "\\u");
+                                std::tie(first, result) = starts_with(first, last, "\\u").get();
                                 if (result != result_type::success)
                                     return { first, result };
 
                                 for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    std::tie(first, h) = utf_auto_decode_next(first, last).get();
                                     const auto nibble = hex_to_nibble(h.value());
                                     if (nibble > 15)
                                         return { first, result_type::failure };
@@ -832,7 +832,7 @@ namespace skate {
                     default: break;
                 }
 
-                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter);
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter).get();
             }
 
             return { first, result_type::failure };
@@ -852,7 +852,7 @@ namespace skate {
             auto back_inserter = skate::make_back_inserter(a);
             bool has_element = false;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -874,7 +874,7 @@ namespace skate {
 
                 ElementType element;
 
-                std::tie(first, result) = skate::read_json(first, last, nested_options, element);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, element).get();
                 if (result != result_type::success)
                     return { first, result };
 
@@ -892,7 +892,7 @@ namespace skate {
             if (options.nesting_limit_reached())
                 return { first, result_type::failure };
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -917,7 +917,7 @@ namespace skate {
             result_type result = result_type::success;
             bool has_element = false;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -940,15 +940,15 @@ namespace skate {
                 KeyType key;
                 ValueType value;
 
-                std::tie(first, result) = skate::read_json(first, last, nested_options, key);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, key).get();
                 if (result != result_type::success)
                     return { first, result };
 
-                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':');
+                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':').get();
                 if (result != result_type::success)
                     return { first, result };
 
-                std::tie(first, result) = skate::read_json(first, last, nested_options, value);
+                std::tie(first, result) = skate::read_json(first, last, nested_options, value).get();
                 if (result != result_type::success)
                     return { first, result };
 
@@ -986,7 +986,7 @@ namespace skate {
 
                 m_out = m_options.write_indent(m_out);
 
-                std::tie(m_out, m_result) = skate::write_json(m_out, m_options, p);
+                std::tie(m_out, m_result) = skate::write_json(m_out, m_options, p).get();
             }
         };
 
@@ -1019,7 +1019,7 @@ namespace skate {
             {
                 auto it = json_escape_iterator(out);
 
-                std::tie(it, result) = utf_auto_decode(v, it);
+                std::tie(it, result) = utf_auto_decode(v, it).get();
 
                 out = it.underlying();
                 result = skate::merge_results(result, it.result());
@@ -1045,7 +1045,7 @@ namespace skate {
                 if (it != start)
                     *out++ = ',';
 
-                std::tie(out, result) = skate::write_json(nested_options.write_indent(out), nested_options, *it);
+                std::tie(out, result) = skate::write_json(nested_options.write_indent(out), nested_options, *it).get();
             }
 
             if (result == result_type::success) {
@@ -1091,7 +1091,7 @@ namespace skate {
 
                 out = nested_options.write_indent(out);
 
-                std::tie(out, result) = skate::write_json(out, nested_options, skate::key_of(it));
+                std::tie(out, result) = skate::write_json(out, nested_options, skate::key_of(it)).get();
 
                 if (result != result_type::success)
                     return { out, result };
@@ -1101,7 +1101,7 @@ namespace skate {
                 if (options.indent)
                     *out++ = ' ';
 
-                std::tie(out, result) = skate::write_json(out, nested_options, skate::value_of(it));
+                std::tie(out, result) = skate::write_json(out, nested_options, skate::value_of(it)).get();
             }
 
             if (result == result_type::success) {

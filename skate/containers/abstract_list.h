@@ -80,7 +80,7 @@ namespace skate {
         {}
 
         template<typename I, typename O, typename R>
-        constexpr operator std::tuple<I, O, R>() {
+        constexpr std::tuple<I, O, R> get() {
             return { input, output, result };
         }
 
@@ -103,7 +103,7 @@ namespace skate {
         {}
 
         template<typename I, typename R>
-        constexpr operator std::tuple<I, R>() {
+        constexpr std::tuple<I, R> get() {
             return { input, result };
         }
 
@@ -125,7 +125,7 @@ namespace skate {
         {}
 
         template<typename O, typename R>
-        constexpr operator std::tuple<O, R>() {
+        constexpr std::tuple<O, R> get() {
             return { output, result };
         }
 
@@ -141,7 +141,7 @@ namespace skate {
         {}
 
         template<typename R>
-        constexpr explicit operator std::tuple<const Container &, R>() const {
+        constexpr explicit std::tuple<const Container &, R> get() const {
             return { value, result };
         }
 

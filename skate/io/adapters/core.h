@@ -119,7 +119,7 @@ namespace skate {
         while (first != last) {
             typename std::decay<T>::type value = 0;
 
-            std::tie(first, value, result) = little_endian_decode_next(first, last);
+            std::tie(first, value, result) = little_endian_decode_next(first, last).get();
             if (result != result_type::success)
                 break;
 
@@ -155,7 +155,7 @@ namespace skate {
         while (first != last) {
             typename std::decay<T>::type value = 0;
 
-            std::tie(first, value, result) = big_endian_decode_next(first, last);
+            std::tie(first, value, result) = big_endian_decode_next(first, last).get();
             if (result != result_type::success)
                 break;
 

@@ -291,7 +291,7 @@ namespace skate {
         {}
 
         template<typename I, typename U>
-        constexpr operator std::tuple<I, U>() {
+        constexpr std::tuple<I, U> get() {
             return { input, character };
         }
 
@@ -342,7 +342,7 @@ namespace skate {
         constexpr utf8_encode_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
 
         constexpr utf8_encode_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = utf8_encode(value, m_out), *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = utf8_encode(value, m_out).get(), *this);
         }
 
         constexpr utf8_encode_iterator &operator*() noexcept { return *this; }
@@ -386,7 +386,7 @@ namespace skate {
         constexpr utf16_encode_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
 
         constexpr utf16_encode_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = utf16_encode(value, m_out), *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = utf16_encode(value, m_out).get(), *this);
         }
 
         constexpr utf16_encode_iterator &operator*() noexcept { return *this; }
@@ -425,7 +425,7 @@ namespace skate {
         constexpr utf32_encode_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
 
         constexpr utf32_encode_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = utf32_encode(value, m_out), *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = utf32_encode(value, m_out).get(), *this);
         }
 
         constexpr utf32_encode_iterator &operator*() noexcept { return *this; }
@@ -474,7 +474,7 @@ namespace skate {
         constexpr utf_encode_iterator(OutputIterator out) : m_out(out), m_result(result_type::success) {}
 
         constexpr utf_encode_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = utf_encode<CharT>(value, m_out), *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = utf_encode<CharT>(value, m_out).get(), *this);
         }
 
         constexpr utf_encode_iterator &operator*() noexcept { return *this; }
@@ -493,7 +493,7 @@ namespace skate {
             result_type result = result_type::success;
 
             for (; first != last && result == result_type::success; ++first)
-                std::tie(out, result) = p(*first, out);
+                std::tie(out, result) = p(*first, out).get();
 
             return { out, result };
         }
@@ -668,7 +668,7 @@ namespace skate {
             unicode codepoint;
 
             while (first != last) {
-                std::tie(first, codepoint) = p(first, last);
+                std::tie(first, codepoint) = p(first, last).get();
 
                 if (!codepoint.is_valid())
                     return { first, out, result_type::failure };

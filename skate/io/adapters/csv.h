@@ -71,7 +71,7 @@ namespace skate {
             return true;
 
         while (first != last) {
-            std::tie(first, u) = utf_auto_decode_next(first, last);
+            std::tie(first, u) = utf_auto_decode_next(first, last).get();
 
             if (u == '\r' ||
                 u == '\n' ||
@@ -153,7 +153,7 @@ namespace skate {
                 else
                     m_has_written_something = true;
 
-                std::tie(m_out, m_result) = skate::write_csv(m_out, m_options, p);
+                std::tie(m_out, m_result) = skate::write_csv(m_out, m_options, p).get();
             }
         };
 
@@ -200,7 +200,7 @@ namespace skate {
                 {
                     auto it = csv_escape_iterator(out, options);
 
-                    std::tie(it, result) = utf_auto_decode(v, it);
+                    std::tie(it, result) = utf_auto_decode(v, it).get();
 
                     out = it.underlying();
                 }
@@ -227,7 +227,7 @@ namespace skate {
                 if (it != first)
                     *out++ = options.separator;
 
-                std::tie(out, result) = skate::write_csv(out, options, *it);
+                std::tie(out, result) = skate::write_csv(out, options, *it).get();
             }
 
             if (result == result_type::success) {
@@ -261,7 +261,7 @@ namespace skate {
             const auto last = end(v);
 
             for (auto first = begin(v); first != last && result == result_type::success; ++first) {
-                std::tie(out, result) = skate::write_csv(out, options, *first);
+                std::tie(out, result) = skate::write_csv(out, options, *first).get();
             }
 
             return { out, result };
@@ -275,7 +275,7 @@ namespace skate {
             const auto last = end(v);
 
             for (auto first = begin(v); first != last && result == result_type::success; ++first) {
-                std::tie(out, result) = skate::write_csv(out, options, *first);
+                std::tie(out, result) = skate::write_csv(out, options, *first).get();
             }
 
             return { out, result };
@@ -295,7 +295,7 @@ namespace skate {
                 if (it != first)
                     *out++ = options.separator;
 
-                std::tie(out, result) = skate::write_csv(out, options, key_of(it));
+                std::tie(out, result) = skate::write_csv(out, options, key_of(it)).get();
             }
 
             if (result == result_type::success) {
@@ -306,7 +306,7 @@ namespace skate {
                 if (it != first)
                     *out++ = options.separator;
 
-                std::tie(out, result) = skate::write_csv(out, options, value_of(it));
+                std::tie(out, result) = skate::write_csv(out, options, value_of(it)).get();
             }
 
             if (result == result_type::success) {
@@ -339,7 +339,7 @@ namespace skate {
 
             result_type result = result_type::success;
 
-            std::tie(out, result) = skate::write_csv(out, options, headers);
+            std::tie(out, result) = skate::write_csv(out, options, headers).get();
 
             for (auto first = begin(v); first != last && result == result_type::success; ++first) {
                 bool write_separator = false;
@@ -348,7 +348,7 @@ namespace skate {
                     if (write_separator)
                         *out++ = options.separator;
 
-                    std::tie(out, result) = skate::write_csv(out, options, skate::value_of(*first, header));
+                    std::tie(out, result) = skate::write_csv(out, options, skate::value_of(*first, header)).get();
                     if (result != result_type::success)
                         break;
 
@@ -386,7 +386,7 @@ namespace skate {
                 if (it != first)
                     *out++ = options.separator;
 
-                std::tie(out, result) = skate::write_csv(out, options, skate::key_of(it));
+                std::tie(out, result) = skate::write_csv(out, options, skate::key_of(it)).get();
 
                 // Enable-if for template requires that skate::value_of(it) is a reference, not a copying function, so saving the iterators is safe
                 const auto l = begin(skate::value_of(it));
@@ -409,13 +409,13 @@ namespace skate {
                         *out++ = options.separator;
 
                     if (iterator_pair.first != iterator_pair.second) { // Still more in column
-                        std::tie(out, result) = skate::write_csv(out, options, *iterator_pair.first);
+                        std::tie(out, result) = skate::write_csv(out, options, *iterator_pair.first).get();
 
                         ++iterator_pair.first;
 
                         has_data |= iterator_pair.first != iterator_pair.second;
                     } else {
-                        std::tie(out, result) = skate::write_csv(out, options, Value());
+                        std::tie(out, result) = skate::write_csv(out, options, Value()).get();
                     }
                 }
             }

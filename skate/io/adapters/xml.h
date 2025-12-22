@@ -100,7 +100,7 @@ namespace skate {
                             *out++ = '&';
                             *out++ = '#';
 
-                            std::tie(out, result) = skate::int_encode(value.value(), out);
+                            std::tie(out, result) = skate::int_encode(value.value(), out).get();
                             if (result != result_type::success)
                                 return { out, result };
 
@@ -123,7 +123,7 @@ namespace skate {
         unicode back[2];
 
         for (; first != last && result == result_type::success; ++first) {
-            std::tie(out, result) = xml_escape(back[1], back[0], *first, out, type);
+            std::tie(out, result) = xml_escape(back[1], back[0], *first, out, type).get();
             back[1] = back[0];
             back[0] = *first;
         }
@@ -148,7 +148,7 @@ namespace skate {
         constexpr xml_escape_iterator(OutputIterator out, xml_string_type type) : m_out(out), m_result(result_type::success), m_type(type) {}
 
         constexpr xml_escape_iterator &operator=(unicode value) {
-            return failed() ? *this : (std::tie(m_out, m_result) = xml_escape(m_back[1], m_back[0], value, m_out, m_type), m_back[1] = m_back[0], m_back[0] = value, *this);
+            return failed() ? *this : (std::tie(m_out, m_result) = xml_escape(m_back[1], m_back[0], value, m_out, m_type).get(), m_back[1] = m_back[0], m_back[0] = value, *this);
         }
 
         constexpr xml_escape_iterator &operator*() noexcept { return *this; }
@@ -425,20 +425,20 @@ namespace skate {
             unicode c;
             result_type result = result_type::success;
 
-            std::tie(first, c) = utf_auto_decode(first, last);
+            std::tie(first, c) = utf_auto_decode(first, last).get();
             if (!detail::xml_is_name_start_char(c))
                 return { first, unicode::utf_error };
 
-            std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+            std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter).get();
             if (result != result_type::success)
                 return { first, unicode::utf_error };
 
             while (first != last) {
-                std::tie(first, c) = utf_auto_decode(first, last);
+                std::tie(first, c) = utf_auto_decode(first, last).get();
                 if (!detail::xml_is_name_char(c))
                     return { first, c };
 
-                std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter).get();
                 if (result != result_type::success)
                     return { first, unicode::utf_error };
             }
@@ -460,12 +460,12 @@ namespace skate {
                     using OutputCharT = decltype(*begin(value));
 
                     while (first != last) {
-                        std::tie(first, c) = utf_auto_decode(first, last);
+                        std::tie(first, c) = utf_auto_decode(first, last).get();
                         if (c == '<' || c == '&' || !detail::xml_is_char(c))
                             break;
 
                         result_type result = result_type::success;
-                        std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter);
+                        std::tie(back_inserter, result) = utf_encode<OutputCharT>(c, back_inserter).get();
                         if (result != result_type::success)
                             return { first, unicode::utf_error };
                     }
@@ -481,7 +481,7 @@ namespace skate {
 
                     String stag;
                     unicode c;
-                    std::tie(first, c) = read_xml_name(first, last, options, stag);
+                    std::tie(first, c) = read_xml_name(first, last, options, stag).get();
                     if (c == ' ') {
                         // Parse attributes, if any
                     }
@@ -499,7 +499,7 @@ namespace skate {
 
                     String entity;
                     unicode c;
-                    std::tie(first, c) = read_xml_name(first, last, options, entity);
+                    std::tie(first, c) = read_xml_name(first, last, options, entity).get();
                     if (c != ';')
                         return { first, unicode::utf_error };
 
@@ -522,21 +522,21 @@ namespace skate {
 
                 *out++ = '<';
 
-                std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name);
+                std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name).get();
                 if (result != result_type::success)
                     return { out, result };
 
                 for (const auto &attribute : j.attributes()) {
                     *out++ = ' ';
 
-                    std::tie(out, result) = skate::write_xml(out, options, attribute.key, xml_string_type::name);
+                    std::tie(out, result) = skate::write_xml(out, options, attribute.key, xml_string_type::name).get();
                     if (result != result_type::success)
                         return { out, result };
 
                     *out++ = '=';
                     *out++ = '"';
 
-                    std::tie(out, result) = skate::write_xml(out, options, attribute.value.value());
+                    std::tie(out, result) = skate::write_xml(out, options, attribute.value.value()).get();
                     if (result != result_type::success)
                         return { out, result };
 
@@ -552,7 +552,7 @@ namespace skate {
                     for (const auto &child : j.children()) {
                         out = nested_options.write_indent(out);
 
-                        std::tie(out, result) = skate::write_xml(out, nested_options, child);
+                        std::tie(out, result) = skate::write_xml(out, nested_options, child).get();
                         if (result != result_type::success)
                             return { out, result };
                     }
@@ -561,7 +561,7 @@ namespace skate {
                     *out++ = '<';
                     *out++ = '/';
 
-                    std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name);
+                    std::tie(out, result) = skate::write_xml(out, options, j.tag(), xml_string_type::name).get();
                     if (result != result_type::success)
                         return { out, result };
 
@@ -607,7 +607,7 @@ namespace skate {
                     break;
             }
 
-            std::tie(out, result) = skate::write_xml(out, options, j.tag(), type);
+            std::tie(out, result) = skate::write_xml(out, options, j.tag(), type).get();
 
             if (result == result_type::success && ending)
                 out = std::copy_n(ending, strlen(ending), out);
@@ -641,14 +641,14 @@ namespace skate {
                     return;
 
                 if (m_has_read_something) {
-                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',');
+                    std::tie(m_first, m_result) = starts_with(skip_whitespace(m_first, m_last), m_last, ',').get();
                     if (m_result != result_type::success)
                         return;
                 } else {
                     m_has_read_something = true;
                 }
 
-                std::tie(m_first, m_result) = skate::read_xml(m_first, m_last, m_options, p);
+                std::tie(m_first, m_result) = skate::read_xml(m_first, m_last, m_options, p).get();
             }
         };
 
@@ -687,7 +687,7 @@ namespace skate {
             result_type result = result_type::success;
             unicode u;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '"').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -695,14 +695,14 @@ namespace skate {
             auto back_inserter = skate::make_back_inserter(s);
 
             while (first != last && result == result_type::success) {
-                std::tie(first, u) = utf_auto_decode_next(first, last);
+                std::tie(first, u) = utf_auto_decode_next(first, last).get();
                 if (!u.is_valid())
                     return { first, result_type::failure };
 
                 switch (u.value()) {
                     case '"': return { first, result_type::success };
                     case '\\': {
-                        std::tie(first, u) = utf_auto_decode_next(first, last);
+                        std::tie(first, u) = utf_auto_decode_next(first, last).get();
                         switch (u.value()) {
                             default: return { first, result_type::failure };
                             case '"':
@@ -719,7 +719,7 @@ namespace skate {
 
                                 // Parse 4 hex characters after '\u'
                                 for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    std::tie(first, h) = utf_auto_decode_next(first, last).get();
                                     const auto nibble = hex_to_nibble(h.value());
                                     if (nibble > 15)
                                         return { first, result_type::failure };
@@ -733,12 +733,12 @@ namespace skate {
                                 }
 
                                 // If it's a surrogate, parse 4 hex characters after another '\u'
-                                std::tie(first, result) = starts_with(first, last, "\\u");
+                                std::tie(first, result) = starts_with(first, last, "\\u").get();
                                 if (result != result_type::success)
                                     return { first, result };
 
                                 for (auto &h : hex) {
-                                    std::tie(first, h) = utf_auto_decode_next(first, last);
+                                    std::tie(first, h) = utf_auto_decode_next(first, last).get();
                                     const auto nibble = hex_to_nibble(h.value());
                                     if (nibble > 15)
                                         return { first, result_type::failure };
@@ -756,7 +756,7 @@ namespace skate {
                     default: break;
                 }
 
-                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter);
+                std::tie(back_inserter, result) = utf_encode<OutputCharT>(u, back_inserter).get();
             }
 
             return { first, result_type::failure };
@@ -776,7 +776,7 @@ namespace skate {
             auto back_inserter = skate::make_back_inserter(a);
             bool has_element = false;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -798,7 +798,7 @@ namespace skate {
 
                 ElementType element;
 
-                std::tie(first, result) = skate::read_xml(first, last, nested_options, element);
+                std::tie(first, result) = skate::read_xml(first, last, nested_options, element).get();
                 if (result != result_type::success)
                     return { first, result };
 
@@ -816,7 +816,7 @@ namespace skate {
             if (options.nesting_limit_reached())
                 return { first, result_type::failure };
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '[').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -841,7 +841,7 @@ namespace skate {
             result_type result = result_type::success;
             bool has_element = false;
 
-            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{');
+            std::tie(first, result) = starts_with(skip_whitespace(first, last), last, '{').get();
             if (result != result_type::success)
                 return { first, result };
 
@@ -864,15 +864,15 @@ namespace skate {
                 KeyType key;
                 ValueType value;
 
-                std::tie(first, result) = skate::read_xml(first, last, nested_options, key);
+                std::tie(first, result) = skate::read_xml(first, last, nested_options, key).get();
                 if (result != result_type::success)
                     return { first, result };
 
-                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':');
+                std::tie(first, result) = starts_with(skip_whitespace(first, last), last, ':').get();
                 if (result != result_type::success)
                     return { first, result };
 
-                std::tie(first, result) = skate::read_xml(first, last, nested_options, value);
+                std::tie(first, result) = skate::read_xml(first, last, nested_options, value).get();
                 if (result != result_type::success)
                     return { first, result };
 
@@ -903,7 +903,7 @@ namespace skate {
 
                 m_out = m_options.write_indent(m_out);
 
-                std::tie(m_out, m_result) = skate::write_xml(m_out, m_options, p);
+                std::tie(m_out, m_result) = skate::write_xml(m_out, m_options, p).get();
             }
         };
 
@@ -934,7 +934,7 @@ namespace skate {
             {
                 auto it = xml_escape_iterator(out, type);
 
-                std::tie(it, result) = utf_auto_decode(v, it);
+                std::tie(it, result) = utf_auto_decode(v, it).get();
 
                 out = it.underlying();
                 result = skate::merge_results(result, it.result());
@@ -952,7 +952,7 @@ namespace skate {
             result_type result = result_type::success;
 
             for (auto it = start; it != end_iterator && result == result_type::success; ++it) {
-                std::tie(out, result) = skate::write_xml(nested_options.write_indent(out), nested_options, *it);
+                std::tie(out, result) = skate::write_xml(nested_options.write_indent(out), nested_options, *it).get();
             }
 
             if (result == result_type::success)
