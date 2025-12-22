@@ -290,9 +290,8 @@ namespace skate {
             , character(chr)
         {}
 
-        template<typename I, typename U>
-        constexpr std::tuple<I, U> get() {
-            return { input, character };
+        constexpr auto get() {
+            return std::tuple{ input, character };
         }
 
         InputIterator input;

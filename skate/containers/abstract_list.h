@@ -79,9 +79,8 @@ namespace skate {
             , result(result)
         {}
 
-        template<typename I, typename O, typename R>
-        constexpr std::tuple<I, O, R> get() {
-            return { input, output, result };
+        constexpr auto get() {
+            return std::tuple{ input, output, result };
         }
 
         InputIterator input;
@@ -102,9 +101,8 @@ namespace skate {
             , result(presult.result)
         {}
 
-        template<typename I, typename R>
-        constexpr std::tuple<I, R> get() {
-            return { input, result };
+        constexpr auto get() {
+            return std::tuple{ input, result };
         }
 
         InputIterator input;
@@ -124,9 +122,8 @@ namespace skate {
             , result(presult.result)
         {}
 
-        template<typename O, typename R>
-        constexpr std::tuple<O, R> get() {
-            return { output, result };
+        constexpr auto get() {
+            return std::tuple{ output, result };
         }
 
         OutputIterator output;
@@ -140,8 +137,7 @@ namespace skate {
             , result(result)
         {}
 
-        template<typename R>
-        constexpr explicit std::tuple<const Container &, R> get() const {
+        constexpr std::tuple<const Container &, result_type> get() const {
             return { value, result };
         }
 
