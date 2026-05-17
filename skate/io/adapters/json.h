@@ -336,7 +336,7 @@ namespace skate {
             const std::int64_t i = get_int64(default_value);
 
             if (i >= std::numeric_limits<I>::min() && i <= std::numeric_limits<I>::max())
-                return I(i);
+                return static_cast<I>(i);
 
             return default_value;
         }
@@ -345,7 +345,7 @@ namespace skate {
             const std::uint64_t i = get_uint64(default_value);
 
             if (i <= std::numeric_limits<I>::max())
-                return I(i);
+                return static_cast<I>(i);
 
             return default_value;
         }
@@ -405,6 +405,15 @@ namespace skate {
             return object_ref()[std::forward<S>(key)];
         }
         // ---------------------------------------------------
+
+        bool empty() const noexcept {
+            switch (t) {
+                default: return true;
+                case json_type::string: return internal_string()->empty();
+                case json_type::array:  return  internal_array()->empty();
+                case json_type::object: return internal_object()->empty();
+            }
+        }
 
         size_t size() const noexcept {
             switch (t) {
@@ -526,6 +535,7 @@ namespace skate {
         void reserve(size_t size) { v.reserve(size); }
 
         void clear() noexcept { v.clear(); }
+        bool empty() const noexcept { return v.empty(); }
         size_t size() const noexcept { return v.size(); }
 
         bool operator==(const basic_json_array &other) const { return v == other.v; }
@@ -600,6 +610,7 @@ namespace skate {
         }
 
         void clear() noexcept { v.clear(); }
+        bool empty() const noexcept { return v.empty(); }
         size_t size() const noexcept { return v.size(); }
 
         bool operator==(const basic_json_object &other) const { return v == other.v; }
