@@ -327,7 +327,7 @@ namespace skate {
     constexpr auto size(const Container &c) -> decltype(c.size()) { return c.size(); }
 
     template<typename... Params>
-    std::size_t size(const std::forward_list<Params...> &c) {
+    auto size(const std::forward_list<Params...> &c) {
         std::size_t s = 0;
 
         for (const auto i : c) {

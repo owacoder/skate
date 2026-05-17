@@ -299,29 +299,37 @@ namespace skate {
         }
         template<typename FloatType = double>
         FloatType get_number(FloatType default_value = 0.0) const noexcept {
-            return is_floating()? d.f:
+            return is_floating()? static_cast<FloatType>(d.f):
                       is_int64()? d.i:
                      is_uint64()? d.u: default_value;
         }
         std::int64_t get_int64(std::int64_t default_value = 0) const noexcept {
             if (is_int64())
                 return d.i;
-            else if (is_uint64() && d.u <= std::uint64_t(std::numeric_limits<std::int64_t>::max()))
+            
+            if (is_uint64() && d.u <= std::uint64_t(std::numeric_limits<std::int64_t>::max()))
                 return std::int64_t(d.u);
-            else if (is_floating() && std::trunc(d.f) >= std::numeric_limits<std::int64_t>::min() && std::trunc(d.f) <= std::numeric_limits<std::int64_t>::max())
-                return std::int64_t(std::trunc(d.f));
-            else
-                return default_value;
+            
+            if (is_floating()) {
+                if (const auto t = std::trunc(d.f); t >= std::numeric_limits<std::int64_t>::min() && t <= std::numeric_limits<std::int64_t>::max())
+                    return std::int64_t(t);
+            }
+            
+            return default_value;
         }
         std::uint64_t get_uint64(std::uint64_t default_value = 0) const noexcept {
             if (is_uint64())
                 return d.u;
-            else if (is_int64() && d.i >= 0)
+            
+            if (is_int64() && d.i >= 0)
                 return std::uint64_t(d.i);
-            else if (is_floating() && std::trunc(d.f) >= 0 && std::trunc(d.f) <= std::numeric_limits<std::uint64_t>::max())
-                return std::uint64_t(std::trunc(d.f));
-            else
-                return default_value;
+            
+            if (is_floating()) {
+                if (const auto t = std::trunc(d.f); t >= 0 && t <= std::numeric_limits<std::uint64_t>::max())
+                    return std::uint64_t(t);
+            }
+            
+            return default_value;
         }
         template<typename I = int, typename std::enable_if<std::is_signed<I>::value && std::is_integral<I>::value, int>::type = 0>
         I get_int(I default_value = 0) const noexcept {
