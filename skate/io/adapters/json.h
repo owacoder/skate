@@ -311,8 +311,8 @@ namespace skate {
                 return std::int64_t(d.u);
             
             if (is_floating()) {
-                if (const auto t = std::trunc(d.f); t >= std::numeric_limits<std::int64_t>::min() && t <= std::numeric_limits<std::int64_t>::max())
-                    return std::int64_t(t);
+                if (const auto val = std::trunc(d.f); val >= std::numeric_limits<std::int64_t>::min() && val <= std::numeric_limits<std::int64_t>::max())
+                    return std::int64_t(val);
             }
             
             return default_value;
@@ -325,8 +325,8 @@ namespace skate {
                 return std::uint64_t(d.i);
             
             if (is_floating()) {
-                if (const auto t = std::trunc(d.f); t >= 0 && t <= std::numeric_limits<std::uint64_t>::max())
-                    return std::uint64_t(t);
+                if (const auto val = std::trunc(d.f); val >= 0 && val <= std::numeric_limits<std::uint64_t>::max())
+                    return std::uint64_t(val);
             }
             
             return default_value;
